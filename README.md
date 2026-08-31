@@ -1,61 +1,182 @@
-# Autonomous AI Interviewer
+<h1 align="center"> InterMind: Autonomous AI Interviewer</h1>
 
-Production-oriented portfolio project. An autonomous system that will eventually take a
-job description from an HR user, build an adaptive interview plan, conduct the interview,
-score answers with evidence, and produce an HR report.
+<p align="center">
+  <em>An adaptive AI interviewer that autonomously designs, conducts, and evaluates structured, role-specific interviews.</em>
+</p>
 
-## Milestone 1 (current scope)
+---
+## Overview
 
-A minimal, typed FastAPI service that turns a job description into a structured `JobSpec`.
+InterMind is an AI engineering project for building an end-to-end interview system.
 
-- `GET /health` - liveness check
-- `POST /jobs` - submit a job description, get a structured `JobSpec` back (stored in memory)
-- `GET /jobs/{id}` - retrieve a previously analysed job
+It uses job requirements and competency-driven reasoning to create structured interviews tailored to each role and candidate. The system is designed to adapt question selection, analyze candidate responses in real time, and produce evidence-based evaluations.
 
-Not in this milestone: LangGraph, RAG, multi-agent, voice, frontend, Docker/deployment,
-scoring engine, interview engine, report generation, and any database (storage is in-memory).
+The project is being developed incrementally, starting with the foundation: transforming an unstructured job description into a structured `JobSpec` containing:
 
-## Architecture
+- Role title
+- Seniority
+- Required skills
+- Competencies
+- Job summary
 
-Layered / hexagonal. Business logic in `app/domain` and `app/services` never imports
-FastAPI or the OpenAI SDK; those live at the edges behind small interfaces:
+This structured representation will later drive interview planning, question selection, follow-up questions, and candidate evaluation.
 
-- `app/llm/ports.py` - `LLMClient` protocol, implemented by `openai_client.py` and `fake_client.py`
-- `app/repositories/ports.py` - `JobRepository` protocol, implemented by `in_memory.py`
+---
 
-Prompts are versioned files under `app/llm/prompts/` and loaded by name + version.
+## Current Progress
 
-Datasets (O*NET etc.) live only under `data/`; preprocessing scripts live under `scripts/`
-and transform `data/raw` -> `data/processed`. Neither is imported by `app/`.
+### Milestone 1: Job Analysis Foundation ✅
 
-## Setup
+The current API supports:
 
-```bash
-python -m venv .venv
-# Windows PowerShell:  .venv\Scripts\Activate.ps1
-# bash:                source .venv/bin/activate
-pip install -e ".[dev]"
-cp .env.example .env        # defaults to the offline fake LLM; no API key needed
+| Method | Endpoint         | Description                         |
+| :----- | :--------------- | :---------------------------------- |
+| `GET`  | `/health`        | Health check                        |
+| `POST` | `/jobs`          | Analyze and store a job description |
+| `GET`  | `/jobs/{job_id}` | Retrieve a job                      |
+
+Implemented:
+
+* FastAPI backend
+* Structured `JobSpec`
+* Fake and OpenAI LLM clients
+* Versioned prompts
+* In-memory repository
+* Error handling
+* Unit and integration tests
+* Ruff checks
+
+**Test status:** `25 passed`
+
+---
+
+## Project Structure
+
+```text
+.
+├── app/
+│   ├── api/
+│   ├── core/
+│   ├── domain/
+│   ├── llm/
+│   ├── observability/
+│   ├── repositories/
+│   ├── services/
+│   └── main.py
+├── data/
+├── docs/
+├── scripts/
+├── tests/
+├── .env.example
+├── pyproject.toml
+└── README.md
 ```
 
-## Run the API
+---
+
+## Tech Stack
+
+* **Backend:** FastAPI · Uvicorn · Pydantic
+* **AI / LLM:** OpenAI · Structured Outputs · Prompt Engineering
+* **Testing:** Pytest · HTTPX
+* **Code Quality:** Ruff
+* **Architecture:** Service Layer · Repository Pattern · Dependency Injection
+* **Development:** Python · Git · GitHub
+
+---
+
+## Getting Started
+
+### Install
+
+```bash
+git clone https://github.com/AliyahAlabdali/Autonomous-AI-Interviewer.git
+cd Autonomous-AI-Interviewer
+
+python -m venv .venv
+pip install -e ".[dev]"
+```
+
+### Configure
+
+Copy `.env.example` to `.env`.
+
+For local development:
+
+```text
+LLM_PROVIDER=fake
+```
+
+To use OpenAI:
+
+```text
+LLM_PROVIDER=openai
+OPENAI_API_KEY=your_api_key
+```
+
+### Run
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-Interactive docs at http://127.0.0.1:8000/docs
+API documentation:
 
-## Test
-
-```bash
-pytest
+```text
+http://127.0.0.1:8000/docs
 ```
 
-## Example
+### Test
 
 ```bash
-curl -s -X POST http://127.0.0.1:8000/jobs \
-  -H "Content-Type: application/json" \
-  -d '{"job_description": "Senior Backend Engineer\nWe need strong Python and FastAPI experience, plus PostgreSQL. Kafka is a plus."}'
+pytest -v
+ruff check .
 ```
+
+---
+
+## Roadmap
+
+### Milestone 2 — Dataset & Knowledge Base
+
+* [ ] Explore and document the dataset
+* [ ] Build the data processing pipeline
+* [ ] Define competency and question schemas
+* [ ] Prepare interview knowledge data
+
+### Milestone 3 — Interview Planning
+
+* [ ] Generate interview plans
+* [ ] Generate role-specific questions
+* [ ] Define competency coverage
+* [ ] Build the first LangGraph workflow
+
+### Milestone 4 — Autonomous Interview
+
+* [ ] Conduct multi-turn interviews
+* [ ] Track interview state
+* [ ] Generate follow-up questions
+* [ ] Prevent repetitive questions
+
+### Milestone 5 — Evaluation
+
+* [ ] Define an evaluation rubric
+* [ ] Score candidate responses
+* [ ] Track evidence
+* [ ] Generate interview reports
+
+### Milestone 6 — Productionization
+
+* [ ] PostgreSQL persistence
+* [ ] Authentication
+* [ ] Observability
+* [ ] Dockerization
+* [ ] Deployment
+
+---
+
+<div align="center">
+
+*Exceeds expectations* • **Aliyah Alabdali** ⭐
+
+</div>

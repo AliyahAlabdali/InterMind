@@ -6,6 +6,6 @@ finalised**:
 
     docs/Autonomous-AI-Interviewer-Technical-Documentation.pdf
 
-That PDF (authored in Overleaf) is the single source of truth for architecture rationale,
+That PDF is the single source of truth for architecture rationale,
 design decisions, and responsible-AI considerations. No other Markdown documentation files
 are kept in this directory on purpose.
