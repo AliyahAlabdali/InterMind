@@ -1,0 +1,17 @@
+Senior Backend Engineer
+
+We are hiring a Senior Backend Engineer to own the design and delivery of our core
+services. You will work closely with product and data teams to ship reliable APIs.
+
+Requirements:
+- 5+ years building production backend services in Python
+- Strong experience with FastAPI or a similar async framework
+- Solid PostgreSQL and schema design skills
+- Comfortable owning system design for new services
+
+Nice to have:
+- Experience with Kafka or other event streaming
+- Exposure to Kubernetes
+
+You should be an excellent communicator, able to explain trade-offs to non-technical
+stakeholders, and enjoy mentoring more junior engineers.

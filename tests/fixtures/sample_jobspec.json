@@ -1,0 +1,18 @@
+{
+  "role_title": "Senior Backend Engineer",
+  "seniority": "senior",
+  "skills": [
+    { "name": "Python", "required": true },
+    { "name": "FastAPI", "required": true },
+    { "name": "PostgreSQL", "required": true },
+    { "name": "System design", "required": true },
+    { "name": "Kafka", "required": false },
+    { "name": "Kubernetes", "required": false }
+  ],
+  "competencies": [
+    { "name": "System design", "description": "Owns design for new backend services." },
+    { "name": "Stakeholder communication", "description": "Explains trade-offs to non-technical stakeholders." },
+    { "name": "Mentoring", "description": "Supports the growth of junior engineers." }
+  ],
+  "summary": "A senior backend role owning design and delivery of core Python services, working with product and data teams to ship reliable APIs."
+}
