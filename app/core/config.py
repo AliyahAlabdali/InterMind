@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_ONET_KB_PATH = _REPO_ROOT / "data" / "processed" / "onet" / "onet_kb.jsonl"
 
 
 class Settings(BaseSettings):
@@ -21,6 +25,7 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"
     log_level: str = "INFO"
+    onet_kb_path: Path = DEFAULT_ONET_KB_PATH
 
 
 @lru_cache

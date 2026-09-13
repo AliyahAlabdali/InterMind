@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "autonomous-ai-interviewer"
 version = "0.1.0"
-description = "Autonomous AI Interviewer - Milestone 1 (JD analysis API)"
+description = "Autonomous AI Interviewer - Milestone 1-3 (JD analysis + interview planning API)"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.111",
@@ -13,6 +13,7 @@ dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "openai>=1.50",
+    "scikit-learn>=1.4",
 ]
 
 [project.optional-dependencies]
@@ -34,6 +35,9 @@ asyncio_mode = "auto"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# Notebooks have their own style conventions (long print/markdown lines for readability) and
+# aren't part of the app package; lint app/, scripts/, and tests/ instead.
+extend-exclude = ["notebooks"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

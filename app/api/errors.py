@@ -7,7 +7,14 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.core.exceptions import ConfigurationError, DomainError, JobNotFound, LLMError
+from app.core.exceptions import (
+    ConfigurationError,
+    DomainError,
+    InterviewPlanNotFound,
+    JobNotFound,
+    LLMError,
+    OccupationNotFound,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +22,16 @@ logger = logging.getLogger(__name__)
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(JobNotFound)
     async def _handle_job_not_found(_: Request, exc: JobNotFound) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(OccupationNotFound)
+    async def _handle_occupation_not_found(_: Request, exc: OccupationNotFound) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(InterviewPlanNotFound)
+    async def _handle_interview_plan_not_found(
+        _: Request, exc: InterviewPlanNotFound
+    ) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detail": str(exc)})
 
     @app.exception_handler(ConfigurationError)

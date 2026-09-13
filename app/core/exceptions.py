@@ -25,3 +25,35 @@ class LLMError(DomainError):
 
 class LLMOutputInvalid(LLMError):
     """The LLM response could not be parsed into the expected schema."""
+
+
+class QuestionGenerationError(LLMError):
+    """The LLM/fake provider's generated questions don't match what was requested.
+
+    Covers missing, duplicate, unexpected/invalid, mis-categorised, or out-of-order targets -
+    a schema-valid response that is still unusable, as opposed to :class:`LLMOutputInvalid`
+    (a response that failed schema validation outright).
+    """
+
+
+class OccupationNotFound(DomainError):
+    """Requested O*NET-SOC code does not exist in the loaded knowledge base."""
+
+    def __init__(self, onet_soc_code: str) -> None:
+        super().__init__(f"Occupation not found: {onet_soc_code}")
+        self.onet_soc_code = onet_soc_code
+
+
+class NoOccupationMatch(DomainError):
+    """The knowledge base produced no occupation candidates for a JobSpec."""
+
+    def __init__(self, role_title: str) -> None:
+        super().__init__(f"No O*NET occupation match found for role: {role_title}")
+
+
+class InterviewPlanNotFound(DomainError):
+    """No interview plan has been created yet for this job id."""
+
+    def __init__(self, job_id: str) -> None:
+        super().__init__(f"Interview plan not found: {job_id}")
+        self.job_id = job_id

@@ -1,4 +1,4 @@
-"""Persistence boundary for analysed jobs."""
+"""Persistence boundaries for analysed jobs and their interview plans."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from app.domain.interview_plan import InterviewPlan
 from app.domain.job import JobSpec
 
 
@@ -30,5 +31,21 @@ class JobRepository(Protocol):
 
         Raises:
             app.core.exceptions.JobNotFound: no job with that id.
+        """
+        ...
+
+
+class InterviewPlanRepository(Protocol):
+    """Stores at most one interview plan per job id (re-planning overwrites it)."""
+
+    async def add(self, plan: InterviewPlan) -> InterviewPlan:
+        """Persist ``plan`` (keyed by ``plan.job_id``) and return it."""
+        ...
+
+    async def get(self, job_id: str) -> InterviewPlan:
+        """Return the stored interview plan for ``job_id``.
+
+        Raises:
+            app.core.exceptions.InterviewPlanNotFound: no plan exists for that job id.
         """
         ...
