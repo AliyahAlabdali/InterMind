@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
-from app.core.exceptions import InterviewPlanNotFound, JobNotFound
+from app.core.exceptions import (
+    InterviewNotFound,
+    InterviewPlanNotFound,
+    InterviewReportNotFound,
+    JobNotFound,
+)
 from app.domain.interview_plan import InterviewPlan
-from app.repositories.ports import StoredJob
+from app.domain.report import InterviewReport
+from app.repositories.ports import InterviewSession, StoredJob
 
 
 class InMemoryJobRepository:
@@ -35,3 +41,33 @@ class InMemoryInterviewPlanRepository:
             return self._plans[job_id]
         except KeyError:
             raise InterviewPlanNotFound(job_id) from None
+
+
+class InMemoryInterviewSessionRepository:
+    def __init__(self) -> None:
+        self._sessions: dict[str, InterviewSession] = {}
+
+    async def add(self, session: InterviewSession) -> InterviewSession:
+        self._sessions[session.id] = session
+        return session
+
+    async def get(self, interview_id: str) -> InterviewSession:
+        try:
+            return self._sessions[interview_id]
+        except KeyError:
+            raise InterviewNotFound(interview_id) from None
+
+
+class InMemoryInterviewReportRepository:
+    def __init__(self) -> None:
+        self._reports: dict[str, InterviewReport] = {}
+
+    async def add(self, report: InterviewReport) -> InterviewReport:
+        self._reports[report.interview_id] = report
+        return report
+
+    async def get(self, interview_id: str) -> InterviewReport:
+        try:
+            return self._reports[interview_id]
+        except KeyError:
+            raise InterviewReportNotFound(interview_id) from None

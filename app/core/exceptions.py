@@ -57,3 +57,55 @@ class InterviewPlanNotFound(DomainError):
     def __init__(self, job_id: str) -> None:
         super().__init__(f"Interview plan not found: {job_id}")
         self.job_id = job_id
+
+
+class InterviewNotFound(DomainError):
+    """Requested interview id does not exist."""
+
+    def __init__(self, interview_id: str) -> None:
+        super().__init__(f"Interview not found: {interview_id}")
+        self.interview_id = interview_id
+
+
+class InterviewAlreadyCompleted(DomainError):
+    """The interview has already finished; it cannot accept another answer."""
+
+    def __init__(self, interview_id: str) -> None:
+        super().__init__(f"Interview already completed: {interview_id}")
+        self.interview_id = interview_id
+
+
+class InterviewNotCompleted(DomainError):
+    """The interview has not finished yet; no report can be generated for it."""
+
+    def __init__(self, interview_id: str) -> None:
+        super().__init__(f"Interview not completed: {interview_id}")
+        self.interview_id = interview_id
+
+
+class InterviewReportNotFound(DomainError):
+    """No report has been generated yet for this interview id.
+
+    Internal to the report repository/route (see ``GET /interviews/{id}/report``): the route
+    always catches this to decide whether to generate and cache a new report, so it should
+    never reach a client.
+    """
+
+    def __init__(self, interview_id: str) -> None:
+        super().__init__(f"Interview report not found: {interview_id}")
+        self.interview_id = interview_id
+
+
+class InterviewStateUnavailable(DomainError):
+    """A valid interview session record exists, but its checkpointed graph state does not.
+
+    Covers both a missing checkpoint (no state was ever recorded for that thread id) and an
+    incomplete/invalid one (present but missing required fields or holding an unrecognised
+    value) - an internal invariant violation (the session repository and the graph
+    checkpointer have gone out of sync), not something the caller did wrong.
+    """
+
+    def __init__(self, interview_id: str, reason: str) -> None:
+        super().__init__(f"Interview state unavailable for {interview_id}: {reason}")
+        self.interview_id = interview_id
+        self.reason = reason

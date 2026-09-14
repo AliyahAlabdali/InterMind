@@ -1,9 +1,10 @@
-"""Interview state skeleton.
+"""Interview state.
 
-Intentionally minimal and behaviour-free for Milestone 1. It exists now so a later
-milestone can wrap the interview lifecycle in a stateful orchestrator (e.g. LangGraph)
-by treating this model as the graph state and adding pure transition functions - without
-restructuring the domain or the service interfaces.
+Originally an intentionally minimal, behaviour-free skeleton (Milestone 1) so a later
+milestone could wrap the interview lifecycle in a stateful orchestrator without restructuring
+the domain. Milestone 4 does that wrapping: :mod:`app.agents.interview_graph` owns the actual
+LangGraph state/transitions, and :mod:`app.services.interview_session` maps its state onto this
+model - the API layer and callers outside the graph only ever see :class:`InterviewState`.
 """
 
 from __future__ import annotations
@@ -26,3 +27,6 @@ class InterviewState(BaseModel):
     status: InterviewStatus = InterviewStatus.NOT_STARTED
     turn_index: int = 0
     history: list[dict] = Field(default_factory=list)
+    current_question_id: str | None = None
+    current_question_text: str | None = None
+    asked_question_ids: list[str] = Field(default_factory=list)

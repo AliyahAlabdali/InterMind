@@ -16,7 +16,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 from app.core.exceptions import ConfigurationError, OccupationNotFound
-from app.domain.job import JobSpec
+from app.domain.job import JobSpec, Seniority
 from app.domain.occupation import OccupationMatch, OccupationRecord
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -45,14 +45,26 @@ def _load_records(path: Path) -> list[dict]:
 
 
 def _jobspec_to_query_text(job_spec: JobSpec) -> str:
-    """Mirror the search_text shape built in the notebook, so query and corpus share a format."""
+    """Mirror the search_text shape built in the notebook, so query and corpus share a format.
+
+    Includes every JobSpec field that carries real matching signal - role title, seniority
+    (when it's actually known), summary, skill names, competency names, and competency
+    descriptions (when present) - so the matcher gets as much of the JobSpec as is meaningful.
+    Fields that would only add boilerplate are skipped: an "unknown" seniority literal, or an
+    empty "Skills:"/"Competencies:" label with nothing after it.
+    """
     skill_names = " ".join(s.name for s in job_spec.skills)
     competency_names = " ".join(c.name for c in job_spec.competencies)
+    competency_descriptions = " ".join(
+        c.description for c in job_spec.competencies if c.description
+    )
     parts = [
         job_spec.role_title,
+        job_spec.seniority.value if job_spec.seniority != Seniority.UNKNOWN else "",
         job_spec.summary or "",
-        f"Skills: {skill_names}.",
-        f"Competencies: {competency_names}.",
+        f"Skills: {skill_names}." if skill_names else "",
+        f"Competencies: {competency_names}." if competency_names else "",
+        competency_descriptions,
     ]
     return " ".join(p for p in parts if p).strip()
 
