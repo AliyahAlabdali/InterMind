@@ -45,7 +45,9 @@ async def test_fake_narrative_only_echoes_given_strengths_and_weaknesses():
     given_weaknesses = {"Lacked technical depth"}
     assert set(result.strengths) <= given_strengths
     assert set(result.weaknesses) <= given_weaknesses
-    assert "0.60" in result.summary
+    # The summary describes the candidate, never the scoring mechanism or a raw percentage.
+    assert "0.60" not in result.summary
+    assert "deterministic" not in result.summary.lower()
     assert "consider" in result.summary
 
 

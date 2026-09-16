@@ -73,6 +73,26 @@ async def test_repeated_post_is_idempotent_and_preserves_plan_identity(client):
     assert got.json() == first.json()
 
 
+async def test_interview_plan_api_still_exposes_source_field_internally(client):
+    """The API/domain must keep provenance available (debugging, auditability, a future "why is
+    this included?" feature) even though the recruiter-facing UI no longer renders it by
+    default - this is a UI presentation choice, not a data-model removal."""
+    jd = "Backend Software Engineer\nPython and Git experience required. Critical thinking a must."
+    job_resp = await client.post("/jobs", json={"job_description": jd})
+    job_id = job_resp.json()["id"]
+    resp = await client.post(f"/jobs/{job_id}/interview-plan")
+    plan = resp.json()
+
+    assert plan["competencies"], "expected at least one competency"
+    assert plan["technologies"], "expected at least one technology"
+    for competency in plan["competencies"]:
+        assert competency["source"] in ("jobspec", "onet", "both")
+    for technology in plan["technologies"]:
+        assert technology["source"] in ("jobspec", "onet", "both")
+    for task in plan["tasks"]:
+        assert task["source"] in ("jobspec", "onet", "both")
+
+
 async def test_interview_plan_flow_works_without_openai_credits(app, client):
     # Explicitly exercise the fake provider end-to-end, per the "no paid API for tests" rule.
     app.dependency_overrides[get_llm_client] = lambda: FakeLLMClient()

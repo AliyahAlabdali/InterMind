@@ -1,8 +1,9 @@
 import type { SelectedTechnology } from "../../types"
 import { Card } from "../ui/Card"
-import { Badge } from "../ui/Badge"
-import { ProvenanceBadge } from "../ui/ProvenanceBadge"
 
+// Internal knowledge-source provenance (job description vs. O*NET) is intentionally not shown
+// here - see CompetencyList's comment. `hot`/`in_demand` are also O*NET-derived market signals
+// rather than JD content, so they're left off the default view for the same reason.
 export function TechnologyList({ technologies }: { technologies: SelectedTechnology[] }) {
   if (technologies.length === 0) return null
 
@@ -17,12 +18,7 @@ export function TechnologyList({ technologies }: { technologies: SelectedTechnol
             key={tech.name}
             className="flex flex-wrap items-center justify-between gap-2 border-b border-ivory-200 pb-3 last:border-0 last:pb-0"
           >
-            <span className="flex items-center gap-2 text-sm font-medium text-ink">
-              {tech.name}
-              {tech.hot && <Badge tone="danger">Hot</Badge>}
-              {tech.in_demand && <Badge tone="warning">In demand</Badge>}
-            </span>
-            <ProvenanceBadge source={tech.source} />
+            <span className="text-sm font-medium text-ink">{tech.name}</span>
           </li>
         ))}
       </ul>

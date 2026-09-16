@@ -44,7 +44,7 @@ class ReportNarrativeService:
             lines.append("---")
             lines.append(f"COMPETENCY: {c.name}")
             lines.append(f"CATEGORY: {c.category.value}")
-            lines.append(f"SCORE: {c.score:.2f}" if c.score is not None else "SCORE: (no evidence)")
+            lines.append(f"EVIDENCE_STRENGTH: {c.evidence_strength.value}")
             lines.append(f"STRENGTHS: {'; '.join(c.strengths) or '(none)'}")
             lines.append(f"WEAKNESSES: {'; '.join(c.weaknesses) or '(none)'}")
             lines.append(f"EVIDENCE: {'; '.join(c.evidence) or '(none)'}")

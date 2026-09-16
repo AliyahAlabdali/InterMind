@@ -34,7 +34,7 @@ async def test_evaluate_short_answer_requests_follow_up():
     assert result.decision == EvaluationDecision.FOLLOW_UP
     assert result.follow_up_needed is True
     assert result.follow_up_question is not None
-    assert "Ownership" in result.follow_up_question
+    assert "ownership" in result.follow_up_question.lower()
 
 
 async def test_evaluate_empty_answer_requests_follow_up():
@@ -68,15 +68,31 @@ async def test_evaluate_uses_configured_fake_response():
     assert result == canned
 
 
-def test_decision_authoritative_over_inconsistent_follow_up_fields():
+def test_decision_authoritative_over_follow_up_needed():
+    """`decision` is authoritative over `follow_up_needed` - the two are reconciled so they
+    never contradict."""
     evaluation = AnswerEvaluation(
         score=0.9,
         decision=EvaluationDecision.ADVANCE,
         follow_up_needed=True,
-        follow_up_question="This should be dropped.",
+        follow_up_question="Kept - see below.",
     )
     assert evaluation.follow_up_needed is False
-    assert evaluation.follow_up_question is None
+
+
+def test_follow_up_question_survives_an_advance_decision():
+    """Unlike `follow_up_needed`, `follow_up_question` is deliberately *not* nulled just
+    because `decision` is `advance` - the system's own follow-up policy
+    (`resolve_follow_up_decision`) may still use it as signal, independent of the model's own
+    one-shot `decision` guess (see that function's docstring for the real bug this fixes: a
+    real LLM under-calling a follow-up it had otherwise correctly identified)."""
+    evaluation = AnswerEvaluation(
+        score=0.9,
+        decision=EvaluationDecision.ADVANCE,
+        follow_up_needed=True,
+        follow_up_question="A concrete, answer-grounded question.",
+    )
+    assert evaluation.follow_up_question == "A concrete, answer-grounded question."
 
 
 @pytest.mark.parametrize("score", [-0.1, 1.1])

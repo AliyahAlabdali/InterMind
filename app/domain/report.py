@@ -15,10 +15,26 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
-from app.domain.evaluation import EvaluationDecision
+from app.domain.evaluation import EvaluationDecision, EvidenceStrength, evidence_strength_for_score
 from app.domain.interview_plan import QuestionCategory
+
+# Re-exported for backward compatibility: `EvidenceStrength`/`evidence_strength_for_score`
+# used to be defined here, but now live in `app.domain.evaluation` (moved so
+# `resolve_follow_up_decision` there can reuse them without this module importing back from
+# `app.domain.evaluation`, which already imports `EvaluationDecision` from it - see that
+# module's docstring). Every existing `from app.domain.report import EvidenceStrength` /
+# `evidence_strength_for_score` import keeps working unchanged.
+__all__ = [
+    "CompetencyAssessment",
+    "EvidenceStrength",
+    "InterviewReport",
+    "QuestionEvaluationSummary",
+    "Recommendation",
+    "ReportNarrative",
+    "evidence_strength_for_score",
+]
 
 
 class Recommendation(StrEnum):
@@ -49,6 +65,12 @@ class QuestionEvaluationSummary(BaseModel):
     strengths: list[str] = Field(default_factory=list)
     weaknesses: list[str] = Field(default_factory=list)
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def evidence_strength(self) -> EvidenceStrength:
+        """Always derived from ``score`` - never independently settable, so it can't drift."""
+        return evidence_strength_for_score(self.score)
+
 
 class CompetencyAssessment(BaseModel):
     """Aggregated assessment for one target (competency/technology/task), across every
@@ -61,6 +83,12 @@ class CompetencyAssessment(BaseModel):
     evidence: list[str] = Field(default_factory=list)
     strengths: list[str] = Field(default_factory=list)
     weaknesses: list[str] = Field(default_factory=list)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def evidence_strength(self) -> EvidenceStrength:
+        """Always derived from ``score`` - never independently settable, so it can't drift."""
+        return evidence_strength_for_score(self.score)
 
 
 class ReportNarrative(BaseModel):
@@ -89,3 +117,9 @@ class InterviewReport(BaseModel):
     weaknesses: list[str] = Field(default_factory=list)
     competencies: list[CompetencyAssessment] = Field(default_factory=list)
     question_evaluations: list[QuestionEvaluationSummary] = Field(default_factory=list)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def overall_evidence_strength(self) -> EvidenceStrength:
+        """Always derived from ``overall_score`` - never independently settable."""
+        return evidence_strength_for_score(self.overall_score)

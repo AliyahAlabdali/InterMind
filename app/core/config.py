@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     onet_kb_path: Path = DEFAULT_ONET_KB_PATH
 
+    # Milestone 4 recruiter/candidate access boundary (see app.api.auth) - a single shared
+    # bearer token standing in for a real recruiter identity. This is deliberately NOT a
+    # production authentication system (no accounts, no per-recruiter identity, no expiry) -
+    # see app.api.auth's module docstring. Must be overridden via the RECRUITER_ACCESS_TOKEN
+    # env var in any environment other than a single developer's own machine; the default here
+    # exists only so local dev/tests work without extra setup.
+    recruiter_access_token: str = "dev-recruiter-milestone-token-change-me"
+
 
 @lru_cache
 def get_settings() -> Settings:

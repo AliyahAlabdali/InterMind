@@ -1,17 +1,17 @@
 import { useCallback } from "react"
-import { useParams } from "react-router-dom"
-import { getInterviewReport } from "../api/interviews"
-import { getJob } from "../api/jobs"
-import { useAsyncData } from "../hooks/useAsyncData"
-import { Spinner } from "../components/ui/Spinner"
-import { ErrorBanner } from "../components/ui/ErrorBanner"
-import { Card } from "../components/ui/Card"
-import { ReportHeader } from "../components/report/ReportHeader"
-import { StrengthWeaknessLists } from "../components/report/StrengthWeaknessLists"
-import { CompetencyAssessmentList } from "../components/report/CompetencyAssessmentList"
-import { QuestionEvaluationList } from "../components/report/QuestionEvaluationList"
+import { Link, useParams } from "react-router-dom"
+import { getInterviewReport } from "../../api/interviews"
+import { getJob } from "../../api/jobs"
+import { useAsyncData } from "../../hooks/useAsyncData"
+import { Spinner } from "../../components/ui/Spinner"
+import { ErrorBanner } from "../../components/ui/ErrorBanner"
+import { Card } from "../../components/ui/Card"
+import { ReportHeader } from "../../components/report/ReportHeader"
+import { StrengthWeaknessLists } from "../../components/report/StrengthWeaknessLists"
+import { CompetencyAssessmentList } from "../../components/report/CompetencyAssessmentList"
+import { QuestionEvaluationList } from "../../components/report/QuestionEvaluationList"
 
-export function InterviewReportPage() {
+export function ReportPage() {
   const { interviewId } = useParams<{ interviewId: string }>()
 
   const reportFetcher = useCallback(() => getInterviewReport(interviewId!), [interviewId])
@@ -34,10 +34,19 @@ export function InterviewReportPage() {
   const data = report.data
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6 animate-enter">
+      {jobId && (
+        <Link
+          to={`/recruiter/interviews/${jobId}`}
+          className="text-xs text-ink-muted underline underline-offset-2 hover:text-ink"
+        >
+          ← Back to candidates
+        </Link>
+      )}
       <ReportHeader
         roleTitle={job.data?.job_spec.role_title ?? null}
         overallScore={data.overall_score}
+        overallEvidenceStrength={data.overall_evidence_strength}
         recommendation={data.recommendation}
       />
 
@@ -48,9 +57,9 @@ export function InterviewReportPage() {
         <p className="text-sm leading-relaxed text-ink-soft">{data.summary}</p>
       </Card>
 
-      <StrengthWeaknessLists strengths={data.strengths} weaknesses={data.weaknesses} />
-
       <CompetencyAssessmentList assessments={data.competencies} />
+
+      <StrengthWeaknessLists strengths={data.strengths} weaknesses={data.weaknesses} />
 
       <QuestionEvaluationList items={data.question_evaluations} />
     </div>

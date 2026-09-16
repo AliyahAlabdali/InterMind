@@ -11,6 +11,7 @@ from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.observability.trace import TraceRecorder
 from app.repositories.in_memory import (
+    InMemoryCandidateRepository,
     InMemoryInterviewPlanRepository,
     InMemoryInterviewReportRepository,
     InMemoryInterviewSessionRepository,
@@ -37,6 +38,7 @@ def create_app() -> FastAPI:
     app.state.interview_plan_repository = InMemoryInterviewPlanRepository()
     app.state.interview_session_repository = InMemoryInterviewSessionRepository()
     app.state.interview_report_repository = InMemoryInterviewReportRepository()
+    app.state.candidate_repository = InMemoryCandidateRepository()
     app.state.trace_recorder = TraceRecorder()
     # app.state.onet_kb and app.state.interview_graph are set lazily on first use - see
     # app.api.deps.get_onet_kb and app.api.deps.get_interview_graph.

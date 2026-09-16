@@ -38,10 +38,20 @@ class Competency(BaseModel):
 
 
 class JobSpec(BaseModel):
-    """Structured representation of a job description."""
+    """Structured representation of a job description.
+
+    This is the sole authoritative source of what a candidate is evaluated on - see
+    ``app.services.interview_planner``'s module docstring for the full principle. ``skills``,
+    ``competencies``, and ``responsibilities`` together are the complete set of interview
+    requirements; nothing outside this model may silently add another one.
+    """
 
     role_title: str
     seniority: Seniority = Seniority.UNKNOWN
     skills: list[Skill] = Field(default_factory=list)
     competencies: list[Competency] = Field(default_factory=list)
+    responsibilities: list[str] = Field(
+        default_factory=list,
+        description="Day-to-day duties/tasks stated in the JD, in JD order.",
+    )
     summary: str | None = None

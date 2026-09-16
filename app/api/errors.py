@@ -8,6 +8,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.core.exceptions import (
+    AccessDenied,
+    CandidateNotFound,
     ConfigurationError,
     DomainError,
     InterviewAlreadyCompleted,
@@ -40,6 +42,20 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(InterviewNotFound)
     async def _handle_interview_not_found(_: Request, exc: InterviewNotFound) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(AccessDenied)
+    async def _handle_access_denied(_: Request, exc: AccessDenied) -> JSONResponse:
+        # One generic message regardless of the specific reason (missing header, wrong token,
+        # wrong interview) - never reveal which case it was.
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Missing or invalid access token."},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    @app.exception_handler(CandidateNotFound)
+    async def _handle_candidate_not_found(_: Request, exc: CandidateNotFound) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detail": str(exc)})
 
     @app.exception_handler(InterviewAlreadyCompleted)

@@ -1,20 +1,99 @@
-import { Route, Routes } from "react-router-dom"
-import { MainLayout } from "./layouts/MainLayout"
-import { HomePage } from "./pages/HomePage"
-import { InterviewPlanPage } from "./pages/InterviewPlanPage"
-import { CandidateInterviewPage } from "./pages/CandidateInterviewPage"
-import { InterviewReportPage } from "./pages/InterviewReportPage"
+import { Navigate, Route, Routes } from "react-router-dom"
+import { RecruiterLayout } from "./layouts/RecruiterLayout"
+import { CandidateLayout } from "./layouts/CandidateLayout"
+import { DashboardPage } from "./pages/recruiter/DashboardPage"
+import { NewInterviewPage } from "./pages/recruiter/NewInterviewPage"
+import { JobAnalysisPage } from "./pages/recruiter/JobAnalysisPage"
+import { InterviewPlanPage } from "./pages/recruiter/InterviewPlanPage"
+import { InterviewCandidatesPage } from "./pages/recruiter/InterviewCandidatesPage"
+import { ReportPage } from "./pages/recruiter/ReportPage"
+import { CandidateLandingPage } from "./pages/candidate/CandidateLandingPage"
+import { CandidateQuestionPage } from "./pages/candidate/CandidateQuestionPage"
+import { CandidateCompletePage } from "./pages/candidate/CandidateCompletePage"
 
 function App() {
   return (
-    <MainLayout>
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/jobs/:jobId/plan" element={<InterviewPlanPage />} />
-        <Route path="/interviews/:interviewId" element={<CandidateInterviewPage />} />
-        <Route path="/interviews/:interviewId/report" element={<InterviewReportPage />} />
-      </Routes>
-    </MainLayout>
+    <Routes>
+      <Route path="/" element={<Navigate to="/recruiter/dashboard" replace />} />
+
+      <Route
+        path="/recruiter/dashboard"
+        element={
+          <RecruiterLayout>
+            <DashboardPage />
+          </RecruiterLayout>
+        }
+      />
+      <Route
+        path="/recruiter/interviews/new"
+        element={
+          <RecruiterLayout>
+            <NewInterviewPage />
+          </RecruiterLayout>
+        }
+      />
+      {/* The interview/role's command center: candidates, statuses, reports - the recruiter's
+          primary destination for an existing interview (see the recruiter-workflow review). */}
+      <Route
+        path="/recruiter/interviews/:jobId"
+        element={
+          <RecruiterLayout>
+            <InterviewCandidatesPage />
+          </RecruiterLayout>
+        }
+      />
+      <Route
+        path="/recruiter/interviews/:jobId/job-analysis"
+        element={
+          <RecruiterLayout>
+            <JobAnalysisPage />
+          </RecruiterLayout>
+        }
+      />
+      <Route
+        path="/recruiter/interviews/:jobId/plan"
+        element={
+          <RecruiterLayout>
+            <InterviewPlanPage />
+          </RecruiterLayout>
+        }
+      />
+      <Route
+        path="/recruiter/interviews/:jobId/reports/:interviewId"
+        element={
+          <RecruiterLayout>
+            <ReportPage />
+          </RecruiterLayout>
+        }
+      />
+
+      <Route
+        path="/candidate/interviews/:interviewId"
+        element={
+          <CandidateLayout>
+            <CandidateLandingPage />
+          </CandidateLayout>
+        }
+      />
+      <Route
+        path="/candidate/interviews/:interviewId/question/:questionId"
+        element={
+          <CandidateLayout>
+            <CandidateQuestionPage />
+          </CandidateLayout>
+        }
+      />
+      <Route
+        path="/candidate/interviews/:interviewId/complete"
+        element={
+          <CandidateLayout>
+            <CandidateCompletePage />
+          </CandidateLayout>
+        }
+      />
+
+      <Route path="*" element={<Navigate to="/recruiter/dashboard" replace />} />
+    </Routes>
   )
 }
 

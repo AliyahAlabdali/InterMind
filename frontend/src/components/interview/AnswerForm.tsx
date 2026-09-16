@@ -29,13 +29,13 @@ export function AnswerForm({ onSubmit, isSubmitting, questionKey }: AnswerFormPr
         value={answer}
         onChange={(event) => setAnswer(event.target.value)}
         placeholder="Share your answer in as much detail as you can…"
-        rows={8}
+        rows={10}
         disabled={isSubmitting}
-        className="w-full resize-y rounded-xl border border-ivory-200 bg-white px-4 py-3 text-sm text-ink shadow-soft outline-none transition-colors placeholder:text-ink-muted focus:border-lilac-dark disabled:bg-ivory-100"
+        className="w-full resize-y rounded-[10px] border border-border bg-white px-4 py-3 text-base leading-relaxed text-ink outline-none transition-colors placeholder:text-ink-muted focus:border-periwinkle disabled:bg-ivory-100"
       />
       <div className="flex justify-end">
         <Button type="submit" isLoading={isSubmitting} disabled={!answer.trim()}>
-          Submit Answer
+          Continue
         </Button>
       </div>
     </form>

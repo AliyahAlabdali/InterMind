@@ -1,42 +1,55 @@
 import type { OccupationMatch } from "../../types"
-import { Card } from "../ui/Card"
-import { Badge } from "../ui/Badge"
 
 interface OccupationMatchCardProps {
   match: OccupationMatch
   alternates: OccupationMatch[]
+  onetGroundingUsed: boolean
 }
 
-export function OccupationMatchCard({ match, alternates }: OccupationMatchCardProps) {
+/**
+ * O*NET is internal grounding, not the headline of the plan (see the product review that
+ * flagged raw TF-IDF percentages reading as if they were a qualification/hiring signal) - this
+ * renders as a closed-by-default disclosure with plain-language framing and no similarity
+ * scores, meant to sit below the job-description-driven plan content, not above it.
+ */
+export function OccupationMatchCard({ match, alternates, onetGroundingUsed }: OccupationMatchCardProps) {
   return (
-    <Card className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
-          Matched O*NET Occupation
-        </h3>
-        <Badge tone="lilac">{Math.round(match.score * 100)}% match</Badge>
-      </div>
-      <div>
-        <p className="text-lg font-semibold text-ink">{match.title}</p>
-        <p className="text-xs text-ink-muted">SOC {match.onet_soc_code}</p>
-      </div>
+    <details className="rounded-[14px] border border-border bg-white px-5 py-4 text-sm">
+      <summary className="cursor-pointer select-none font-medium text-ink-soft">
+        How this plan was grounded
+      </summary>
+      <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4">
+        <p className="text-sm leading-relaxed text-ink-soft">
+          {onetGroundingUsed ? (
+            <>
+              The job description is the primary source for this plan. As supplementary
+              context, InterMind also referenced O*NET's{" "}
+              <span className="font-medium text-ink">{match.title}</span> occupation profile,
+              which it judged a confident match for this role.
+            </>
+          ) : (
+            <>
+              This plan is grounded entirely in the job description. InterMind checked O*NET
+              for a supplementary occupation match, but no candidate (the closest being{" "}
+              <span className="font-medium text-ink">{match.title}</span>) was a confident
+              enough match to add anything beyond what the job description already provides.
+            </>
+          )}
+        </p>
 
-      {alternates.length > 0 && (
-        <div className="border-t border-ivory-200 pt-3">
-          <p className="mb-2 text-xs font-medium text-ink-muted">Other candidates considered</p>
-          <ul className="flex flex-col gap-1.5">
-            {alternates.map((alt) => (
-              <li
-                key={alt.onet_soc_code}
-                className="flex items-center justify-between text-sm text-ink-soft"
-              >
-                <span>{alt.title}</span>
-                <span className="text-xs text-ink-muted">{Math.round(alt.score * 100)}%</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </Card>
+        {alternates.length > 0 && (
+          <div>
+            <p className="mb-1.5 text-xs font-medium text-ink-muted">Other occupations considered</p>
+            <ul className="flex flex-col gap-1">
+              {alternates.slice(0, 3).map((alt) => (
+                <li key={alt.onet_soc_code} className="text-xs text-ink-muted">
+                  {alt.title}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </details>
   )
 }

@@ -1,5 +1,5 @@
-import type { Recommendation } from "../../types"
-import { formatRecommendation } from "../../lib/format"
+import type { EvidenceStrength, Recommendation } from "../../types"
+import { formatEvidenceStrength, formatRecommendation } from "../../lib/format"
 import { Card } from "../ui/Card"
 import { Badge } from "../ui/Badge"
 import { ScoreGauge } from "../ui/ScoreGauge"
@@ -11,13 +11,27 @@ const RECOMMENDATION_TONE: Record<Recommendation, "success" | "sky" | "warning" 
   no_hire: "danger",
 }
 
+const EVIDENCE_STRENGTH_TONE: Record<EvidenceStrength, "success" | "sky" | "warning" | "neutral"> = {
+  strong: "success",
+  moderate: "sky",
+  limited: "warning",
+  insufficient: "neutral",
+  not_assessed: "neutral",
+}
+
 interface ReportHeaderProps {
   roleTitle: string | null
   overallScore: number
+  overallEvidenceStrength: EvidenceStrength
   recommendation: Recommendation
 }
 
-export function ReportHeader({ roleTitle, overallScore, recommendation }: ReportHeaderProps) {
+export function ReportHeader({
+  roleTitle,
+  overallScore,
+  overallEvidenceStrength,
+  recommendation,
+}: ReportHeaderProps) {
   return (
     <Card className="flex flex-wrap items-center justify-between gap-6">
       <div>
@@ -27,9 +41,12 @@ export function ReportHeader({ roleTitle, overallScore, recommendation }: Report
         <h1 className="mt-1 text-2xl font-semibold tracking-tight text-ink">
           {roleTitle ?? "Candidate Evaluation"}
         </h1>
-        <div className="mt-3">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <Badge tone={RECOMMENDATION_TONE[recommendation]} className="text-sm">
             {formatRecommendation(recommendation)}
+          </Badge>
+          <Badge tone={EVIDENCE_STRENGTH_TONE[overallEvidenceStrength]}>
+            {formatEvidenceStrength(overallEvidenceStrength)}
           </Badge>
         </div>
       </div>

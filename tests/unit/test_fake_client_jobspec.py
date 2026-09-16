@@ -8,6 +8,8 @@ different, JD-specific signal - without hard-coding any particular occupation ma
 
 from __future__ import annotations
 
+import pytest
+
 from app.domain.job import JobSpec
 from app.llm.fake_client import FakeLLMClient
 from app.services.jd_analysis import JDAnalysisService
@@ -142,3 +144,103 @@ async def test_role_title_reflects_actual_jd():
     hi_spec = await _analyze(HEALTH_INFORMATICS_JD)
     assert ai_spec.role_title == "AI Engineer"
     assert hi_spec.role_title == "Health Informatics Specialist"
+
+
+async def test_role_title_strips_a_job_title_label_prefix():
+    """Regression test: many pasted JDs open with a labelled header line ("Job Title: X",
+    "Position: X", "Role: X") rather than the bare title. Previously the label was kept
+    verbatim as the extracted role_title and then leaked into every generated question (e.g.
+    "As a Job Title: Digital Marketing Specialist, tell me about a time you demonstrated
+    Leadership."). Only the title itself should be extracted.
+    """
+    for label in ("Job Title:", "Job Title -", "Title:", "Position:", "Role:"):
+        spec = await _analyze(f"{label} Digital Marketing Specialist\n\nSome JD body text.")
+        assert spec.role_title == "Digital Marketing Specialist", label
+
+
+# --- role-title extraction: a JD that opens with a sentence, not a title line ---------------
+#
+# Regression test for the reported bug: "We are looking for AI Engineer, she must have
+# pre-knowledge of deep learning models and transformers, computer vision and NLP. With strong
+# skill in communication and team work" - all on one line, with no standalone title line at
+# all - previously produced a role_title containing the entire paragraph. The extractor must
+# recognize generic hiring-intro phrasing, not any specific role name.
+
+SHORT_AI_ENGINEER_JD = (
+    "We are looking for AI Engineer, she must have pre-knowledge of deep learning models "
+    "and transformers, computer vision and NLP. With strong skill in communication and team "
+    "work"
+)
+
+
+@pytest.mark.parametrize(
+    ("jd_text", "expected_title"),
+    [
+        (SHORT_AI_ENGINEER_JD, "AI Engineer"),
+        (
+            "We are looking for an AI Engineer to design, develop, and deploy ML systems.",
+            "AI Engineer",
+        ),
+        (
+            "We are looking for AI Engineer to design, develop, and deploy ML systems.",
+            "AI Engineer",
+        ),
+        (
+            "We are seeking a Senior Backend Software Engineer to join our platform team.",
+            "Senior Backend Software Engineer",
+        ),
+        ("We need a Data Analyst who can manage reports.", "Data Analyst"),
+        ("Position: AI Engineer\n\nSome JD body text.", "AI Engineer"),
+        ("Role: AI Engineer\n\nSome JD body text.", "AI Engineer"),
+        ("Job Title: AI Engineer\n\nSome JD body text.", "AI Engineer"),
+        (
+            "Senior Backend Software Engineer\n\nResponsibilities:\n* Ship things.",
+            "Senior Backend Software Engineer",
+        ),
+    ],
+)
+async def test_role_title_recognizes_generic_patterns(jd_text, expected_title):
+    spec = await _analyze(jd_text)
+    assert spec.role_title == expected_title
+
+
+async def test_role_title_never_becomes_the_entire_jd_paragraph():
+    spec = await _analyze(SHORT_AI_ENGINEER_JD)
+    assert spec.role_title != SHORT_AI_ENGINEER_JD
+    assert len(spec.role_title) < len(SHORT_AI_ENGINEER_JD)
+    assert "pre-knowledge" not in spec.role_title
+
+
+# --- Test A: short, single-line AI Engineer JD (see the module docstring's bug report) ------
+
+
+async def test_short_ai_engineer_jd_extracts_a_correct_jobspec():
+    spec = await _analyze(SHORT_AI_ENGINEER_JD)
+
+    assert spec.role_title == "AI Engineer"
+
+    skill_names = {s.name for s in spec.skills}
+    assert {"Deep Learning", "Transformers", "Computer Vision", "Natural Language Processing"} <= (
+        skill_names
+    )
+
+    competency_names = {c.name for c in spec.competencies}
+    assert "Communication" in competency_names
+    assert "Collaboration" in competency_names  # "team work" normalizes to this domain concept
+
+
+# --- responsibilities extraction --------------------------------------------------------
+
+
+async def test_responsibilities_are_extracted_from_a_responsibilities_section():
+    spec = await _analyze(AI_ENGINEER_JD)
+    assert spec.responsibilities
+    assert any("machine learning" in r.lower() for r in spec.responsibilities)
+    # No healthcare-domain responsibility should be invented for an unrelated JD.
+    assert not any("patient" in r.lower() for r in spec.responsibilities)
+
+
+async def test_no_responsibilities_section_means_empty_list():
+    """A short, unstructured JD with no "Responsibilities:" heading yields no invented tasks."""
+    spec = await _analyze(SHORT_AI_ENGINEER_JD)
+    assert spec.responsibilities == []

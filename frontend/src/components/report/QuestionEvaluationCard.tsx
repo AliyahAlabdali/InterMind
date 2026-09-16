@@ -1,5 +1,5 @@
 import type { QuestionEvaluationSummary } from "../../types"
-import { formatCategory, formatPercent } from "../../lib/format"
+import { formatCategory, formatEvidenceStrength } from "../../lib/format"
 import { Badge } from "../ui/Badge"
 
 const DECISION_LABEL = {
@@ -7,14 +7,24 @@ const DECISION_LABEL = {
   follow_up: "Follow-up asked",
 } as const
 
+const EVIDENCE_STRENGTH_TONE = {
+  strong: "success",
+  moderate: "sky",
+  limited: "warning",
+  insufficient: "neutral",
+  not_assessed: "neutral",
+} as const
+
 export function QuestionEvaluationCard({ item }: { item: QuestionEvaluationSummary }) {
   return (
-    <div className="rounded-xl border border-ivory-200 p-4">
+    <div className="rounded-[10px] border border-border p-4">
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <Badge tone="neutral">{formatCategory(item.category)}</Badge>
         <span className="text-xs text-ink-muted">Target: {item.target}</span>
         {item.decision && <Badge tone="lilac">{DECISION_LABEL[item.decision]}</Badge>}
-        <span className="ml-auto text-sm font-semibold text-ink">{formatPercent(item.score)}</span>
+        <Badge tone={EVIDENCE_STRENGTH_TONE[item.evidence_strength]} className="ml-auto">
+          {formatEvidenceStrength(item.evidence_strength)}
+        </Badge>
       </div>
       <p className="text-sm font-medium text-ink">{item.question}</p>
       <p className="mt-2 rounded-lg bg-ivory-100 px-3 py-2 text-sm text-ink-soft">
@@ -29,8 +39,8 @@ export function QuestionEvaluationCard({ item }: { item: QuestionEvaluationSumma
             </p>
           ))}
           {item.weaknesses.map((w, i) => (
-            <p key={`w-${i}`} className="text-danger">
-              − {w}
+            <p key={`w-${i}`} className="text-warning">
+              • {w}
             </p>
           ))}
         </div>

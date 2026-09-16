@@ -45,7 +45,11 @@ async def test_start_interview_returns_first_question(client):
     assert body["current_question_id"] == question_ids[0]
     assert body["current_question_text"]
     assert body["asked_question_ids"] == [question_ids[0]]
-    assert body["last_evaluation"] is None
+    assert body["current_question_is_follow_up"] is False
+    # Candidate-facing response must never carry recruiter-only evaluation fields.
+    assert "last_evaluation" not in body
+    assert "score" not in body
+    assert "recommendation" not in body
 
 
 async def test_start_interview_without_plan_returns_404(client):
@@ -64,16 +68,44 @@ async def test_short_answer_triggers_one_follow_up_then_advances(client):
     assert follow_up.status_code == 200
     follow_up_body = follow_up.json()
     assert follow_up_body["current_question_id"] == question_ids[0]
-    assert follow_up_body["last_evaluation"]["decision"] == "follow_up"
-    assert follow_up_body["last_evaluation"]["follow_up_needed"] is True
+    assert follow_up_body["current_question_is_follow_up"] is True
 
     advanced = await client.post(
         f"/interviews/{interview_id}/answers", json={"answer": DETAILED_ANSWER}
     )
     assert advanced.status_code == 200
     advanced_body = advanced.json()
-    assert advanced_body["last_evaluation"]["decision"] == "advance"
+    assert advanced_body["current_question_is_follow_up"] is False
     assert advanced_body["current_question_id"] == question_ids[1]
+
+
+async def test_regression_5_api_response_history_contains_both_turns_correctly(client):
+    """Regression test 5: the candidate-facing `GET /interviews/{id}` response's `history`
+    must show the follow-up as its own turn - its own id, its own (follow-up) question text,
+    and the follow-up's own answer - never the original question's id/text repeated back."""
+    job_id, question_ids = await _create_job_with_plan(client)
+    start = await client.post("/interviews", json={"job_id": job_id})
+    interview_id = start.json()["interview_id"]
+
+    await client.post(f"/interviews/{interview_id}/answers", json={"answer": SHORT_ANSWER})
+    advanced = await client.post(
+        f"/interviews/{interview_id}/answers", json={"answer": DETAILED_ANSWER}
+    )
+    body = advanced.json()
+
+    status = await client.get(f"/interviews/{interview_id}")
+    assert status.json() == body  # GET reflects the same state, not just the POST response
+
+    history = body["history"]
+    assert len(history) == 2
+    original_turn, follow_up_turn = history
+    assert original_turn["question_id"] == question_ids[0]
+    assert original_turn["answer"] == SHORT_ANSWER
+
+    assert follow_up_turn["question_id"] != question_ids[0]
+    assert follow_up_turn["question_id"] not in question_ids  # not a planned question's id
+    assert follow_up_turn["question"] != original_turn["question"]
+    assert follow_up_turn["answer"] == DETAILED_ANSWER
 
 
 async def test_detailed_answers_complete_the_interview(client):
@@ -113,9 +145,10 @@ async def test_two_short_answers_advance_after_one_follow_up(client):
         f"/interviews/{interview_id}/answers", json={"answer": SHORT_ANSWER}
     )
     second_body = second.json()
-    # Only one follow-up is allowed per question; a second weak answer still advances.
-    assert second_body["last_evaluation"]["decision"] == "follow_up"
+    # Only one follow-up is allowed per question; a second weak answer still advances - to a
+    # genuinely new question, which must not be misreported as a follow-up of the old one.
     assert second_body["current_question_id"] == question_ids[1]
+    assert second_body["current_question_is_follow_up"] is False
 
 
 async def test_get_unknown_interview_returns_404(client):

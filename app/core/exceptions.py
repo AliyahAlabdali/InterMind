@@ -51,6 +51,14 @@ class NoOccupationMatch(DomainError):
         super().__init__(f"No O*NET occupation match found for role: {role_title}")
 
 
+class CandidateNotFound(DomainError):
+    """Requested candidate id does not exist."""
+
+    def __init__(self, candidate_id: str) -> None:
+        super().__init__(f"Candidate not found: {candidate_id}")
+        self.candidate_id = candidate_id
+
+
 class InterviewPlanNotFound(DomainError):
     """No interview plan has been created yet for this job id."""
 
@@ -94,6 +102,16 @@ class InterviewReportNotFound(DomainError):
     def __init__(self, interview_id: str) -> None:
         super().__init__(f"Interview report not found: {interview_id}")
         self.interview_id = interview_id
+
+
+class AccessDenied(DomainError):
+    """The caller's access token is missing, invalid, or does not authorize this request.
+
+    Raised by ``app.api.auth`` (the Milestone 4 recruiter/candidate access boundary - see its
+    module docstring). Deliberately carries no detail about *why* (missing header vs. wrong
+    token vs. wrong interview) - the HTTP mapping returns one generic message, the same
+    "sanitized error" principle already applied to ``LLMError``/``ConfigurationError``.
+    """
 
 
 class InterviewStateUnavailable(DomainError):

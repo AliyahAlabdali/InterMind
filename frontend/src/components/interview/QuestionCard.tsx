@@ -1,13 +1,5 @@
 import type { QuestionCategory } from "../../types"
-import { formatCategory } from "../../lib/format"
 import { Card } from "../ui/Card"
-import { Badge } from "../ui/Badge"
-
-const CATEGORY_TONE = {
-  competency: "blush",
-  technology: "sky",
-  task: "lilac",
-} as const
 
 interface QuestionCardProps {
   questionText: string
@@ -16,15 +8,17 @@ interface QuestionCardProps {
   isFollowUp: boolean
 }
 
-export function QuestionCard({ questionText, category, target, isFollowUp }: QuestionCardProps) {
+export function QuestionCard({ questionText, target, isFollowUp }: QuestionCardProps) {
   return (
-    <Card className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2">
-        {isFollowUp && <Badge tone="warning">Follow-up question</Badge>}
-        {category && <Badge tone={CATEGORY_TONE[category]}>{formatCategory(category)}</Badge>}
-        {target && <span className="text-xs text-ink-muted">Focus: {target}</span>}
-      </div>
-      <p className="text-lg font-medium leading-relaxed text-ink">{questionText}</p>
+    <Card className="flex flex-col gap-3 animate-enter" key={questionText}>
+      {isFollowUp ? (
+        <p className="text-sm font-medium text-periwinkle">Let's explore that further.</p>
+      ) : (
+        target && (
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">{target}</p>
+        )
+      )}
+      <p className="text-xl font-medium leading-relaxed text-ink">{questionText}</p>
     </Card>
   )
 }

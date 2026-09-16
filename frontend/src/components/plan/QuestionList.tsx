@@ -28,7 +28,6 @@ export function QuestionList({ questions }: { questions: InterviewQuestion[] }) 
               <span className="text-xs text-ink-muted">Target: {question.target}</span>
             </div>
             <p className="text-sm font-medium text-ink">{question.text}</p>
-            <p className="mt-1 text-xs italic text-ink-muted">{question.grounding}</p>
           </li>
         ))}
       </ol>

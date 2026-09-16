@@ -2,6 +2,11 @@
 
 Nested under ``/jobs/{job_id}`` since a plan only exists in relation to an already-analysed
 job; this router does not change the behaviour of ``app.api.routes.jobs``.
+
+Access note: like ``app.api.routes.jobs``, these endpoints are NOT covered by the Milestone 4
+access boundary (see ``app.api.auth``) and are fully public. Resource-level authorization for
+interview plans is Milestone 6-B productionization work - do not assume or claim these are
+protected.
 """
 
 from __future__ import annotations

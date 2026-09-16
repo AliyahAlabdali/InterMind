@@ -26,11 +26,18 @@ class QuestionGenerationService:
     llm: LLMClient
 
     async def generate(
-        self, *, role_title: str, targets: list[tuple[str, str]]
+        self, *, role_title: str, targets: list[tuple[str, str]], onet_context: str = ""
     ) -> GeneratedQuestionSet:
         """Return one phrased question per ``(category, target_name)`` pair in ``targets``.
 
         ``category`` must be one of ``"competency"``, ``"technology"``, ``"task"``.
+
+        ``onet_context``, when non-empty, is supplementary occupational context (matched
+        occupation title plus a few relevance-filtered technologies/tasks - see
+        ``InterviewPlannerService._build_onet_context``) appended for the LLM to draw on when
+        *phrasing* questions. It is never itself a target: it must not change which or how
+        many questions are generated, and a real LLM must not invent a new requirement from it
+        - see ``interview_questions_v1.md``.
 
         Raises:
             app.core.exceptions.QuestionGenerationError: the provider's response - whether
@@ -42,6 +49,8 @@ class QuestionGenerationService:
 
         lines = [f"ROLE: {role_title}"]
         lines += [f"{category.upper()}: {name}" for category, name in targets]
+        if onet_context:
+            lines += ["", "ONET_CONTEXT:", onet_context]
         prompt = load_prompt(PROMPT_NAME, PROMPT_VERSION)
         result = await self.llm.generate_structured(
             prompt=prompt,

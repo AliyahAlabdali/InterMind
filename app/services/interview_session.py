@@ -18,9 +18,11 @@ from langgraph.types import Command
 
 from app.agents.interview_graph import build_graph_state
 from app.core.exceptions import InterviewAlreadyCompleted, InterviewStateUnavailable
+from app.domain.candidate import Candidate
 from app.domain.interview import InterviewState, InterviewStatus
 from app.domain.interview_plan import InterviewPlan
 from app.repositories.ports import (
+    CandidateRepository,
     InterviewPlanRepository,
     InterviewSession,
     InterviewSessionRepository,
@@ -101,16 +103,29 @@ class InterviewSessionService:
     graph: CompiledStateGraph
     plan_repo: InterviewPlanRepository
     session_repo: InterviewSessionRepository
+    candidate_repo: CandidateRepository
     locks: InterviewLockRegistry = field(default_factory=InterviewLockRegistry)
 
-    async def start(self, job_id: str) -> tuple[str, InterviewState]:
-        """Start a new interview thread from the job's existing plan.
+    async def start(
+        self, job_id: str, candidate_name: str = "Candidate", candidate_email: str = ""
+    ) -> tuple[str, InterviewState]:
+        """Start a new interview thread from the job's existing plan, for a named candidate.
+
+        Creates a new :class:`~app.domain.candidate.Candidate` and associates it with the new
+        :class:`~app.repositories.ports.InterviewSession` - see the recruiter-workflow
+        architecture review: the recruiter must be able to tell which candidate completed
+        which interview, so identity is captured at invitation time rather than left implicit.
 
         Raises:
             app.core.exceptions.InterviewPlanNotFound: no plan exists for ``job_id`` yet.
         """
         plan: InterviewPlan = await self.plan_repo.get(job_id)
-        session = await self.session_repo.add(InterviewSession(job_id=job_id))
+        candidate = await self.candidate_repo.add(
+            Candidate(name=candidate_name, email=candidate_email)
+        )
+        session = await self.session_repo.add(
+            InterviewSession(job_id=job_id, candidate_id=candidate.id)
+        )
 
         raw_state = await self.graph.ainvoke(
             build_graph_state(plan), config=_thread_config(session.id)

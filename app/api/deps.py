@@ -14,6 +14,7 @@ from app.llm.openai_client import OpenAIStructuredClient
 from app.llm.ports import LLMClient
 from app.observability.trace import TraceRecorder
 from app.repositories.ports import (
+    CandidateRepository,
     InterviewPlanRepository,
     InterviewReportRepository,
     InterviewSessionRepository,
@@ -38,6 +39,10 @@ def get_interview_plan_repository(request: Request) -> InterviewPlanRepository:
 
 def get_interview_session_repository(request: Request) -> InterviewSessionRepository:
     return request.app.state.interview_session_repository
+
+
+def get_candidate_repository(request: Request) -> CandidateRepository:
+    return request.app.state.candidate_repository
 
 
 def get_interview_report_repository(request: Request) -> InterviewReportRepository:
@@ -143,10 +148,15 @@ def get_interview_session_service(
     graph: CompiledStateGraph = Depends(get_interview_graph),
     plan_repo: InterviewPlanRepository = Depends(get_interview_plan_repository),
     session_repo: InterviewSessionRepository = Depends(get_interview_session_repository),
+    candidate_repo: CandidateRepository = Depends(get_candidate_repository),
     locks: InterviewLockRegistry = Depends(get_interview_lock_registry),
 ) -> InterviewSessionService:
     return InterviewSessionService(
-        graph=graph, plan_repo=plan_repo, session_repo=session_repo, locks=locks
+        graph=graph,
+        plan_repo=plan_repo,
+        session_repo=session_repo,
+        candidate_repo=candidate_repo,
+        locks=locks,
     )
 
 

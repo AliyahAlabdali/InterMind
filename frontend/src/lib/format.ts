@@ -1,5 +1,6 @@
 import type {
   EvidenceSource,
+  EvidenceStrength,
   QuestionCategory,
   Recommendation,
   Seniority,
@@ -34,6 +35,14 @@ const RECOMMENDATION_LABELS: Record<Recommendation, string> = {
   no_hire: "No Hire",
 }
 
+const EVIDENCE_STRENGTH_LABELS: Record<EvidenceStrength, string> = {
+  strong: "Strong evidence",
+  moderate: "Moderate evidence",
+  limited: "Limited evidence",
+  insufficient: "Insufficient evidence",
+  not_assessed: "Not assessed",
+}
+
 export function formatSeniority(value: Seniority): string {
   return SENIORITY_LABELS[value] ?? value
 }
@@ -48,6 +57,10 @@ export function formatSource(value: EvidenceSource): string {
 
 export function formatRecommendation(value: Recommendation): string {
   return RECOMMENDATION_LABELS[value] ?? value
+}
+
+export function formatEvidenceStrength(value: EvidenceStrength): string {
+  return EVIDENCE_STRENGTH_LABELS[value] ?? value
 }
 
 export function formatPercent(value: number | null, fractionDigits = 0): string {

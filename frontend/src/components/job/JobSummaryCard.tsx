@@ -56,9 +56,24 @@ export function JobSummaryCard({ job, onGeneratePlan, isGeneratingPlan }: JobSum
         </div>
       )}
 
-      <div className="flex justify-end border-t border-ivory-200 pt-4">
+      {spec.responsibilities.length > 0 && (
+        <div>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+            Responsibilities
+          </h3>
+          <ul className="flex flex-col gap-1.5">
+            {spec.responsibilities.map((responsibility) => (
+              <li key={responsibility} className="text-sm text-ink-soft">
+                {responsibility}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="flex justify-end border-t border-border pt-4">
         <Button onClick={onGeneratePlan} isLoading={isGeneratingPlan}>
-          Generate Interview Plan
+          Continue to Interview Plan
         </Button>
       </div>
     </Card>

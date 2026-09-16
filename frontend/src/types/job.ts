@@ -22,6 +22,7 @@ export interface JobSpec {
   seniority: Seniority
   skills: Skill[]
   competencies: Competency[]
+  responsibilities: string[]
   summary: string | null
 }
 

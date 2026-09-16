@@ -1,5 +1,20 @@
 const BASE_URL = import.meta.env.VITE_API_BASE_URL
 
+/**
+ * Milestone 4 recruiter access token (see `app.api.auth` on the backend) - a single shared
+ * credential standing in for "is a recruiter", not a per-user login. Attached by every
+ * recruiter-facing API call (jobs, plans, starting interviews, reports, candidate listings).
+ * Real recruiter accounts/login are out of scope until Milestone 6-B; see that module's
+ * docstring for the full rationale.
+ */
+export const RECRUITER_ACCESS_TOKEN: string = import.meta.env.VITE_RECRUITER_ACCESS_TOKEN ?? ""
+
+export interface RequestOptions {
+  /** `Authorization: Bearer <token>` to send - the recruiter token, or a candidate's own
+   * per-interview access token. Omitted only for the (rare) unauthenticated endpoint. */
+  token?: string
+}
+
 export class ApiError extends Error {
   status: number
 
@@ -27,13 +42,14 @@ async function parseErrorDetail(response: Response): Promise<string> {
   return `Request failed with status ${response.status}`
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, token?: string): Promise<T> {
   let response: Response
   try {
     response = await fetch(`${BASE_URL}${path}`, {
       ...init,
       headers: {
         "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...init?.headers,
       },
     })
@@ -53,13 +69,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
-export function apiGet<T>(path: string): Promise<T> {
-  return request<T>(path, { method: "GET" })
+export function apiGet<T>(path: string, options?: RequestOptions): Promise<T> {
+  return request<T>(path, { method: "GET" }, options?.token)
 }
 
-export function apiPost<T>(path: string, body?: unknown): Promise<T> {
-  return request<T>(path, {
-    method: "POST",
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
+export function apiPost<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
+  return request<T>(
+    path,
+    {
+      method: "POST",
+      body: body === undefined ? undefined : JSON.stringify(body),
+    },
+    options?.token,
+  )
 }

@@ -3,9 +3,11 @@ import pytest
 from app.core.exceptions import NoOccupationMatch
 from app.domain.interview_plan import EvidenceSource, QuestionCategory
 from app.domain.job import Competency, JobSpec, Skill
+from app.domain.occupation import OccupationMatch
 from app.knowledge.onet_kb import OnetKnowledgeBase
 from app.llm.fake_client import FakeLLMClient
 from app.services.interview_planner import InterviewPlannerService, _question_id
+from app.services.jd_analysis import JDAnalysisService
 from app.services.question_generation import QuestionGenerationService
 from tests.conftest import FIXTURES
 
@@ -25,6 +27,7 @@ def software_job_spec():
         role_title="Backend Software Engineer",
         skills=[Skill(name="Python", required=True), Skill(name="Docker", required=False)],
         competencies=[Competency(name="Critical Thinking")],
+        responsibilities=["Ship backend features.", "Review pull requests."],
         summary="Builds and maintains backend software services using Python.",
     )
 
@@ -38,43 +41,64 @@ async def test_plan_matches_expected_occupation(planner, software_job_spec):
     assert any(m.onet_soc_code == "35-2014.00" for m in plan.alternate_matches)
 
 
-async def test_competency_merge_marks_overlap_as_both(planner, software_job_spec):
+# --- JobSpec is the sole source of plan competencies/technologies/tasks --------------------
+
+
+async def test_competencies_come_only_from_the_jobspec(planner, software_job_spec):
+    plan = await planner.plan("job-1", software_job_spec)
+    names = {c.name for c in plan.competencies}
+    assert names == {"Critical Thinking"}  # the fixture occupation's other skills, e.g.
+    # "Programming"/"Active Learning", must not appear even though the match is reliable.
+    assert "Programming" not in names
+    assert "Active Learning" not in names
+
+
+async def test_competency_overlap_with_onet_is_annotated_not_added(planner, software_job_spec):
+    """"Critical Thinking" is in both the JobSpec and the matched occupation's skill list -
+    that's an annotation (BOTH) on an existing JD item, not a new O*NET-sourced entry."""
     plan = await planner.plan("job-1", software_job_spec)
     by_name = {c.name: c for c in plan.competencies}
-
-    # "Critical Thinking" is in both the JobSpec and the matched occupation's skill list.
     assert by_name["Critical Thinking"].source == EvidenceSource.BOTH
     assert by_name["Critical Thinking"].onet_importance == 4.0
-
-    # "Programming" only comes from O*NET.
-    assert by_name["Programming"].source == EvidenceSource.ONET
-    assert by_name["Programming"].onet_importance == 4.8
+    assert all(c.source is not EvidenceSource.ONET for c in plan.competencies)
 
 
-async def test_technology_merge_marks_overlap_as_both(planner, software_job_spec):
+async def test_technologies_come_only_from_the_jobspec(planner, software_job_spec):
+    plan = await planner.plan("job-1", software_job_spec)
+    names = {t.name for t in plan.technologies}
+    assert names == {"Python", "Docker"}
+    # The fixture occupation's own "Git" technology must not appear just because the match
+    # is reliable.
+    assert "Git" not in names
+    assert all(t.source is not EvidenceSource.ONET for t in plan.technologies)
+
+
+async def test_technology_overlap_with_onet_is_annotated_not_added(planner, software_job_spec):
     plan = await planner.plan("job-1", software_job_spec)
     by_name = {t.name: t for t in plan.technologies}
-
-    # "Python" is in both the JobSpec and the matched occupation's technology list.
     assert by_name["Python"].source == EvidenceSource.BOTH
     assert by_name["Python"].hot is True
-
-    # "Docker" only comes from the JobSpec (not in the fixture occupation's tech list).
     assert by_name["Docker"].source == EvidenceSource.JOBSPEC
 
-    # "Git" only comes from O*NET.
-    assert by_name["Git"].source == EvidenceSource.ONET
 
-
-async def test_tasks_come_from_matched_occupation(planner, software_job_spec):
+async def test_tasks_come_only_from_jobspec_responsibilities(planner, software_job_spec):
     plan = await planner.plan("job-1", software_job_spec)
-    assert len(plan.tasks) == 2
-    assert any("Analyze user needs" in t.task for t in plan.tasks)
-    # JobSpec has no task-level field, so every selected task's provenance is O*NET only.
-    assert all(t.source == EvidenceSource.ONET for t in plan.tasks)
+    task_texts = {t.task for t in plan.tasks}
+    assert task_texts == {"Ship backend features.", "Review pull requests."}
+    # The fixture occupation's own core tasks ("Analyze user needs...") must not appear.
+    assert not any("Analyze user needs" in t for t in task_texts)
+    assert all(t.source == EvidenceSource.JOBSPEC for t in plan.tasks)
 
 
-async def test_questions_cover_all_categories_and_are_grounded(planner, software_job_spec):
+async def test_no_responsibilities_in_jobspec_means_no_tasks(planner):
+    """Tasks have no O*NET fallback anymore - an empty JobSpec.responsibilities means an
+    empty plan.tasks, never a copy of the matched occupation's core tasks."""
+    job_spec = JobSpec(role_title="Software Developer")
+    plan = await planner.plan("job-2", job_spec)
+    assert plan.tasks == []
+
+
+async def test_questions_cover_only_categories_with_jobspec_content(planner, software_job_spec):
     plan = await planner.plan("job-1", software_job_spec)
     categories = {q.category for q in plan.questions}
     expected = {QuestionCategory.COMPETENCY, QuestionCategory.TECHNOLOGY, QuestionCategory.TASK}
@@ -83,9 +107,9 @@ async def test_questions_cover_all_categories_and_are_grounded(planner, software
         assert q.id
         assert q.text
         assert q.grounding
-
-    competency_q = next(q for q in plan.questions if q.category == QuestionCategory.COMPETENCY)
-    assert "O*NET" in competency_q.grounding or "Job description" in competency_q.grounding
+        # Every question is grounded in the job description first - O*NET may be mentioned as
+        # secondary corroboration (for BOTH-sourced items) but is never the primary source.
+        assert q.grounding.lower().startswith("job description")
 
 
 async def test_questions_have_no_duplicate_text(planner, software_job_spec):
@@ -114,21 +138,109 @@ async def test_caps_are_respected(software_job_spec):
     assert len(plan.questions) <= 4
 
 
-async def test_plan_with_minimal_jobspec_falls_back_to_onet_signal(planner):
-    job_spec = JobSpec(role_title="Software Developer")
-    plan = await planner.plan("job-2", job_spec)
-    assert plan.occupation_match.onet_soc_code == "15-1252.00"
-    assert all(c.source == EvidenceSource.ONET for c in plan.competencies)
-    assert all(t.source == EvidenceSource.ONET for t in plan.technologies)
-    assert len(plan.questions) > 0
-
-
 async def test_no_occupation_match_raises_when_kb_cannot_rank(
     planner, software_job_spec, monkeypatch
 ):
     monkeypatch.setattr(planner.knowledge_base, "match_jobspec", lambda job_spec, top_k=5: [])
     with pytest.raises(NoOccupationMatch):
         await planner.plan("job-1", software_job_spec)
+
+
+# --- O*NET context for question generation (never a plan requirement) ----------------------
+
+
+async def test_reliable_match_makes_onet_context_available(planner, software_job_spec):
+    """A confident match still contributes *context* for question phrasing - the JD-only
+    rule for plan.competencies/technologies/tasks must not make O*NET pointless."""
+    plan = await planner.plan("job-1", software_job_spec)
+    assert plan.onet_grounding_used is True
+
+    context = planner._build_onet_context(software_job_spec, _occupation(planner), True, True)
+    assert "Software Developers" in context
+    assert "Git" in context  # occupation-specific, not JD-required - genuine context signal
+
+
+async def test_onet_context_never_repeats_an_existing_jobspec_item(planner, software_job_spec):
+    """"Python" is already a JD requirement - it must not also show up as "new" O*NET context
+    (that would look like O*NET independently corroborating a requirement it didn't source)."""
+    context = planner._build_onet_context(software_job_spec, _occupation(planner), True, True)
+    assert "- Python" not in context
+
+
+async def test_weak_ambiguous_match_produces_no_onet_context(
+    planner, software_job_spec, monkeypatch
+):
+    """Regression test for the reported bug: a job description that only weakly/ambiguously
+    matches an O*NET occupation (here simulated with two near-tied low scores, mirroring the
+    real "Senior Backend Software Engineer" -> "Forest Fire Inspectors" 0.1346 vs "Validation
+    Engineers" 0.1309 case) must not surface that occupation's content as context, and - as
+    always now - the plan itself is JD-only regardless.
+    """
+    monkeypatch.setattr(
+        planner.knowledge_base,
+        "match_jobspec",
+        lambda job_spec, top_k=5: [
+            OccupationMatch(onet_soc_code="15-1252.00", title="Software Developers", score=0.135),
+            OccupationMatch(onet_soc_code="35-2014.00", title="Cooks, Restaurant", score=0.131),
+        ],
+    )
+
+    plan = await planner.plan("job-1", software_job_spec)
+
+    assert plan.onet_grounding_used is False
+    assert {c.name for c in plan.competencies} == {"Critical Thinking"}
+    assert {t.name for t in plan.technologies} == {"Python", "Docker"}
+    assert all(c.source is not EvidenceSource.ONET for c in plan.competencies)
+    assert all(t.source is not EvidenceSource.ONET for t in plan.technologies)
+    # The match itself is still surfaced for transparency - just not used as a signal source.
+    assert plan.occupation_match.onet_soc_code == "15-1252.00"
+
+
+async def test_weak_match_with_no_alternates_only_needs_the_absolute_floor(
+    planner, software_job_spec, monkeypatch
+):
+    """With nothing to compare against (e.g. a tiny KB), there is no ambiguity to detect - only
+    the absolute-score floor applies."""
+    monkeypatch.setattr(
+        planner.knowledge_base,
+        "match_jobspec",
+        lambda job_spec, top_k=5: [
+            OccupationMatch(onet_soc_code="15-1252.00", title="Software Developers", score=0.02),
+        ],
+    )
+    plan = await planner.plan("job-1", software_job_spec)
+    assert plan.onet_grounding_used is False  # below the absolute floor
+
+
+async def test_borderline_reliable_match_offers_no_technology_context(
+    planner, software_job_spec, monkeypatch
+):
+    """A match can clear the general reliability gate (so task context / BOTH-merges still
+    happen) while still being too borderline to offer a brand-new technology as context -
+    mirroring the real "Backend Software Engineer" -> "Health Informatics Specialists" case,
+    where a 0.0201 gap/1.195 ratio was enough to pass the general gate but let through
+    unrelated technologies (e.g. "Microsoft Power BI", "R") in the pre-this-pass design."""
+    monkeypatch.setattr(
+        planner.knowledge_base,
+        "match_jobspec",
+        lambda job_spec, top_k=5: [
+            OccupationMatch(onet_soc_code="15-1252.00", title="Software Developers", score=0.15),
+            OccupationMatch(onet_soc_code="35-2014.00", title="Cooks, Restaurant", score=0.14),
+        ],
+    )
+    plan = await planner.plan("job-1", software_job_spec)
+    assert plan.onet_grounding_used is True  # general gate: 0.01 gap / 1.071 ratio clears it
+    # "Python" is already JD-required, so annotating it with O*NET metadata (-> BOTH) is not
+    # "adding a new O*NET technology" and must still happen.
+    by_name = {t.name: t for t in plan.technologies}
+    assert by_name["Python"].source == EvidenceSource.BOTH
+    # No O*NET-only technology reaches the plan either way (JD-only by construction) - and the
+    # match isn't confident enough (0.01 gap / 1.071 ratio - well under the 0.03/1.3 bar) for
+    # "Git" to be offered even as context.
+    context = planner._build_onet_context(
+        software_job_spec, _occupation(planner), True, confident_for_tech_context=False
+    )
+    assert "Git" not in context
 
 
 async def test_rebuilding_the_same_plan_produces_stable_question_ids_and_order(
@@ -159,3 +271,171 @@ async def test_question_id_does_not_depend_on_phrased_text(planner, software_job
 
     # Same job id, category, and target -> same id, even with completely different text.
     assert competency_q.id == _question_id("job-1", competency_q.category, competency_q.target)
+
+
+# --- end-to-end: JD text -> JobSpec -> plan -> question text quality ---------------------
+
+
+async def test_end_to_end_questions_never_leak_a_job_title_label(planner):
+    """Full pipeline regression test: a JD pasted with a "Job Title: X" header line must never
+    produce a question containing that literal label (the exact bug reported in the product
+    review - "As a Job Title: Digital Marketing Specialist, tell me about...")."""
+    jd_service = JDAnalysisService(llm=FakeLLMClient())
+    job_spec = await jd_service.analyze(
+        "Job Title: Digital Marketing Specialist\n\n"
+        "We are hiring a Digital Marketing Specialist to plan and execute campaigns across "
+        "social media, email, and SEO/SEM channels. Strong analytical and leadership skills "
+        "required."
+    )
+    assert job_spec.role_title == "Digital Marketing Specialist"
+
+    plan = await planner.plan("job-marketing", job_spec)
+    assert plan.questions, "expected at least one generated question"
+    for q in plan.questions:
+        assert "job title:" not in q.text.lower()
+        assert "as a job title" not in q.text.lower()
+
+
+async def test_end_to_end_questions_do_not_repeat_the_template_construction(planner):
+    """The literal "tell me about a time you demonstrated {competency}" fill-in-the-blank
+    construction must not appear in generated questions."""
+    job_spec = JobSpec(
+        role_title="Digital Marketing Specialist",
+        competencies=[Competency(name="Leadership")],
+    )
+    plan = await planner.plan("job-marketing-2", job_spec)
+    competency_questions = [q for q in plan.questions if q.category == QuestionCategory.COMPETENCY]
+    assert competency_questions
+    for q in competency_questions:
+        assert "tell me about a time you demonstrated" not in q.text.lower()
+
+
+# --- ubiquity/relevance gates on O*NET *context* (enrich, never redefine the job) -----------
+#
+# These use a purpose-built, larger fixture KB (24 occupations) rather than the 2-occupation
+# fixture above: the ubiquity gate needs enough occupations for a prevalence fraction to be
+# statistically meaningful (see `_MIN_OCCUPATIONS_FOR_PREVALENCE_STAT`). "Generic Office Suite"
+# stands in for real-world ubiquitous tools like Microsoft Excel/Office - the fixture proves the
+# *mechanism* generalizes without hard-coding any specific product name.
+
+UBIQUITY_FIXTURE_KB_PATH = FIXTURES / "onet_kb_ubiquity_fixture.jsonl"
+
+
+@pytest.fixture
+def ubiquity_planner():
+    kb = OnetKnowledgeBase(path=UBIQUITY_FIXTURE_KB_PATH)
+    question_service = QuestionGenerationService(llm=FakeLLMClient())
+    return InterviewPlannerService(knowledge_base=kb, question_service=question_service)
+
+
+@pytest.fixture
+def backend_job_spec():
+    return JobSpec(
+        role_title="Backend Software Engineer",
+        skills=[
+            Skill(name="Python", required=True),
+            Skill(name="Docker", required=False),
+        ],
+        competencies=[Competency(name="Critical Thinking")],
+        summary="Builds backend software engineer services using Python.",
+    )
+
+
+def _occupation(planner: InterviewPlannerService, code: str = "15-1252.00"):
+    return planner.knowledge_base.get_occupation(code)
+
+
+async def test_ubiquitous_onet_technology_is_not_offered_as_context(
+    ubiquity_planner, backend_job_spec
+):
+    """A technology present in almost every occupation in the KB (a stand-in for Microsoft
+    Excel/Office) must not be offered as context just because the matched occupation lists
+    it - it carries no real signal about *this* job. It was never eligible to reach
+    plan.technologies at all under the new architecture (JD-only)."""
+    plan = await ubiquity_planner.plan("job-1", backend_job_spec)
+    assert "Generic Office Suite" not in {t.name for t in plan.technologies}
+
+    occupation = _occupation(ubiquity_planner)
+    context = ubiquity_planner._build_onet_context(backend_job_spec, occupation, True, True)
+    assert "Generic Office Suite" not in context
+
+
+async def test_occupation_specific_onet_technology_still_offered_as_context(
+    ubiquity_planner, backend_job_spec
+):
+    """A technology that is *not* ubiquitous across the KB (present in only this occupation)
+    is still offered as context - the ubiquity gate must not suppress genuinely specific
+    signal, even though (per the new architecture) it never becomes a plan requirement."""
+    occupation = _occupation(ubiquity_planner)
+    context = ubiquity_planner._build_onet_context(backend_job_spec, occupation, True, True)
+    assert "Git" in context
+
+    plan = await ubiquity_planner.plan("job-1", backend_job_spec)
+    assert "Git" not in {t.name for t in plan.technologies}  # never a plan requirement
+
+
+async def test_onet_core_task_irrelevant_to_jobspec_is_filtered_from_context(
+    ubiquity_planner, backend_job_spec
+):
+    """Regression test for the reported bug's root cause: an O*NET "core task" is only proof
+    that the task matters *to the matched occupation*, never proof that it's relevant to this
+    JobSpec. The fixture's matched occupation includes one task lifted from an unrelated
+    domain (clinical/nursing) alongside two genuinely relevant ones - only the relevant ones
+    may appear as context, and none of them ever reach plan.tasks (JD-only)."""
+    occupation = _occupation(ubiquity_planner)
+    context = ubiquity_planner._build_onet_context(backend_job_spec, occupation, True, True)
+    assert "clinical" not in context.lower()
+    assert "patients" not in context.lower()
+    assert "software requirements" in context
+    assert "testing or validation" in context
+
+    plan = await ubiquity_planner.plan("job-1", backend_job_spec)
+    assert plan.tasks == []  # backend_job_spec has no `responsibilities` - nothing to show
+
+
+async def test_jd_required_technology_remains_a_target_regardless_of_onet(
+    ubiquity_planner, backend_job_spec
+):
+    """The JD is authoritative: a JobSpec-required skill is a target no matter what O*NET
+    says about the matched occupation."""
+    plan = await ubiquity_planner.plan("job-1", backend_job_spec)
+    by_name = {t.name: t for t in plan.technologies}
+    assert by_name["Python"].source == EvidenceSource.BOTH  # required + also in O*NET
+    assert by_name["Docker"].source == EvidenceSource.JOBSPEC  # required, O*NET-absent
+    tech_questions = [q for q in plan.questions if q.category == QuestionCategory.TECHNOLOGY]
+    assert any(q.target == "Python" for q in tech_questions)
+    assert any(q.target == "Docker" for q in tech_questions)
+
+
+async def test_jd_preferred_technology_keeps_preferred_provenance(ubiquity_planner):
+    """A JD "preferred" (not required) skill must remain distinguishable as preferred, not
+    silently collapse into "required" or disappear."""
+    job_spec = JobSpec(
+        role_title="Backend Software Engineer",
+        skills=[
+            Skill(name="Python", required=True),
+            Skill(name="Kubernetes", required=False),
+        ],
+        summary="Builds backend software engineer services using Python.",
+    )
+    plan = await ubiquity_planner.plan("job-1", job_spec)
+    by_name = {t.name: t for t in plan.technologies}
+    assert by_name["Python"].required is True
+    assert by_name["Kubernetes"].required is False
+    assert set(by_name) == {"Python", "Kubernetes"}  # no O*NET-only technology present at all
+
+
+async def test_onet_cannot_redefine_the_job_even_with_unrelated_occupation_content(
+    ubiquity_planner, backend_job_spec
+):
+    """Test E: an occupation record containing obviously unrelated technologies/tasks (this
+    fixture's matched occupation includes a near-universal "Generic Office Suite" and a
+    clinical/nursing task with no relation to backend engineering) must not change the plan's
+    requirements at all - plan.competencies/technologies/tasks are exactly what the JobSpec
+    itself states, full stop."""
+    plan = await ubiquity_planner.plan("job-1", backend_job_spec)
+
+    assert {c.name for c in plan.competencies} == {c.name for c in backend_job_spec.competencies}
+    assert {t.name for t in plan.technologies} == {s.name for s in backend_job_spec.skills}
+    assert {t.task for t in plan.tasks} == set(backend_job_spec.responsibilities)
+    assert plan.tasks == []  # backend_job_spec states no responsibilities

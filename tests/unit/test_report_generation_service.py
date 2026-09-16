@@ -92,8 +92,12 @@ async def test_llm_failure_does_not_corrupt_deterministic_scoring():
 
     # A usable fallback narrative is still produced - the report generation call didn't fail.
     assert report.summary
-    assert "0.80" in report.summary
-    assert report.strengths == ["Gave a concrete example"]
+    # The summary describes the candidate's performance in plain language - it must never
+    # expose the raw score or the scoring mechanism (see the report-quality review).
+    assert "0.80" not in report.summary
+    assert "deterministic" not in report.summary.lower()
+    assert "hire" in report.summary.lower()
+    assert report.strengths == ["Ownership: Gave a concrete example"]
 
     # No secret/raw provider detail leaked into the report from the failed LLM call.
     assert "sk-XYZ" not in report.summary

@@ -31,7 +31,14 @@ class EvidenceSource(StrEnum):
 
 
 class CompetencyCoverage(BaseModel):
-    """One competency selected for the interview plan, with its provenance."""
+    """One competency selected for the interview plan, with its provenance.
+
+    Always sourced from :attr:`~app.domain.job.JobSpec.competencies` - ``source`` is
+    ``jobspec`` normally, or ``both`` when the matched O*NET occupation happens to rate the
+    same competency (in which case ``onet_importance``/``onet_level`` are also populated).
+    O*NET never contributes a *new* competency the JD didn't already name; see the module
+    docstring in ``app.services.interview_planner``.
+    """
 
     name: str
     source: EvidenceSource
@@ -40,26 +47,35 @@ class CompetencyCoverage(BaseModel):
 
 
 class SelectedTechnology(BaseModel):
-    """One technology selected for the interview plan, with its provenance."""
+    """One technology selected for the interview plan, with its provenance.
+
+    Always sourced from :attr:`~app.domain.job.JobSpec.skills` - ``source`` is ``jobspec``
+    normally, or ``both`` when the matched O*NET occupation also lists the same technology (in
+    which case ``hot``/``in_demand`` are also populated). O*NET never contributes a *new*
+    technology the JD didn't already name; see the module docstring in
+    ``app.services.interview_planner``. ``required`` mirrors the JobSpec skill's own
+    required/preferred flag (see :class:`~app.domain.job.Skill`).
+    """
 
     name: str
     source: EvidenceSource
+    required: bool | None = None
     hot: bool = False
     in_demand: bool = False
 
 
 class SelectedTask(BaseModel):
-    """One O*NET core task selected for the interview plan.
+    """One responsibility/task selected for the interview plan, with its provenance.
 
-    ``source`` is always :attr:`EvidenceSource.ONET`: JobSpec has no task-level field to
-    supply an alternate provenance (see :class:`~app.domain.job.JobSpec`), so there is no
-    ``jobspec``/``both`` case to represent here. The field exists for schema consistency with
-    :class:`CompetencyCoverage` and :class:`SelectedTechnology`, not because O*NET or the
-    JobSpec support any other task provenance - nothing is invented.
+    Sourced from :attr:`~app.domain.job.JobSpec.responsibilities` (the JD's own stated
+    duties) - ``source`` is ``jobspec`` in the overwhelming majority of cases. ``both`` is
+    possible but rare: it only fires when a JD responsibility happens to normalize to the
+    exact same text as one of the matched occupation's O*NET core tasks. O*NET never supplies
+    a *new* task on its own; see the module docstring in ``app.services.interview_planner``.
     """
 
     task: str
-    source: EvidenceSource = EvidenceSource.ONET
+    source: EvidenceSource
 
 
 class InterviewQuestion(BaseModel):
@@ -78,6 +94,18 @@ class InterviewPlan(BaseModel):
     job_id: str
     occupation_match: OccupationMatch
     alternate_matches: list[OccupationMatch] = Field(default_factory=list)
+    onet_grounding_used: bool = Field(
+        default=True,
+        description=(
+            "Whether the matched O*NET occupation actually contributed usable context to "
+            "question generation (see InterviewPlannerService._build_onet_context). This has "
+            "never meant O*NET items were added to competencies/technologies/tasks below - "
+            "those are always JobSpec-only (see EvidenceSource) - only whether O*NET was used "
+            "to help *phrase* questions. False means the match was too weak/ambiguous, or "
+            "simply had nothing relevant to offer this JobSpec; occupation_match/"
+            "alternate_matches are still returned for transparency either way."
+        ),
+    )
     competencies: list[CompetencyCoverage] = Field(default_factory=list)
     technologies: list[SelectedTechnology] = Field(default_factory=list)
     tasks: list[SelectedTask] = Field(default_factory=list)

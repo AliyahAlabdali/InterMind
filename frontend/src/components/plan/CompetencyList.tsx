@@ -1,7 +1,10 @@
 import type { CompetencyCoverage } from "../../types"
 import { Card } from "../ui/Card"
-import { ProvenanceBadge } from "../ui/ProvenanceBadge"
 
+// Internal knowledge-source provenance (job description vs. O*NET) is intentionally not shown
+// here - a recruiter needs to know what the interview will assess, not which internal system
+// produced each item. Provenance stays on `competency.source` for debugging, auditability, and
+// a possible future "Why is this included?" interaction - see ProvenanceBadge/formatSource.
 export function CompetencyList({ competencies }: { competencies: CompetencyCoverage[] }) {
   if (competencies.length === 0) return null
 
@@ -17,14 +20,6 @@ export function CompetencyList({ competencies }: { competencies: CompetencyCover
             className="flex flex-wrap items-center justify-between gap-2 border-b border-ivory-200 pb-3 last:border-0 last:pb-0"
           >
             <span className="text-sm font-medium text-ink">{competency.name}</span>
-            <div className="flex items-center gap-2">
-              {competency.onet_importance !== null && (
-                <span className="text-xs text-ink-muted">
-                  Importance {competency.onet_importance.toFixed(1)}
-                </span>
-              )}
-              <ProvenanceBadge source={competency.source} />
-            </div>
           </li>
         ))}
       </ul>

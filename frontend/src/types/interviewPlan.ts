@@ -35,6 +35,7 @@ export interface InterviewPlan {
   job_id: string
   occupation_match: OccupationMatch
   alternate_matches: OccupationMatch[]
+  onet_grounding_used: boolean
   competencies: CompetencyCoverage[]
   technologies: SelectedTechnology[]
   tasks: SelectedTask[]

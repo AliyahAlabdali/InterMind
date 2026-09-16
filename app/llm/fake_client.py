@@ -6,6 +6,7 @@ Used by the test suite and for local development without an API key
 
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import TypeVar
 
@@ -19,13 +20,44 @@ from app.domain.report import ReportNarrative
 
 T = TypeVar("T", bound=BaseModel)
 
-_QUESTION_TEMPLATES = {
-    "competency": "As a {role}, tell me about a time you demonstrated {target}.",
-    "technology": "As a {role}, walk me through a project where you used {target} to solve a "
-    "real problem.",
-    "task": "As a {role}, how would you approach the following responsibility: {target}",
-}
+# Deliberately not a single rigid "As a {role}, tell me about a time you demonstrated
+# {target}." template: that literal construction (and the raw competency-name-drop) reads as
+# an obvious fill-in-the-blank to a candidate. Several natural-language variants per category,
+# chosen deterministically per (category, target) via `_variant_index` below, so the same
+# request always phrases the same way (test determinism) while different targets in the same
+# plan don't all read identically. Still a generic, offline, no-LLM approximation - it cannot
+# infer true domain-specific verbs (e.g. "marketing campaign" vs "backend service") the way a
+# real LLM does with the `interview_questions_v1.md` prompt; it only weaves in the role title
+# text itself, which for most JDs already carries the domain word.
+_COMPETENCY_QUESTION_TEMPLATES = [
+    "Tell me about a specific time {target_lower} mattered in your work as a {role}. What was "
+    "the situation, and what did you do?",
+    "Describe a project or moment from your experience as a {role} where {target_lower} made a "
+    "real difference. What was the outcome?",
+    "Walk me through a situation where you had to rely on {target_lower} as a {role}. What "
+    "approach did you take, and how did it turn out?",
+]
+_TECHNOLOGY_QUESTION_TEMPLATES = [
+    "Tell me about a project where you used {target} as a {role}. What problem were you "
+    "solving, and what tradeoffs did you make?",
+    "Walk me through how you've applied {target} in your work as a {role}. What challenges "
+    "came up, and how did you handle them?",
+    "Describe a time {target} was central to something you built or maintained as a {role}. "
+    "What was the result?",
+]
+_TASK_QUESTION_TEMPLATES = [
+    'One of the responsibilities for this role is: "{target}" How would you approach this as '
+    "a {role}, and what would you prioritize first?",
+    'This role involves the following: "{target}" Walk me through how you would handle that '
+    "as a {role}.",
+]
 _DEFAULT_ROLE = "professional"
+
+
+def _variant_index(key: str, count: int) -> int:
+    """Deterministic 0..count-1 index for ``key`` (stable across processes/runs)."""
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    return int(digest, 16) % count
 
 
 # --- Deterministic, offline JD "analysis" ---------------------------------------------------
@@ -99,8 +131,9 @@ _SKILL_VOCAB: list[tuple[str, re.Pattern[str]]] = [
 # the skill vocabulary above since these map to JobSpec.competencies, not JobSpec.skills.
 _COMPETENCY_VOCAB: list[tuple[str, re.Pattern[str]]] = [
     ("Problem Solving", re.compile(r"\bproblem[\s-]solving\b", re.IGNORECASE)),
+    ("Critical Thinking", re.compile(r"\bcritical\s*thinking\b", re.IGNORECASE)),
     ("Analytical Thinking", re.compile(r"\banalytical\b", re.IGNORECASE)),
-    ("Collaboration", re.compile(r"\bcollaborat\w*\b", re.IGNORECASE)),
+    ("Collaboration", re.compile(r"\bcollaborat\w*\b|\bteam\s*work\b", re.IGNORECASE)),
     ("Communication", re.compile(r"\bcommunicat\w*\b", re.IGNORECASE)),
     ("Mentoring", re.compile(r"\bmentor\w*\b", re.IGNORECASE)),
     ("Leadership", re.compile(r"\bleadership\b", re.IGNORECASE)),
@@ -109,6 +142,48 @@ _COMPETENCY_VOCAB: list[tuple[str, re.Pattern[str]]] = [
 # A "Preferred"/"Nice to have"-style heading marks everything after it as not-required,
 # mirroring the real jd_analysis prompt's own required/preferred rule.
 _PREFERRED_SECTION = re.compile(r"(?im)^\s*preferred\b")
+
+# A JD's "Responsibilities"/"Duties" section header, and the headers of sections that follow
+# it (which mark where the responsibilities list ends). Generic section-heading vocabulary,
+# not tied to any specific role.
+_RESPONSIBILITY_SECTION_HEADER = re.compile(
+    r"(?im)^\s*(?:key\s+)?(?:responsibilities|duties|what\s+you.?ll\s+do)\s*:?\s*$"
+)
+_NEXT_SECTION_HEADER = re.compile(
+    r"(?im)^\s*(?:requirements?|preferred|qualifications?|nice\s+to\s+have|"
+    r"(?:required|desired)\s+skills?|about\s+you|benefits?)\s*:?\s*$"
+)
+_BULLET_LINE = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+(\S.*)$")
+
+# Many pasted JDs open with a labelled header line ("Job Title: X", "Position: X", "Role: X")
+# rather than the bare title itself. Strip the label so the extracted role_title is just "X" -
+# otherwise it leaks verbatim into every downstream question (e.g. "As a Job Title: Digital
+# Marketing Specialist, ...").
+_ROLE_TITLE_LABEL = re.compile(
+    r"^\s*(?:job\s*title|job|title|position|role)\s*[:\-]\s*", re.IGNORECASE
+)
+
+# A JD sometimes opens directly with a full sentence instead of a standalone title line (e.g.
+# "We are looking for AI Engineer, she must have ..." all on one line) - without this, "first
+# non-blank line" swallows the entire paragraph as the role title. Generic hiring-intro phrases,
+# not tied to any specific role name.
+_ROLE_INTRO_PHRASE = re.compile(
+    r"\bwe(?:'re| are)\s+(?:currently\s+)?(?:looking\s+for|seeking|hiring(?:\s+for)?)\s+|"
+    r"\bwe\s+(?:currently\s+)?need\s+|"
+    r"\bwe(?:'re| are)\s+in\s+need\s+of\s+",
+    re.IGNORECASE,
+)
+_LEADING_ARTICLE = re.compile(r"^(?:an?|the)\s+", re.IGNORECASE)
+
+# Where a role title extracted from a sentence (rather than a standalone line) should end: the
+# first clause boundary - punctuation, or a relative/continuation clause ("who will...", "to
+# design...", "she must...", "and will..."). Whichever comes first wins.
+_TITLE_CLAUSE_END = re.compile(
+    r"[,.;:]|\b(?:who|that|which|to|and)\b|\b(?:she|he|they|it|you)\s+\w+", re.IGNORECASE
+)
+
+_MAX_STANDALONE_TITLE_WORDS = 7
+_MAX_STANDALONE_TITLE_CHARS = 80
 
 
 def _detect_seniority(text: str) -> Seniority:
@@ -139,6 +214,86 @@ def _extract_competencies(text: str) -> list[Competency]:
     return [Competency(name=name) for name, pattern in _COMPETENCY_VOCAB if pattern.search(text)]
 
 
+def _looks_like_standalone_title(line: str) -> bool:
+    """Whether ``line`` is short and clause-free enough to trust as a title verbatim.
+
+    A bare title line ("AI Engineer", "Senior Backend Software Engineer") has no internal
+    clause breaks; a sentence ("We are looking for AI Engineer, she must have...") does, and/or
+    runs long - either is a sign this line is prose, not a title, and needs the phrase/clause
+    extraction in `_extract_role_title` instead of being used as-is.
+    """
+    if not line or len(line) > _MAX_STANDALONE_TITLE_CHARS:
+        return False
+    if len(line.split()) > _MAX_STANDALONE_TITLE_WORDS:
+        return False
+    return _TITLE_CLAUSE_END.search(line) is None
+
+
+def _extract_role_title(input_text: str) -> str:
+    """Extract a concise role title, never an entire sentence/paragraph.
+
+    Tries, in order: (1) an explicit label ("Job Title:"/"Position:"/"Role:"), (2) the first
+    line as-is if it already looks like a standalone title, (3) a generic hiring-intro phrase
+    ("We are looking for ...", "We are seeking ...", "We need a/an ...") which may appear
+    anywhere in a JD that opens directly with a sentence rather than a title line, cut at the
+    first clause boundary, and (4) as a last resort, the first clause of the first line rather
+    than the whole thing. Generic throughout - no role name is hard-coded.
+    """
+    first_line = next((line.strip() for line in input_text.splitlines() if line.strip()), "")
+    if not first_line:
+        return "Unknown Role"
+
+    labeled = _ROLE_TITLE_LABEL.sub("", first_line).strip()
+    if labeled != first_line:
+        return (labeled or "Unknown Role")[:_ROLE_TITLE_MAX_LEN]
+
+    if _looks_like_standalone_title(first_line):
+        return first_line[:_ROLE_TITLE_MAX_LEN]
+
+    intro_match = _ROLE_INTRO_PHRASE.search(first_line)
+    if intro_match:
+        remainder = _LEADING_ARTICLE.sub("", first_line[intro_match.end() :])
+        end_match = _TITLE_CLAUSE_END.search(remainder)
+        candidate = (remainder[: end_match.start()] if end_match else remainder).strip(" .,;:-")
+        if candidate:
+            return candidate[:_ROLE_TITLE_MAX_LEN]
+
+    end_match = _TITLE_CLAUSE_END.search(first_line)
+    fallback = (first_line[: end_match.start()] if end_match else first_line).strip(" .,;:-")
+    return (fallback or "Unknown Role")[:_ROLE_TITLE_MAX_LEN]
+
+
+def _extract_responsibilities(text: str) -> list[str]:
+    """Pull the bullet list under a "Responsibilities"/"Duties" section header, if any.
+
+    Generic section-header/bullet detection, not tied to any specific JD's wording. A bullet
+    that wraps onto an indented continuation line (no marker of its own) is joined back onto
+    the previous item rather than dropped. Returns `[]` when the JD has no such section (e.g.
+    a short, unstructured JD) - responsibilities are only ever what the JD actually states.
+    """
+    lines = text.splitlines()
+    header_idx = next(
+        (i for i, line in enumerate(lines) if _RESPONSIBILITY_SECTION_HEADER.match(line)), None
+    )
+    if header_idx is None:
+        return []
+
+    items: list[str] = []
+    for line in lines[header_idx + 1 :]:
+        if _NEXT_SECTION_HEADER.match(line):
+            break
+        if not line.strip():
+            continue
+        bullet = _BULLET_LINE.match(line)
+        if bullet:
+            items.append(bullet.group(1).strip())
+        elif items and line[:1].isspace():
+            items[-1] = f"{items[-1]} {line.strip()}".strip()
+        else:
+            break
+    return items
+
+
 def _fake_summary(role_title: str, seniority: Seniority, skills: list[Skill]) -> str:
     detail = f" covering {', '.join(s.name for s in skills[:6])}" if skills else ""
     level = f"{seniority.value} " if seniority != Seniority.UNKNOWN else ""
@@ -148,23 +303,21 @@ def _fake_summary(role_title: str, seniority: Seniority, skills: list[Skill]) ->
 def _fake_analyze_job(input_text: str) -> JobSpec:
     """Deterministic, offline stand-in for a real JD-analysis LLM call.
 
-    Extracts the role title (first non-blank line - unchanged from before), seniority, and
-    known skill/competency vocabulary directly from ``input_text``, so different job
-    descriptions deterministically produce different ``JobSpec``s instead of one fixed canned
-    response.
+    Extracts the role title, seniority, and known skill/competency vocabulary, plus any stated
+    responsibilities, directly from ``input_text``, so different job descriptions
+    deterministically produce different ``JobSpec``s instead of one fixed canned response.
     """
-    role_title = next(
-        (line.strip() for line in input_text.splitlines() if line.strip()),
-        "Unknown Role",
-    )[:_ROLE_TITLE_MAX_LEN]
+    role_title = _extract_role_title(input_text)
     seniority = _detect_seniority(input_text)
     skills = _extract_skills(input_text)
     competencies = _extract_competencies(input_text)
+    responsibilities = _extract_responsibilities(input_text)
     return JobSpec(
         role_title=role_title,
         seniority=seniority,
         skills=skills,
         competencies=competencies,
+        responsibilities=responsibilities,
         summary=_fake_summary(role_title, seniority, skills),
     )
 
@@ -194,53 +347,323 @@ def _fake_generate_questions(input_text: str) -> GeneratedQuestionSet:
         category, _, name = line.partition(":")
         category = category.strip().lower()
         name = name.strip()
-        template = _QUESTION_TEMPLATES.get(category)
-        if not name or template is None:
+        if not name or category not in ("competency", "technology", "task"):
             continue
-        text = template.format(role=role, target=name)
+
+        templates = {
+            "competency": _COMPETENCY_QUESTION_TEMPLATES,
+            "technology": _TECHNOLOGY_QUESTION_TEMPLATES,
+            "task": _TASK_QUESTION_TEMPLATES,
+        }[category]
+        template = templates[_variant_index(f"{category}|{name}", len(templates))]
+        # Competency names are generic behavioural nouns ("Leadership", "Critical Thinking")
+        # that read naturally fully lowercased mid-sentence. Technology names are proper
+        # nouns/product names ("FastAPI", "AWS") and must keep their given casing - their
+        # templates use `{target}`, not `{target_lower}`, so this value is unused for them.
+        target_lower = name.lower() if category == "competency" else name
+        text = template.format(role=role, target=name, target_lower=target_lower)
         questions.append(GeneratedQuestion(category=category, target=name, text=text))
     return GeneratedQuestionSet(questions=questions)
 
 
-def _fake_evaluate_answer(input_text: str) -> AnswerEvaluation:
-    """Deterministically score by answer length: >=8 words advances, otherwise follow-up.
+def _clean_target_phrase(target: str, *, category: str) -> str:
+    """Trailing-punctuation-stripped form of ``target`` for embedding mid-sentence.
 
-    Mirrors the word-count heuristic that used to live directly in
-    :mod:`app.agents.interview_graph`, so replacing it with the real LLM evaluator does not
-    change fake-client-backed test behaviour. Expects the ``QUESTION:``/``CATEGORY:``/
-    ``TARGET:``/``GROUNDING:``/``ANSWER:`` format produced by
-    :class:`app.services.answer_evaluation.AnswerEvaluationService`.
+    A task's ``target`` is a full O*NET task sentence that already ends in ``.`` -
+    interpolating it as-is directly before a template's own closing period produced a visible
+    ".." (see the Milestone report-quality review); stripping trailing punctuation fixes that
+    for every category, not just tasks. Casing then depends on what kind of name it is:
+    competency names are generic behavioural nouns ("Leadership") that read naturally fully
+    lowercased, while technology names are proper nouns/product names ("FastAPI", "AWS") whose
+    casing must be preserved exactly.
+    """
+    text = target.strip().rstrip(".")
+    if not text:
+        return text
+    return text.lower() if category == "competency" else text
+
+
+# --- Deterministic, offline answer classification -------------------------------------------
+#
+# Milestone review finding: a pure word-count heuristic ("<8 words = follow_up, >=8 = advance")
+# treats "I don't know anything about Python, is that a snake?" (10 words) as strong evidence,
+# because it never looks at what the words actually say - only how many there are. The target
+# name is context for what to assess, never evidence that the candidate demonstrated it. This
+# classifies the answer's actual content into one of four buckets before scoring anything, and
+# a fifth, explicit-negation bucket is checked first and short-circuits everything else.
+
+# Explicit lack-of-experience / confusion / "asking us a question instead of answering" cues.
+# Deliberately generic (not keyed to any specific technology/competency) - a candidate saying
+# any of these about the *asked-about* target has given zero evidence of it, regardless of
+# length or whether the target's name appears in their answer.
+_NO_EVIDENCE_PATTERNS = [
+    re.compile(r"\bi\s+(?:don'?t|do not|dont)\s+know\b", re.IGNORECASE),
+    re.compile(r"\bknows?\s+nothing\b", re.IGNORECASE),
+    re.compile(r"\bno\s+idea\b", re.IGNORECASE),
+    re.compile(r"\bnever\s+(?:used|worked with|done|touched|written)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:haven'?t|have not)\s+(?:used|worked with|done|touched|written)\b", re.IGNORECASE
+    ),
+    re.compile(r"\bno\s+experience\b", re.IGNORECASE),
+    re.compile(r"\bnot\s+familiar\b", re.IGNORECASE),
+    re.compile(r"\b(?:don'?t|do not|dont)\s+have\s+experience\b", re.IGNORECASE),
+    re.compile(r"\bis\s+\w+\s+a\s+\w+", re.IGNORECASE),  # "is Python a snake?"
+    re.compile(r"\bwhat\s+is\s+\w+.*\?", re.IGNORECASE),  # "what is Python?"
+    re.compile(r"\bonly\s+(?:used|use|have used|worked with|know|known)\b", re.IGNORECASE),
+]
+
+# Action verbs (a few common inflections each) whose presence signals a *described activity*
+# rather than a bare claim - "I have ten years of experience" has none of these; "I built a
+# service and fixed a bug" has two.
+_ACTION_VERBS = [
+    "built", "build", "building",
+    "implemented", "implement", "implementing",
+    "designed", "design", "designing",
+    "created", "create", "creating",
+    "led", "leading",
+    "wrote", "write", "writing",
+    "fixed", "fix", "fixing",
+    "debugged", "debug", "debugging",
+    "diagnosed", "diagnose", "diagnosing",
+    "tested", "testing",
+    "verified", "verify", "verifying",
+    "deployed", "deploy", "deploying",
+    "migrated", "migrate", "migrating",
+    "refactored", "refactor", "refactoring",
+    "automated", "automate", "automating",
+    "developed", "develop", "developing",
+    "managed", "manage", "managing",
+    "coordinated", "coordinate", "coordinating",
+    "mentored", "mentor", "mentoring",
+    "launched", "launch", "launching",
+    "architected", "architect",
+    "integrated", "integrate", "integrating",
+    "configured", "configure", "configuring",
+    "resolved", "resolve", "resolving",
+    "investigated", "investigate", "investigating",
+    "analyzed", "analyze", "analyzing",
+    "owned", "own", "owning",
+    "shipped", "ship", "shipping",
+    "optimized", "optimize", "optimizing",
+    "noticed", "notice", "noticing",
+    "found", "find", "finding",
+    "discovered", "discover", "discovering",
+    "identified", "identify", "identifying",
+    "tracked", "track", "tracking",
+    "traced", "trace", "tracing",
+    "added", "add", "adding",
+    "removed", "remove", "removing",
+    "updated", "update", "updating",
+    "reviewed", "review", "reviewing",
+    "reported", "report", "reporting",
+    "measured", "measure", "measuring",
+    "monitored", "monitor", "monitoring",
+    "reproduced", "reproduce", "reproducing",
+    "solved", "solve", "solving",
+    "handled", "handle", "handling",
+    "reduced", "reduce", "reducing",
+    "increased", "increase", "increasing",
+]
+_ACTION_VERB_PATTERN = re.compile(
+    r"\b(?:" + "|".join(_ACTION_VERBS) + r")\b", re.IGNORECASE
+)
+
+# Content patterns used only to pick a *follow-up angle* grounded in what the candidate
+# actually described - never the target/competency name itself.
+_PERFORMANCE_PATTERN = re.compile(
+    r"\b(reduced|decreased|improved|optimi[sz]ed|increased|sped up|faster|latency|"
+    r"performance|response time|bottleneck)\b",
+    re.IGNORECASE,
+)
+_BUILD_PATTERN = re.compile(
+    r"\b(built|build|designed|design|implemented|implement|architected|created|create)\b",
+    re.IGNORECASE,
+)
+_LEADERSHIP_PATTERN = re.compile(
+    r"\b(led|lead|coordinated|coordinate|mentored|mentor|managed|manage)\b", re.IGNORECASE
+)
+
+_MIN_SUBSTANTIVE_WORDS = 12
+_MIN_THOROUGH_WORDS = 20
+_MIN_THOROUGH_VERBS = 3
+
+
+def _is_no_evidence(answer: str) -> bool:
+    return any(pattern.search(answer) for pattern in _NO_EVIDENCE_PATTERNS)
+
+
+def _content_aware_follow_up(answer: str) -> str:
+    """A probing question grounded in *what the answer described* - never the target name.
+
+    Checked in a fixed priority order so the same answer always produces the same follow-up
+    (test determinism), falling back to a generic probe when no specific angle is detected.
+    """
+    if _PERFORMANCE_PATTERN.search(answer):
+        return (
+            "What led you to identify that as the issue, and how did you verify the "
+            "improvement afterward?"
+        )
+    if _LEADERSHIP_PATTERN.search(answer):
+        return "How did you handle any disagreement or pushback from others during that?"
+    if _BUILD_PATTERN.search(answer):
+        return (
+            "What tradeoffs did you consider when you approached it that way, and what "
+            "would you do differently now?"
+        )
+    return "What was the most difficult part of that, and how did you work through it?"
+
+
+_WHITESPACE_PATTERN = re.compile(r"\s")
+
+
+def _evidence_excerpt(answer: str, limit: int = 200) -> str:
+    """A short excerpt of ``answer`` for the ``evidence`` field, never cutting a word in half.
+
+    Regression fix: a raw ``answer[:200]`` slice chopped through the middle of whatever word
+    happened to sit at the 200th character (e.g. "independently lead production deploy|ments"),
+    which is unreadable and misrepresents what the candidate actually wrote. This truncates at
+    the last whitespace before ``limit`` instead, so the excerpt always ends on a whole word,
+    and marks it with a single ellipsis so it's clear more was said. The excerpt is only ever
+    used for the report's evidence quote - the full, untouched answer is stored separately
+    (see ``interview_graph.py``'s history entries) and is never affected by this.
+
+    Boundary detection is whitespace-aware (``\\s`` - spaces, tabs, newlines, etc.), not just
+    literal ``" "``: a Copilot review caught that the original space-only version left tabs and
+    newlines unrecognised as boundaries (e.g. ``_evidence_excerpt("one\\ntwo three", 5)`` could
+    still cut through "two").
+
+    If there is no whitespace boundary before ``limit`` at all (``limit`` smaller than the
+    first word, or one unbroken token longer than ``limit`` with no whitespace anywhere before
+    it), the "never cut a word in half" guarantee takes priority over strictly respecting
+    ``limit``: the excerpt extends to the end of that first whole word instead of chopping
+    through it. In the extreme case of a single token with no whitespace anywhere in the whole
+    answer, that "first word" *is* the entire answer, so it is returned unchanged with no
+    ellipsis - there is nothing left out to mark.
+    """
+    if len(answer) <= limit:
+        return answer
+
+    truncated = answer[:limit]
+    boundary = -1
+    for match in _WHITESPACE_PATTERN.finditer(truncated):
+        boundary = match.start()
+    if boundary > 0:
+        return truncated[:boundary].rstrip() + "…"
+
+    first_whitespace = _WHITESPACE_PATTERN.search(answer)
+    if first_whitespace is None:
+        return answer  # one unbroken token, longer than `limit` - nothing safe to cut at all.
+    first_word = answer[: first_whitespace.start()]
+    return first_word + "…"
+
+
+def _fake_evaluate_answer(input_text: str) -> AnswerEvaluation:
+    """Classify the answer's actual content, then score/decide from that classification.
+
+    Never treats the target name, the question, or the interview stage as evidence - only the
+    candidate's own words. Expects the ``QUESTION:``/``CATEGORY:``/``TARGET:``/``GROUNDING:``/
+    ``ANSWER:`` format produced by :class:`app.services.answer_evaluation.
+    AnswerEvaluationService` (``ANSWER:`` is always the last field, so everything from that
+    line onward - not just its first physical line - is taken as the answer, in case it spans
+    multiple lines).
     """
     target = "the target"
+    category = ""
     answer = ""
-    for line in input_text.splitlines():
-        line = line.strip()
-        if line.upper().startswith("TARGET:"):
+    lines = input_text.splitlines()
+    for i, raw_line in enumerate(lines):
+        line = raw_line.strip()
+        if line.upper().startswith("CATEGORY:"):
+            _, _, value = line.partition(":")
+            category = value.strip().lower()
+        elif line.upper().startswith("TARGET:"):
             _, _, value = line.partition(":")
             target = value.strip() or target
         elif line.upper().startswith("ANSWER:"):
             _, _, value = line.partition(":")
-            answer = value.strip()
+            answer = "\n".join([value.strip(), *lines[i + 1 :]]).strip()
+            break
 
-    if len(answer.split()) >= 8:
+    phrase = _clean_target_phrase(target, category=category)
+
+    if answer is None or not answer.strip():
         return AnswerEvaluation(
-            score=0.8,
+            score=0.0,
+            decision=EvaluationDecision.FOLLOW_UP,
+            strengths=[],
+            weaknesses=[f"No answer was given for {phrase}."],
+            evidence=[],
+            follow_up_needed=True,
+            follow_up_question="Could you share an answer to the question?",
+        )
+
+    if _is_no_evidence(answer):
+        # The candidate explicitly said they lack this experience (or is confused/off-topic).
+        # Asking them for "a specific example" of something they just said they don't have is
+        # exactly the non-adaptive behaviour this classification exists to avoid - advance to
+        # another question instead of following up on a dead end.
+        return AnswerEvaluation(
+            score=0.05,
             decision=EvaluationDecision.ADVANCE,
-            strengths=[f"Answer gives concrete detail about {target}."],
-            weaknesses=[],
-            evidence=[answer[:200]],
+            strengths=[],
+            weaknesses=[f"The candidate did not demonstrate experience with {phrase}."],
+            evidence=[],
             follow_up_needed=False,
         )
 
+    word_count = len(answer.split())
+    verb_matches = len(_ACTION_VERB_PATTERN.findall(answer))
+
+    if word_count < _MIN_SUBSTANTIVE_WORDS:
+        # A real claim ("ten years of experience") or a throwaway one ("I did that once.") -
+        # either way, too little detail to judge; ask for a concrete example, once.
+        return AnswerEvaluation(
+            score=0.3,
+            decision=EvaluationDecision.FOLLOW_UP,
+            strengths=[],
+            weaknesses=[
+                f"The answer was too brief to assess {phrase} - no concrete example was given."
+            ],
+            evidence=[_evidence_excerpt(answer)],
+            follow_up_needed=True,
+            follow_up_question=f"Can you give a specific example related to {phrase}?",
+        )
+
+    if word_count >= _MIN_THOROUGH_WORDS and verb_matches >= _MIN_THOROUGH_VERBS:
+        return AnswerEvaluation(
+            score=0.8,
+            decision=EvaluationDecision.ADVANCE,
+            strengths=[f"Gave a concrete, specific example related to {phrase}."],
+            weaknesses=[],
+            evidence=[_evidence_excerpt(answer)],
+            follow_up_needed=False,
+        )
+
+    # Substantive enough to engage with, but there's a specific angle worth exploring further -
+    # the follow-up below is generated from the answer's own content, not the target name.
     return AnswerEvaluation(
-        score=0.3,
+        score=0.6,
         decision=EvaluationDecision.FOLLOW_UP,
-        strengths=[],
-        weaknesses=[f"Answer lacks detail or a concrete example for {target}."],
-        evidence=[answer[:200]] if answer else [],
+        strengths=[f"Described a specific example related to {phrase}."],
+        weaknesses=[],
+        evidence=[_evidence_excerpt(answer)],
         follow_up_needed=True,
-        follow_up_question=f"Can you give a specific example related to {target}?",
+        follow_up_question=_content_aware_follow_up(answer),
     )
+
+
+#: Mirrors app.services.report_scoring._EVIDENCE_STRENGTH_THRESHOLDS' bands in plain English.
+#: Duplicated here (not imported) because app.llm sits below app.services in the dependency
+#: layering - see the module docstring pattern already used for the answer-length heuristic.
+_OVERALL_SUMMARY_PHRASES: list[tuple[float, str]] = [
+    (0.8, "demonstrated strong, well-evidenced performance across the areas assessed"),
+    (0.6, "demonstrated solid performance, with some areas worth exploring further"),
+    (0.35, "showed limited evidence across the areas assessed"),
+]
+_DEFAULT_OVERALL_SUMMARY_PHRASE = (
+    "did not provide enough concrete evidence across the areas assessed to draw firm "
+    "conclusions"
+)
 
 
 def _fake_generate_report_narrative(input_text: str) -> ReportNarrative:
@@ -249,24 +672,25 @@ def _fake_generate_report_narrative(input_text: str) -> ReportNarrative:
     Never invents a claim: every string in the returned lists came verbatim from a
     ``STRENGTHS:``/``WEAKNESSES:`` line in ``input_text`` (built by
     :class:`app.services.report_narrative.ReportNarrativeService` from already-computed,
-    evidence-based :class:`~app.domain.report.CompetencyAssessment` data). The summary is a
-    templated sentence over the given ``OVERALL_SCORE:``/``RECOMMENDATION:`` and how many
-    ``COMPETENCY:`` blocks were given - not a fabricated assessment.
+    evidence-based :class:`~app.domain.report.CompetencyAssessment` data). The summary
+    describes the candidate's performance in plain language (never the scoring mechanism -
+    no "deterministic", no raw percentage) over the given ``OVERALL_SCORE:``/
+    ``RECOMMENDATION:`` - see the Milestone report-quality review.
     """
-    overall_score = "0.00"
+    overall_score = 0.0
     recommendation = "consider"
-    competency_count = 0
     strengths: list[str] = []
     weaknesses: list[str] = []
 
     for line in input_text.splitlines():
         line = line.strip()
         if line.upper().startswith("OVERALL_SCORE:"):
-            overall_score = line.partition(":")[2].strip()
+            try:
+                overall_score = float(line.partition(":")[2].strip())
+            except ValueError:
+                overall_score = 0.0
         elif line.upper().startswith("RECOMMENDATION:"):
-            recommendation = line.partition(":")[2].strip()
-        elif line.upper().startswith("COMPETENCY:"):
-            competency_count += 1
+            recommendation = line.partition(":")[2].strip() or recommendation
         elif line.upper().startswith("STRENGTHS:"):
             value = line.partition(":")[2].strip()
             if value and value != "(none)":
@@ -276,10 +700,15 @@ def _fake_generate_report_narrative(input_text: str) -> ReportNarrative:
             if value and value != "(none)":
                 weaknesses.extend(item.strip() for item in value.split(";") if item.strip())
 
-    plural = "y" if competency_count == 1 else "ies"
+    phrase = _DEFAULT_OVERALL_SUMMARY_PHRASE
+    for threshold, candidate_phrase in _OVERALL_SUMMARY_PHRASES:
+        if overall_score >= threshold:
+            phrase = candidate_phrase
+            break
+
     summary = (
-        f"Deterministic evaluation across {competency_count} competenc{plural} yielded an "
-        f"overall score of {overall_score} ({recommendation})."
+        f"Across the interview, the candidate {phrase}. This supports a recommendation of "
+        f"{recommendation.replace('_', ' ')}."
     )
     return ReportNarrative(
         summary=summary,

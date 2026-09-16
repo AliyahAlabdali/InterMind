@@ -12,6 +12,7 @@ DETAILED_ANSWER = (
     "regression test to reproduce it, fixed the underlying lock ordering, and verified it "
     "in staging before shipping."
 )
+SHORT_ANSWER = "I did that once."
 
 
 @pytest.fixture(autouse=True)
@@ -127,10 +128,43 @@ async def test_report_reflects_a_weak_final_answer_without_inventing_success(cli
     assert resp.json()["finished"] is True
 
     report = (await client.get(f"/interviews/{interview_id}/report")).json()
-    first_question_eval = next(
-        qe for qe in report["question_evaluations"] if qe["question_id"] == questions[0]["id"]
-    )
-    # The report must honestly reflect the weak final answer (follow_up/0.3), not claim the
-    # candidate advanced cleanly just because the interview moved on.
-    assert first_question_eval["decision"] == "follow_up"
+    # The first question was followed up on, so its evaluation is now keyed by the follow-up's
+    # own id/text (see the question/history identity fix) - not the original question's id -
+    # order still follows the plan, so it's still the first entry.
+    first_question_eval = report["question_evaluations"][0]
+    assert first_question_eval["question_id"] != questions[0]["id"]
+    # The report must honestly reflect the weak final answer: the score/evidence-strength stay
+    # weak (0.3/limited) rather than inventing success - `decision` now reads "advance" because
+    # that is what genuinely happened once the one-follow-up cap was reached (see
+    # `resolve_follow_up_decision`), not because the evidence improved. The weak evidence
+    # itself is never hidden or upgraded, just accurately labelled as "the interview moved on",
+    # not "another follow-up is still pending".
+    assert first_question_eval["decision"] == "advance"
     assert first_question_eval["score"] == pytest.approx(0.3)
+    assert first_question_eval["evidence_strength"] == "insufficient"
+
+
+async def test_regression_6_report_maps_the_follow_up_answer_to_the_follow_up_question(client):
+    """Regression test 6: for a question that received a follow-up, the report's per-question
+    entry must show the follow-up's own question text/id and the follow-up's own answer -
+    never the original question's text paired with the follow-up's answer (or vice versa)."""
+    job_id, questions = await _create_job_with_plan(client)
+    start = await client.post("/interviews", json={"job_id": job_id})
+    interview_id = start.json()["interview_id"]
+
+    await client.post(f"/interviews/{interview_id}/answers", json={"answer": SHORT_ANSWER})
+    follow_up_state = (await client.get(f"/interviews/{interview_id}")).json()
+    follow_up_text = follow_up_state["current_question_text"]
+    follow_up_answer = "Here is the concrete detail the follow-up asked for."
+
+    resp = None
+    for _ in range(len(questions)):
+        answer = follow_up_answer if resp is None else DETAILED_ANSWER
+        resp = await client.post(f"/interviews/{interview_id}/answers", json={"answer": answer})
+    assert resp.json()["finished"] is True
+
+    report = (await client.get(f"/interviews/{interview_id}/report")).json()
+    first_question_eval = report["question_evaluations"][0]
+    assert first_question_eval["question"] == follow_up_text
+    assert first_question_eval["question"] != questions[0]["text"]
+    assert first_question_eval["candidate_answer"] == follow_up_answer

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from app.core.exceptions import (
+    CandidateNotFound,
     InterviewNotFound,
     InterviewPlanNotFound,
     InterviewReportNotFound,
     JobNotFound,
 )
+from app.domain.candidate import Candidate
 from app.domain.interview_plan import InterviewPlan
 from app.domain.report import InterviewReport
 from app.repositories.ports import InterviewSession, StoredJob
@@ -26,6 +28,24 @@ class InMemoryJobRepository:
             return self._jobs[job_id]
         except KeyError:
             raise JobNotFound(job_id) from None
+
+    async def list_all(self) -> list[StoredJob]:
+        return list(reversed(self._jobs.values()))
+
+
+class InMemoryCandidateRepository:
+    def __init__(self) -> None:
+        self._candidates: dict[str, Candidate] = {}
+
+    async def add(self, candidate: Candidate) -> Candidate:
+        self._candidates[candidate.id] = candidate
+        return candidate
+
+    async def get(self, candidate_id: str) -> Candidate:
+        try:
+            return self._candidates[candidate_id]
+        except KeyError:
+            raise CandidateNotFound(candidate_id) from None
 
 
 class InMemoryInterviewPlanRepository:
@@ -56,6 +76,9 @@ class InMemoryInterviewSessionRepository:
             return self._sessions[interview_id]
         except KeyError:
             raise InterviewNotFound(interview_id) from None
+
+    async def list_by_job(self, job_id: str) -> list[InterviewSession]:
+        return [s for s in self._sessions.values() if s.job_id == job_id]
 
 
 class InMemoryInterviewReportRepository:

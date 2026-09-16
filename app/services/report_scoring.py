@@ -14,7 +14,25 @@ from collections.abc import Iterable
 from app.domain.evaluation import EvaluationDecision
 from app.domain.interview import InterviewState
 from app.domain.interview_plan import InterviewPlan, QuestionCategory
-from app.domain.report import CompetencyAssessment, QuestionEvaluationSummary, Recommendation
+from app.domain.report import (
+    CompetencyAssessment,
+    EvidenceStrength,
+    QuestionEvaluationSummary,
+    Recommendation,
+    evidence_strength_for_score,
+)
+
+__all__ = [
+    "CATEGORY_WEIGHTS",
+    "build_areas_to_explore",
+    "build_competency_assessments",
+    "build_question_evaluations",
+    "build_strengths",
+    "compute_overall_score",
+    "derive_recommendation",
+    "evidence_strength_for_score",
+    "flatten_unique",
+]
 
 #: Category weights for the overall score. Must sum to 1.0. Rationale: competency and
 #: technology questions are weighted equally and heaviest, since they probe the candidate's
@@ -44,35 +62,52 @@ _SCORE_DECIMALS = 4
 def build_question_evaluations(
     plan: InterviewPlan, state: InterviewState
 ) -> list[QuestionEvaluationSummary]:
-    """One summary per question actually asked, using its LAST answered turn.
+    """One summary per planned question actually asked, using its LAST answered turn.
 
-    A question that received a follow-up has two turns in ``state.history`` sharing the same
-    ``question_id``; only the last is summarised, since that's the answer that actually
-    determined whether the interview advanced (see :class:`QuestionEvaluationSummary`).
-    Order follows ``state.asked_question_ids`` - the order questions were actually asked in.
+    A question that received a follow-up has two turns in ``state.history``: the original and
+    the follow-up, each with its *own* ``question_id``/``question`` text (see
+    ``app.agents.interview_graph.evaluate_answer``) but sharing the same ``root_question_id``
+    (the planned question they both belong to). Grouping by ``root_question_id`` - not
+    ``question_id`` - is what lets the follow-up's turn still correctly supersede the
+    original's as "the answer that actually determined whether the interview advanced" (see
+    :class:`QuestionEvaluationSummary`), while the summary itself reports the follow-up's own
+    id/text rather than silently attributing its answer to the original question. A turn
+    without a recorded ``root_question_id`` (older/hand-built state) falls back to grouping by
+    its own ``question_id``, which reproduces the pre-follow-up-identity-fix behaviour exactly.
+
+    ``state.asked_question_ids`` also contains follow-up ids (not just planned question ids -
+    see ``interview_graph.py``); only planned ids are iterated here; a follow-up's turn is
+    already folded into its root's entry via ``root_question_id`` grouping, never a separate
+    entry of its own. Order follows ``state.asked_question_ids`` - the order questions were
+    actually asked in.
     """
     questions_by_id = {q.id: q for q in plan.questions}
 
-    last_turn_by_question: OrderedDict[str, dict] = OrderedDict()
+    last_turn_by_root: OrderedDict[str, dict] = OrderedDict()
     for turn in state.history:
-        last_turn_by_question[turn["question_id"]] = turn
+        root_id = turn.get("root_question_id") or turn["question_id"]
+        last_turn_by_root[root_id] = turn
 
     summaries: list[QuestionEvaluationSummary] = []
     for question_id in state.asked_question_ids:
-        turn = last_turn_by_question.get(question_id)
         question = questions_by_id.get(question_id)
-        if turn is None or question is None:
+        if question is None:
+            continue  # a follow-up's own id, not a planned question - see the docstring
+
+        turn = last_turn_by_root.get(question_id)
+        if turn is None:
             continue
 
         evaluation = turn.get("evaluation")
+        score = evaluation["score"] if evaluation else None
         summaries.append(
             QuestionEvaluationSummary(
-                question_id=question_id,
-                question=question.text,
+                question_id=turn["question_id"],
+                question=turn.get("question") or question.text,
                 category=question.category,
                 target=question.target,
                 candidate_answer=turn.get("answer") or "",
-                score=evaluation["score"] if evaluation else None,
+                score=score,
                 decision=EvaluationDecision(evaluation["decision"]) if evaluation else None,
                 evidence=evaluation["evidence"] if evaluation else [],
                 strengths=evaluation["strengths"] if evaluation else [],
@@ -154,6 +189,58 @@ def derive_recommendation(overall_score: float) -> Recommendation:
         if overall_score >= threshold:
             return recommendation
     return _DEFAULT_RECOMMENDATION
+
+
+_EXPLORE_RANK: dict[EvidenceStrength, int] = {
+    EvidenceStrength.NOT_ASSESSED: 0,
+    EvidenceStrength.INSUFFICIENT: 1,
+    EvidenceStrength.LIMITED: 2,
+    EvidenceStrength.MODERATE: 3,
+    EvidenceStrength.STRONG: 4,
+}
+
+
+def build_strengths(competencies: list[CompetencyAssessment], limit: int = 5) -> list[str]:
+    """A small, deduplicated "{competency}: {reason}" list, best-evidenced first.
+
+    Only ever uses a strength string a competency already recorded - never invents one for a
+    competency that has none, so a candidate with weak overall evidence correctly gets a short
+    (or empty) list rather than a padded one.
+    """
+    ranked = sorted(competencies, key=lambda c: -(c.score or 0.0))
+    notes: list[str] = []
+    for c in ranked:
+        if not c.strengths:
+            continue
+        notes.append(f"{c.name}: {c.strengths[0]}")
+        if len(notes) >= limit:
+            break
+    return notes
+
+
+def build_areas_to_explore(competencies: list[CompetencyAssessment], limit: int = 4) -> list[str]:
+    """A small, prioritised "{competency}: {reason}" list, weakest evidence first.
+
+    Deliberately not "every recorded weakness for every competency" (that reads as
+    repetitive/padded to a recruiter) - one note per competency, ranked by how little evidence
+    was gathered. A competency with insufficient evidence but no specific weakness text on
+    record (e.g. a blank turn, or a follow-up cap forced advancement past it) still gets a
+    plain, honest "no conclusive evidence" note rather than being silently dropped or having a
+    critique invented for it.
+    """
+    ranked = sorted(competencies, key=lambda c: _EXPLORE_RANK[c.evidence_strength])
+    notes: list[str] = []
+    for c in ranked:
+        if len(notes) >= limit:
+            break
+        if c.weaknesses:
+            notes.append(f"{c.name}: {c.weaknesses[0]}")
+        elif c.evidence_strength in (EvidenceStrength.INSUFFICIENT, EvidenceStrength.NOT_ASSESSED):
+            notes.append(
+                f"{c.name}: No conclusive evidence was gathered for this area during the "
+                "interview - worth exploring further."
+            )
+    return notes
 
 
 def flatten_unique(lists: Iterable[list[str]]) -> list[str]:
