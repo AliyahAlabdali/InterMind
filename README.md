@@ -1,4 +1,4 @@
-<h1 align="center">InterMind: Autonomous AI Interviewer</h1>
+# InterMind: Autonomous AI Interviewer
 
 <p align="center">
   <em>An adaptive AI interviewer that designs, conducts, and evaluates structured, role-specific interviews.</em>
@@ -34,7 +34,7 @@ Interview Report
 
 ## Current Status
 
-InterMind is being developed incrementally. The core backend workflow and a functional frontend are now in place.
+InterMind is being developed incrementally. The core backend workflow, evaluation pipeline, access-control boundary, and functional frontend are now in place. The remaining work focuses on frontend polish, visual identity, and productionization.
 
 ### 1. Job Analysis ✅
 
@@ -97,23 +97,27 @@ The system produces a structured report containing:
 
 The evaluation logic is designed to be consistent and traceable rather than relying only on an unstructured LLM-generated conclusion.
 
-### 6. Web Application ✅
+### 6. Web Application 🟡
 
 InterMind includes a React-based frontend connected to the FastAPI backend.
 
-The current interface supports the complete core flow:
+The current interface supports the core recruiter and candidate workflows:
 
 ```text
 Create Job
    ↓
-View Interview Plan
+Job Analysis
+   ↓
+Interview Plan
    ↓
 Conduct Interview
    ↓
 Complete Interview
    ↓
-View Interview Report
+Interview Report
 ```
+
+The core frontend workflow is functional. UI refinement, visual identity, responsive polish, and final product experience improvements remain in progress.
 
 ---
 
@@ -128,6 +132,8 @@ View Interview Report
 * Candidate response evaluation
 * Evidence-based assessment
 * Structured interview reports
+* Interview-level access control
+* Recruiter and candidate role separation
 * React web interface
 * FastAPI backend
 * Automated tests and validation
@@ -284,7 +290,7 @@ Run code quality checks:
 ruff check .
 ```
 
-The current test suite contains **139 passing tests**.
+The current test suite contains **306 passing tests**.
 
 ---
 
@@ -304,17 +310,21 @@ The current test suite contains **139 passing tests**.
 * [x] Evaluate candidate responses
 * [x] Generate structured interview reports
 * [x] Build functional web frontend
+* [x] Implement interview-level access control
+* [x] Protect recruiter interview management and reports
+* [x] Validate candidate interview ownership
 
 ### In Progress
 
 * [ ] UI redesign and visual identity
 * [ ] Improve interview experience and animations
+* [ ] Final responsive and product polish
 * [ ] Improve occupation matching beyond the current TF-IDF baseline
 
 ### Planned
 
 * [ ] PostgreSQL persistence
-* [ ] Authentication and role-based access
+* [ ] Production authentication and authorization
 * [ ] Observability
 * [ ] Dockerization
 * [ ] Production deployment
