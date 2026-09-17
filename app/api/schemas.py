@@ -82,7 +82,15 @@ class InterviewResponse(BaseModel):
     status: InterviewStatus
     finished: bool
     turn_index: int
-    current_question_id: str | None
+    current_question_id: str | None = Field(
+        description=(
+            "The current TARGET's id - stable across a follow-up (never repointed to the "
+            "follow-up's own id). See app.domain.interview.InterviewState's docstring for the "
+            "full root-target/current-turn/follow-up identity contract this deliberately "
+            "preserves; use current_question_text (below), never this field, to render what "
+            "is actually being asked right now."
+        )
+    )
     current_question_text: str | None
     current_question_is_follow_up: bool
     asked_question_ids: list[str]

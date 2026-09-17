@@ -32,8 +32,18 @@ class AnswerEvaluationService:
         target: str,
         answer: str,
         grounding: str | None = None,
+        other_targets: list[tuple[str, str]] = (),
     ) -> AnswerEvaluation:
         """Return a grounded, structured evaluation of ``answer``.
+
+        ``other_targets`` (optional, ``(category, target_name)`` pairs) lists the interview's
+        other not-yet-assessed coverage targets - see
+        :mod:`app.services.cross_target_evidence`. When given, the model may also report
+        ``cross_target_evidence`` for any of them the answer incidentally provides evidence
+        about (e.g. a Python question where the candidate also mentions Java experience) -
+        never as a target of *this* evaluation's own ``score``/``decision``, only as a
+        separate, clearly-scoped signal the interview graph may use to resolve that other
+        target without asking about it directly.
 
         Raises:
             app.core.exceptions.LLMError: the request failed or the output was unusable.
@@ -45,6 +55,11 @@ class AnswerEvaluationService:
         ]
         if grounding:
             lines.append(f"GROUNDING: {grounding}")
+        if other_targets:
+            lines.append("OTHER_TARGETS:")
+            lines.extend(
+                f"- {other_category}: {other_name}" for other_category, other_name in other_targets
+            )
         lines.append(f"ANSWER: {answer.strip()}")
 
         prompt = load_prompt(PROMPT_NAME, PROMPT_VERSION)

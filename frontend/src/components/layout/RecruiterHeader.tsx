@@ -1,10 +1,9 @@
 import { NavLink } from "react-router-dom"
 import { Logo } from "../../brand/Logo"
 
-const NAV_ITEMS = [
-  { to: "/recruiter/dashboard", label: "Dashboard" },
-  { to: "/recruiter/interviews/new", label: "New Interview" },
-]
+// See RecruiterSidebar for why this is a single "Interviews" item, not "Dashboard" plus a
+// second, redundant destination.
+const NAV_ITEMS = [{ to: "/recruiter/dashboard", label: "Interviews" }]
 
 export function RecruiterHeader() {
   return (

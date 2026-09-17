@@ -24,7 +24,6 @@ from app.knowledge.onet_kb import DEFAULT_KB_PATH, OnetKnowledgeBase
 from app.llm.fake_client import FakeLLMClient
 from app.services.interview_planner import InterviewPlannerService
 from app.services.jd_analysis import JDAnalysisService
-from app.services.question_generation import QuestionGenerationService
 
 pytestmark = pytest.mark.skipif(
     not DEFAULT_KB_PATH.exists(),
@@ -131,10 +130,7 @@ def real_kb() -> OnetKnowledgeBase:
 
 @pytest.fixture
 def planner(real_kb: OnetKnowledgeBase) -> InterviewPlannerService:
-    return InterviewPlannerService(
-        knowledge_base=real_kb,
-        question_service=QuestionGenerationService(llm=FakeLLMClient()),
-    )
+    return InterviewPlannerService(knowledge_base=real_kb)
 
 
 async def _analyze(jd_text: str):
@@ -186,11 +182,11 @@ async def test_backend_engineer_jd_keeps_its_own_required_technologies_as_target
         assert by_name[expected].source in (EvidenceSource.JOBSPEC, EvidenceSource.BOTH)
         assert by_name[expected].required is True
 
-    tech_question_targets = {
-        q.target for q in plan.questions if q.category.value == "technology"
+    tech_targets = {
+        t.target for t in plan.coverage_targets if t.category.value == "technology"
     }
-    assert tech_question_targets, "expected at least one technology question"
-    assert tech_question_targets.issubset(set(by_name))
+    assert tech_targets, "expected at least one technology coverage target"
+    assert tech_targets.issubset(set(by_name))
 
 
 async def test_health_informatics_jd_plan_is_also_jd_only(planner):
@@ -245,11 +241,11 @@ async def test_ai_engineer_jd_plan_is_jd_only_and_free_of_unrelated_onet_content
     for banned in ("vision therapy", "patient", "diagnose", "nursing"):
         assert not any(banned in t.lower() for t in task_texts)
 
-    for question in plan.questions:
-        assert question.target not in DISALLOWED_TECH_NAMES
-        lowered_text = question.text.lower()
+    for coverage_target in plan.coverage_targets:
+        assert coverage_target.target not in DISALLOWED_TECH_NAMES
+        lowered_grounding = coverage_target.grounding.lower()
         for banned in ("vision therapy", "patient diagnosis", "excel", "power bi"):
-            assert banned not in lowered_text
+            assert banned not in lowered_grounding
 
 
 async def test_provenance_is_explicit_across_categories(planner):

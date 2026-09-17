@@ -26,13 +26,12 @@ export function DashboardPage() {
       {jobs.isLoading && <Spinner label="Loading interviews…" />}
       {jobs.error && <ErrorBanner message={jobs.error} onRetry={jobs.refetch} />}
 
+      {/* No action button here - the page header above already has the single "New Interview"
+          CTA; repeating it here would compete with it as a second primary action. */}
       {jobs.data && jobs.data.length === 0 && (
         <EmptyState
           title="No interviews yet"
           description="Create your first interview by pasting a job description. InterMind will analyze the role and build an adaptive interview plan."
-          action={
-            <Button onClick={() => navigate("/recruiter/interviews/new")}>New Interview</Button>
-          }
         />
       )}
 

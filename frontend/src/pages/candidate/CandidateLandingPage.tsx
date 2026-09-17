@@ -1,14 +1,12 @@
 import { useCallback, useEffect } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { getInterview } from "../../api/interviews"
-import { getInterviewPlan } from "../../api/interviewPlans"
 import { getJob } from "../../api/jobs"
 import { useAsyncData } from "../../hooks/useAsyncData"
 import { useCandidateToken } from "../../hooks/useCandidateToken"
 import { Spinner } from "../../components/ui/Spinner"
 import { ErrorBanner } from "../../components/ui/ErrorBanner"
 import { Button } from "../../components/ui/Button"
-import { Card } from "../../components/ui/Card"
 
 export function CandidateLandingPage() {
   const { interviewId } = useParams<{ interviewId: string }>()
@@ -23,9 +21,7 @@ export function CandidateLandingPage() {
 
   const jobId = interview.data?.job_id
   const jobFetcher = useCallback(() => getJob(jobId!), [jobId])
-  const planFetcher = useCallback(() => getInterviewPlan(jobId!), [jobId])
   const job = useAsyncData(jobFetcher, [jobId], Boolean(jobId))
-  const plan = useAsyncData(planFetcher, [jobId], Boolean(jobId))
 
   useEffect(() => {
     if (interview.data?.status === "completed") {
@@ -62,12 +58,6 @@ export function CandidateLandingPage() {
           time and may go deeper on a topic based on what you share.
         </p>
       </div>
-
-      {plan.data && (
-        <Card className="w-fit px-6 py-3">
-          <span className="text-sm font-medium text-ink">{plan.data.questions.length} questions</span>
-        </Card>
-      )}
 
       <Button
         onClick={() =>

@@ -1,5 +1,5 @@
 import type { QuestionEvaluationSummary } from "../../types"
-import { formatCategory, formatEvidenceStrength } from "../../lib/format"
+import { formatCategory } from "../../lib/format"
 import { Badge } from "../ui/Badge"
 
 const DECISION_LABEL = {
@@ -15,16 +15,31 @@ const EVIDENCE_STRENGTH_TONE = {
   not_assessed: "neutral",
 } as const
 
-export function QuestionEvaluationCard({ item }: { item: QuestionEvaluationSummary }) {
+interface QuestionEvaluationCardProps {
+  item: QuestionEvaluationSummary
+  index: number
+}
+
+// Rendered as "Question N" plus one clear "{Target} · {Category} · {Evidence label}" line -
+// see CompetencyAssessmentCard's comment for why separate, unlabeled badges next to each other
+// (e.g. a decision badge immediately followed by an evidence badge) read as one run-on string
+// at a glance. `evidence_label` is the backend's evidence-type-aware label, more precise than
+// the score-only `evidence_strength` band (see app.domain.evaluation.evidence_label).
+export function QuestionEvaluationCard({ item, index }: QuestionEvaluationCardProps) {
   return (
     <div className="rounded-[10px] border border-border p-4">
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <Badge tone="neutral">{formatCategory(item.category)}</Badge>
-        <span className="text-xs text-ink-muted">Target: {item.target}</span>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+          Question {index + 1}
+        </span>
         {item.decision && <Badge tone="lilac">{DECISION_LABEL[item.decision]}</Badge>}
-        <Badge tone={EVIDENCE_STRENGTH_TONE[item.evidence_strength]} className="ml-auto">
-          {formatEvidenceStrength(item.evidence_strength)}
-        </Badge>
+      </div>
+      <div className="mb-2 flex flex-wrap items-center gap-1.5 text-xs text-ink-muted">
+        <span className="font-medium text-ink">{item.target}</span>
+        <span aria-hidden="true">·</span>
+        {formatCategory(item.category)}
+        <span aria-hidden="true">·</span>
+        <Badge tone={EVIDENCE_STRENGTH_TONE[item.evidence_strength]}>{item.evidence_label}</Badge>
       </div>
       <p className="text-sm font-medium text-ink">{item.question}</p>
       <p className="mt-2 rounded-lg bg-ivory-100 px-3 py-2 text-sm text-ink-soft">

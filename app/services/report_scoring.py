@@ -11,9 +11,9 @@ from __future__ import annotations
 from collections import OrderedDict
 from collections.abc import Iterable
 
-from app.domain.evaluation import EvaluationDecision
+from app.domain.evaluation import AnswerEvidenceType, EvaluationDecision
 from app.domain.interview import InterviewState
-from app.domain.interview_plan import InterviewPlan, QuestionCategory
+from app.domain.interview_plan import InterviewPlan, QuestionCategory, RequirementLevel
 from app.domain.report import (
     CompetencyAssessment,
     EvidenceStrength,
@@ -28,6 +28,7 @@ __all__ = [
     "build_competency_assessments",
     "build_question_evaluations",
     "build_strengths",
+    "build_unassessed_required_targets",
     "compute_overall_score",
     "derive_recommendation",
     "evidence_strength_for_score",
@@ -62,26 +63,36 @@ _SCORE_DECIMALS = 4
 def build_question_evaluations(
     plan: InterviewPlan, state: InterviewState
 ) -> list[QuestionEvaluationSummary]:
-    """One summary per planned question actually asked, using its LAST answered turn.
+    """One summary per coverage target the interview has evidence for, using its LAST turn.
 
-    A question that received a follow-up has two turns in ``state.history``: the original and
+    A target that received a follow-up has two turns in ``state.history``: the original and
     the follow-up, each with its *own* ``question_id``/``question`` text (see
     ``app.agents.interview_graph.evaluate_answer``) but sharing the same ``root_question_id``
-    (the planned question they both belong to). Grouping by ``root_question_id`` - not
-    ``question_id`` - is what lets the follow-up's turn still correctly supersede the
-    original's as "the answer that actually determined whether the interview advanced" (see
+    (the target they both belong to). Grouping by ``root_question_id`` - not ``question_id`` -
+    is what lets the follow-up's turn still correctly supersede the original's as "the answer
+    that actually determined whether the interview advanced" (see
     :class:`QuestionEvaluationSummary`), while the summary itself reports the follow-up's own
     id/text rather than silently attributing its answer to the original question. A turn
     without a recorded ``root_question_id`` (older/hand-built state) falls back to grouping by
     its own ``question_id``, which reproduces the pre-follow-up-identity-fix behaviour exactly.
 
-    ``state.asked_question_ids`` also contains follow-up ids (not just planned question ids -
-    see ``interview_graph.py``); only planned ids are iterated here; a follow-up's turn is
-    already folded into its root's entry via ``root_question_id`` grouping, never a separate
-    entry of its own. Order follows ``state.asked_question_ids`` - the order questions were
-    actually asked in.
+    Iterates ``state.history`` (via ``root_question_id`` grouping), not
+    ``state.asked_question_ids`` - a real gap found after cross-target evidence
+    (``app.services.cross_target_evidence``) shipped: a target resolved purely from evidence
+    volunteered while answering a *different* question gets its own history entry and is added
+    to ``assessed_target_ids``, but its id was never appended to ``asked_question_ids`` (that
+    list is reserved for targets an actual main question was generated for - see
+    ``app.agents.interview_graph``). Iterating ``asked_question_ids`` therefore silently
+    dropped every cross-target-resolved target from the report entirely - real evidence that
+    correctly stopped the live interview from re-asking about it, then vanished from scoring
+    and the recruiter's report. Grouping by ``root_question_id`` (which every turn carries,
+    including a cross-target resolution's synthesized one) fixes this with no special-casing:
+    every target with real evidence appears, whether it came from a direct question or not.
+    Order follows first appearance in ``state.history`` - the order evidence actually arrived
+    in, not the plan's own ``coverage_targets`` order (priority-ranked, not chronological - see
+    ``app.services.target_selection``).
     """
-    questions_by_id = {q.id: q for q in plan.questions}
+    targets_by_id = {t.id: t for t in plan.coverage_targets}
 
     last_turn_by_root: OrderedDict[str, dict] = OrderedDict()
     for turn in state.history:
@@ -89,32 +100,63 @@ def build_question_evaluations(
         last_turn_by_root[root_id] = turn
 
     summaries: list[QuestionEvaluationSummary] = []
-    for question_id in state.asked_question_ids:
-        question = questions_by_id.get(question_id)
+    for question_id, turn in last_turn_by_root.items():
+        question = targets_by_id.get(question_id)
         if question is None:
-            continue  # a follow-up's own id, not a planned question - see the docstring
-
-        turn = last_turn_by_root.get(question_id)
-        if turn is None:
-            continue
+            continue  # a follow-up's own id, not a coverage target - see the docstring
 
         evaluation = turn.get("evaluation")
         score = evaluation["score"] if evaluation else None
+        # `.get(...)` rather than `[...]` for `evidence_type`: it's a newer field, so a
+        # hand-built/legacy history dict (older checkpoints, some test fixtures) may not carry
+        # it - treated as "unknown", never guessed, exactly like a blank turn's `None` score.
+        evidence_type = evaluation.get("evidence_type") if evaluation else None
         summaries.append(
             QuestionEvaluationSummary(
                 question_id=turn["question_id"],
-                question=turn.get("question") or question.text,
+                question=turn.get("question") or question.target,
                 category=question.category,
                 target=question.target,
                 candidate_answer=turn.get("answer") or "",
                 score=score,
                 decision=EvaluationDecision(evaluation["decision"]) if evaluation else None,
+                evidence_type=AnswerEvidenceType(evidence_type) if evidence_type else None,
                 evidence=evaluation["evidence"] if evaluation else [],
                 strengths=evaluation["strengths"] if evaluation else [],
                 weaknesses=evaluation["weaknesses"] if evaluation else [],
+                # `.get(...)` with a "direct" default: a normal main-question turn never sets
+                # this key at all (see app.agents.interview_graph.evaluate_answer) - only a
+                # cross-target-resolution's synthesized turn does (see
+                # app.services.cross_target_evidence.resolve_cross_target_evidence), so its
+                # absence unambiguously means "an actual question was asked about this".
+                assessment_method=turn.get("assessment_method", "direct"),
             )
         )
     return summaries
+
+
+def build_unassessed_required_targets(
+    plan: InterviewPlan, question_evaluations: list[QuestionEvaluationSummary]
+) -> list[str]:
+    """Required coverage targets from ``plan`` that the (adaptive) interview never reached.
+
+    Distinct from a target that *was* asked about but produced weak evidence (that shows up in
+    ``question_evaluations``/``build_competency_assessments`` with a low evidence strength
+    instead, never here) - an entry returned here means literally no question was ever
+    generated for it and no evidence was ever volunteered about it (directly or via cross-
+    target evidence - see ``app.services.cross_target_evidence``), because the adaptive
+    interview ended (budget exhausted, or the candidate simply stopped) before reaching it.
+    Matched by target id (``QuestionEvaluationSummary.question_id`` for a directly-asked
+    target equals its coverage target id; a cross-target-resolved one is keyed the same way -
+    see ``app.services.report_scoring.build_question_evaluations``), never by name, so two
+    different-category targets that happen to share a name are never confused.
+    """
+    evaluated_ids = {qe.question_id for qe in question_evaluations}
+    return [
+        target.target
+        for target in plan.coverage_targets
+        if target.requirement_level == RequirementLevel.REQUIRED and target.id not in evaluated_ids
+    ]
 
 
 def build_competency_assessments(
@@ -136,14 +178,23 @@ def build_competency_assessments(
         scored = [e.score for e in evaluations if e.score is not None]
         score = round(sum(scored) / len(scored), _SCORE_DECIMALS) if scored else None
 
+        # evidence_type/assessment_method mirror the module's own "last turn determines the
+        # outcome" convention (see build_question_evaluations) - the most recent evaluated
+        # question for this target is what actually determines what's true about it now, not
+        # an earlier attempt.
+        evidence_type = next(
+            (e.evidence_type for e in reversed(evaluations) if e.evidence_type is not None), None
+        )
         assessments.append(
             CompetencyAssessment(
                 name=target,
                 category=evaluations[0].category,
                 score=score,
+                evidence_type=evidence_type,
                 evidence=flatten_unique(e.evidence for e in evaluations),
                 strengths=flatten_unique(e.strengths for e in evaluations),
                 weaknesses=flatten_unique(e.weaknesses for e in evaluations),
+                assessment_method=evaluations[-1].assessment_method,
             )
         )
     return assessments
@@ -158,6 +209,19 @@ def compute_overall_score(competencies: list[CompetencyAssessment]) -> float:
     categories actually have at least one scored competency - so the result stays a proper
     0-1 weighted mean regardless of how many questions each category happened to have.
     Returns ``0.0`` if nothing was ever scored (e.g. an interview with only blank answers).
+
+    **Scoring semantics (adaptive-runtime review, item 8)**: this is deliberately a score of
+    *the evidence the interview actually gathered*, never of "how much of the full job
+    specification was verified". A required target the adaptive interview never reached (see
+    ``build_unassessed_required_targets``) contributes nothing here, in either direction - it
+    is not scored as a failure, and it does not get averaged in as a zero. Two interviews that
+    both scored 0.9 on every question they actually asked score identically here even if one
+    covered every required target and the other left several unreached; only
+    ``InterviewReport.unassessed_required_targets`` (and the report's wording - see
+    ``app.services.report_generation``/``app.services.report_narrative``) tells that difference
+    apart. This is an intentional design choice, not an oversight: penalizing a target for
+    never being reached would conflate "the adaptive interview ended before asking" with "the
+    candidate failed", which is exactly the report-wording problem this review exists to fix.
     """
     by_category: dict[QuestionCategory, list[float]] = {}
     for c in competencies:
@@ -184,7 +248,17 @@ def compute_overall_score(competencies: list[CompetencyAssessment]) -> float:
 
 
 def derive_recommendation(overall_score: float) -> Recommendation:
-    """Fixed, documented thresholds - evaluated top-down, first match wins."""
+    """Fixed, documented thresholds - evaluated top-down, first match wins.
+
+    Operates purely on ``overall_score``, which is itself scoped to assessed evidence only
+    (see ``compute_overall_score``) - so this recommendation is never a claim that every
+    required qualification was verified, only that the qualifications actually assessed
+    produced this much evidence. A "strong_hire" alongside a non-empty
+    ``InterviewReport.unassessed_required_targets`` is not a contradiction: it means the
+    interview evidence gathered so far is strong, not that nothing remains to check (see
+    ``app.services.report_narrative``'s explicit ban on phrasing like "meets all required
+    qualifications").
+    """
     for threshold, recommendation in _RECOMMENDATION_THRESHOLDS:
         if overall_score >= threshold:
             return recommendation
@@ -236,11 +310,39 @@ def build_areas_to_explore(competencies: list[CompetencyAssessment], limit: int 
         if c.weaknesses:
             notes.append(f"{c.name}: {c.weaknesses[0]}")
         elif c.evidence_strength in (EvidenceStrength.INSUFFICIENT, EvidenceStrength.NOT_ASSESSED):
-            notes.append(
-                f"{c.name}: No conclusive evidence was gathered for this area during the "
-                "interview - worth exploring further."
-            )
+            notes.append(f"{c.name}: {_synthesized_gap_note(c.evidence_type)}")
     return notes
+
+
+#: Honest, evidence-grounded fallback note per evidence type, used only when a competency has
+#: no recorded weakness text of its own (e.g. a blank turn) - see build_areas_to_explore. Keeps
+#: the same distinction the rest of this evidence-type work exists for: "explicitly stated no
+#: experience" and "answered but gave nothing verifiable" are different claims, never collapsed
+#: into one generic sentence.
+_GAP_NOTE_BY_EVIDENCE_TYPE: dict[AnswerEvidenceType, str] = {
+    AnswerEvidenceType.EXPLICIT_LACK: (
+        "The candidate stated they do not have this experience - not independently verified "
+        "beyond their own statement."
+    ),
+    AnswerEvidenceType.CLAIMED_UNVERIFIED: (
+        "The candidate claimed relevant experience but could not provide detail to verify it - "
+        "worth exploring further."
+    ),
+    AnswerEvidenceType.CONTRADICTORY: (
+        "The candidate's answer contained inconsistent statements about this area - worth "
+        "clarifying directly."
+    ),
+}
+_DEFAULT_GAP_NOTE = (
+    "No conclusive evidence was gathered for this area during the interview - worth exploring "
+    "further."
+)
+
+
+def _synthesized_gap_note(evidence_type: AnswerEvidenceType | None) -> str:
+    if evidence_type is None:
+        return _DEFAULT_GAP_NOTE
+    return _GAP_NOTE_BY_EVIDENCE_TYPE.get(evidence_type, _DEFAULT_GAP_NOTE)
 
 
 def flatten_unique(lists: Iterable[list[str]]) -> list[str]:

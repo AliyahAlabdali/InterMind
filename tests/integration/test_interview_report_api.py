@@ -26,7 +26,7 @@ async def _create_job_with_plan(client) -> tuple[str, list[dict]]:
     job_id = job_resp.json()["id"]
 
     plan_resp = await client.post(f"/jobs/{job_id}/interview-plan")
-    return job_id, plan_resp.json()["questions"]
+    return job_id, plan_resp.json()["coverage_targets"]
 
 
 async def _complete_interview(client, job_id: str, questions: list[dict]) -> str:
@@ -151,6 +151,7 @@ async def test_regression_6_report_maps_the_follow_up_answer_to_the_follow_up_qu
     job_id, questions = await _create_job_with_plan(client)
     start = await client.post("/interviews", json={"job_id": job_id})
     interview_id = start.json()["interview_id"]
+    original_question_text = start.json()["current_question_text"]
 
     await client.post(f"/interviews/{interview_id}/answers", json={"answer": SHORT_ANSWER})
     follow_up_state = (await client.get(f"/interviews/{interview_id}")).json()
@@ -166,5 +167,5 @@ async def test_regression_6_report_maps_the_follow_up_answer_to_the_follow_up_qu
     report = (await client.get(f"/interviews/{interview_id}/report")).json()
     first_question_eval = report["question_evaluations"][0]
     assert first_question_eval["question"] == follow_up_text
-    assert first_question_eval["question"] != questions[0]["text"]
+    assert first_question_eval["question"] != original_question_text
     assert first_question_eval["candidate_answer"] == follow_up_answer

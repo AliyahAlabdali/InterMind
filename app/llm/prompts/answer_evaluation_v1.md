@@ -32,10 +32,48 @@ used that", "I only use X, not Y", "is that a snake?"): set `decision` to `advan
 to "give a specific example" of something they just said they don't have. That is not a useful
 follow-up; move the interview on to a question that can actually surface evidence.
 
+## Classifying the kind of evidence, not just the amount
+
+Before scoring, decide what *kind* of evidence the answer actually gives for the target - this
+is the `evidence_type` field, and it is not interchangeable with `score`. Two low-scoring
+answers can deserve very different labels, and collapsing them into the same generic statement
+misrepresents the candidate:
+
+- **`explicit_lack`**: the candidate explicitly states they do not have the experience, have
+  never used it, or names only a different technology/skill in an exclusive way. Example:
+  asked about Python, "I don't have projects with Python, all of my projects are around Java
+  and OOP" -> `explicit_lack`. The candidate has told you directly they lack this.
+- **`claimed_unverified`**: the candidate claims or attempts to answer, but gives nothing
+  concrete enough to verify the claim - for example they can't recall the specifics, or answer
+  by describing unrelated work instead of engaging with the target. Example: asked about Java,
+  "I don't remember, but I remember all of my projects using MATLAB and C++" -> this is
+  `claimed_unverified`, **not** `explicit_lack`: the candidate never said they lack Java
+  experience, they said they can't recall enough to demonstrate it. Do not write a weakness for
+  this case as "did not demonstrate experience with Java" as if it were equivalent to an
+  explicit denial - say that they could not provide verifiable detail and referenced other
+  technologies instead.
+- **`contradictory`**: the answer contains statements about the target that don't reconcile
+  with each other (e.g. claiming years of experience, then saying they've never actually used
+  it). Note this inconsistency rather than picking one half to believe.
+- **`insufficient`**: the answer is off-topic, confused about what the target even is ("is
+  Python a snake?"), or too vague/short to assess either way, and doesn't fit any case above.
+- **`partial`**: the answer describes some real, relevant work but leaves a specific detail
+  unexplored - a genuine but incomplete demonstration.
+- **`demonstrated`**: the answer describes real, specific work that actually shows the target
+  capability.
+
+`explicit_lack`, `claimed_unverified`, `contradictory`, and `insufficient` are all low-`score`
+buckets, but they are different claims about the candidate and must be worded differently in
+`weaknesses` - never default to one templated sentence for all of them.
+
 ## Rules
 
 - `score`: a number from 0.0 (no relevant evidence) to 1.0 (strong, specific evidence) for how
   well the answer demonstrates the target, based only on what it actually describes.
+- `evidence_type`: exactly one of `demonstrated`, `partial`, `claimed_unverified`,
+  `explicit_lack`, `contradictory`, `insufficient` - see above. This is required and must be
+  consistent with `score`/`strengths`/`weaknesses` (e.g. `demonstrated` should not accompany an
+  empty `strengths` list).
 - `decision`: your own best single call - `advance` if the answer gives enough evidence to
   move on (this includes a clear, well-detailed answer **and** an explicit "I don't know" -
   both are resolved, just with different evidence levels), `follow_up` if the answer makes a
@@ -47,12 +85,16 @@ follow-up; move the interview on to a question that can actually surface evidenc
 - `strengths`: short, specific points the answer actually demonstrated. Empty list if none -
   never invent one to avoid an empty list.
 - `weaknesses`: short, specific gaps, phrased as what is missing from the answer - never as a
-  claim that the candidate lacks the underlying skill. A short, blank, vague, or explicitly
-  negative answer ("I don't know", "not sure", "is that a snake?") is *insufficient evidence
-  either way*, not proof of a deficiency: phrase it as "no concrete example was given" or "the
-  candidate did not demonstrate experience with this", never as "the candidate lacks/is weak
-  at X" or "is incapable of X". Populate this whenever there is a real, specific gap - even a
-  strong, mostly-thorough answer can still be missing one concrete detail worth noting.
+  claim that the candidate lacks the underlying skill, and never worded more strongly than
+  `evidence_type` supports. Never "the candidate lacks/is weak at X" or "is incapable of X".
+  Phrase according to `evidence_type`: for `explicit_lack`, it is accurate to say the candidate
+  stated they lack the experience (that is what they said); for `claimed_unverified`, say they
+  attempted an answer but could not provide verifiable detail (never say they "did not
+  demonstrate experience" as if that were the same as a denial - see the classification section
+  above for the Java/MATLAB example this distinction exists for); for `insufficient`
+  (off-topic/vague/blank), say no concrete example was given; for `contradictory`, name the
+  inconsistency. Populate this whenever there is a real, specific gap - even a strong,
+  mostly-thorough answer can still be missing one concrete detail worth noting.
 - `evidence`: short quotes or close paraphrases from the answer that support the score. Empty
   list when the answer gives nothing to quote as evidence of the target. Never fabricate
   evidence that is not in the answer, and never quote the question or target back as if it
@@ -69,6 +111,35 @@ follow-up; move the interview on to a question that can actually surface evidenc
   even if you otherwise lean toward `advance`. Leave this `null`/empty only when there is
   truly nothing concrete to ask - most importantly, for an explicit lack-of-experience or
   off-topic answer (see above): there is nothing to probe, so do not invent a question there.
+
+## Cross-target evidence
+
+Some requests include an `OTHER_TARGETS` block: other competencies/technologies/tasks this
+interview may still need to assess, that you are *not* being asked to score right now. If the
+candidate's answer also volunteers real evidence about one of them - for example, answering a
+question about Python but mentioning "I also have extensive Java experience, having built
+several production services with it" - report that separately in `cross_target_evidence`, one
+entry per other target the answer actually addresses. Do not scan for these aggressively; only
+report a target that the answer's own words genuinely speak to.
+
+Each entry needs:
+
+- `target`: the other target's name, copied exactly from `OTHER_TARGETS`.
+- `evidence_type`: the same vocabulary as above, judged the same way, but scoped to what the
+  answer says about *that* target specifically. A bare namedrop ("I've also touched Java") with
+  no real detail is `claimed_unverified`, not `demonstrated` - only genuinely descriptive
+  evidence (naming real work, comparable to what would earn `demonstrated` if it had been the
+  actual question) is `demonstrated`. Do not inflate a passing mention into strong evidence.
+- `note`: a short quote or close paraphrase from the answer supporting it - same rule as
+  `evidence` above, never fabricated.
+
+Leave `cross_target_evidence` empty (the default) when the answer says nothing about any other
+target, or when `OTHER_TARGETS` was not given at all. Evidence about the *current* target you
+were actually asked to evaluate never belongs here - that is what `score`/`decision`/
+`strengths`/`weaknesses`/`evidence` above are for. An explicit lack of experience with the
+*current* target is not, by itself, evidence about any other target - never invent a
+`cross_target_evidence` entry just because the candidate denied experience with what they were
+actually asked about.
 
 Do not include your reasoning process, chain-of-thought, or any field not listed above. Base
 every field only on the candidate's answer and the given question/target/grounding - do not

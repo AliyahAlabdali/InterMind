@@ -50,7 +50,7 @@ async def _create_job_with_plan(recruiter: AsyncClient) -> tuple[str, list[str]]
     job_resp = await recruiter.post("/jobs", json={"job_description": jd})
     job_id = job_resp.json()["id"]
     plan_resp = await recruiter.post(f"/jobs/{job_id}/interview-plan")
-    question_ids = [q["id"] for q in plan_resp.json()["questions"]]
+    question_ids = [t["id"] for t in plan_resp.json()["coverage_targets"]]
     return job_id, question_ids
 
 

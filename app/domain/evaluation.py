@@ -26,6 +26,77 @@ class EvaluationDecision(StrEnum):
     FOLLOW_UP = "follow_up"
 
 
+class AnswerEvidenceType(StrEnum):
+    """What *kind* of evidence (if any) an answer actually provides for its target - orthogonal
+    to the 0-1 ``score``/``EvidenceStrength`` band.
+
+    Two answers can land in the same low-score band for very different reasons that a
+    recruiter reading the report must not have collapsed into one another. Real-OpenAI report
+    review finding: "I don't remember, but I remember all of my project using MATLAB and C++
+    language" (asked about Java) was reported as "the candidate did not demonstrate experience
+    with Java" - true as far as it goes, but it reads as a much flatter, more final claim than
+    what the candidate actually said (they attempted an answer and couldn't verify it, they
+    never denied Java experience), and a *different* answer - "I don't have projects with
+    python, all of my projects are around Java and OOP" - deserves a genuinely different label
+    (an explicit statement of no Python experience). Score/``EvidenceStrength`` alone cannot
+    distinguish these; ``evidence_type`` is the structured signal that does.
+
+    - ``DEMONSTRATED``: the answer describes real, specific work that actually shows the
+      target capability.
+    - ``PARTIAL``: the answer describes some real work relevant to the target, but leaves a
+      specific, worthwhile detail unexplored (not yet a full demonstration).
+    - ``CLAIMED_UNVERIFIED``: the answer claims/asserts experience with the target (or attempts
+      to answer, e.g. "I don't remember the frameworks...") but gives nothing concrete enough
+      to verify the claim - never to be conflated with ``EXPLICIT_LACK``, since the candidate
+      never denied having the experience, only failed to substantiate it.
+    - ``EXPLICIT_LACK``: the candidate explicitly states they do not have experience with the
+      target, have never used it, or only have experience with something else instead (an
+      exclusivity statement implying lack of the asked-about target).
+    - ``CONTRADICTORY``: the answer contains inconsistent/contradictory statements about the
+      target (e.g. asserting experience, then denying it) that cannot be reconciled from the
+      answer alone.
+    - ``INSUFFICIENT``: the answer is off-topic, confused about what the target even is, or too
+      vague/non-substantive to assess either way - and does not fit any of the more specific
+      categories above.
+    """
+
+    DEMONSTRATED = "demonstrated"
+    PARTIAL = "partial"
+    CLAIMED_UNVERIFIED = "claimed_unverified"
+    EXPLICIT_LACK = "explicit_lack"
+    CONTRADICTORY = "contradictory"
+    INSUFFICIENT = "insufficient"
+
+
+_EVIDENCE_TYPE_LABELS: dict[AnswerEvidenceType, str] = {
+    AnswerEvidenceType.EXPLICIT_LACK: "No evidence",
+    AnswerEvidenceType.CONTRADICTORY: "Contradictory evidence",
+    AnswerEvidenceType.CLAIMED_UNVERIFIED: "Unverified claim",
+    AnswerEvidenceType.INSUFFICIENT: "Insufficient evidence",
+    AnswerEvidenceType.PARTIAL: "Partial evidence",
+}
+
+
+def evidence_label(evidence_type: AnswerEvidenceType | None, score: float | None) -> str:
+    """Human-readable evidence label for report/UI display.
+
+    Deliberately driven primarily by ``evidence_type`` rather than the raw score: the score
+    band alone (see ``evidence_strength_for_score``) cannot tell "explicitly stated no
+    experience" apart from "claimed experience but couldn't verify it" apart from "gave a vague,
+    non-substantive answer" - they can all land in the same low-score band, but a recruiter
+    reading "No evidence" vs "Insufficient evidence" vs "Unverified claim" is being told three
+    different, accurate things about what actually happened in the interview (see
+    ``AnswerEvidenceType``'s docstring for the real report-review finding this fixes). Only
+    ``DEMONSTRATED`` still needs the score to decide between "strong" and "moderate" phrasing,
+    since that type spans both bands.
+    """
+    if evidence_type is None or score is None:
+        return "Not assessed"
+    if evidence_type is AnswerEvidenceType.DEMONSTRATED:
+        return "Strong evidence" if score >= 0.8 else "Moderate evidence"
+    return _EVIDENCE_TYPE_LABELS.get(evidence_type, "Insufficient evidence")
+
+
 class EvidenceStrength(StrEnum):
     """Qualitative read of how much a score is actually worth trusting.
 
@@ -66,11 +137,44 @@ def evidence_strength_for_score(score: float | None) -> EvidenceStrength:
     return EvidenceStrength.INSUFFICIENT
 
 
+class CrossTargetEvidence(BaseModel):
+    """Evidence about a *different* coverage target than the one actually asked about,
+    discovered incidentally in an answer - e.g. a candidate answering a Python question who
+    also mentions extensive Java experience along the way.
+
+    Deliberately a narrower concept than the primary per-question evaluation: ``evidence_type``
+    reuses :class:`AnswerEvidenceType`'s vocabulary, but only ``DEMONSTRATED``/``EXPLICIT_LACK``
+    are ever conclusive enough on their own to resolve the other target without ever asking
+    about it directly (see :mod:`app.services.cross_target_evidence`) - a real demonstration or
+    an explicit denial both leave nothing further to probe, exactly like the primary-target
+    policy in :func:`resolve_follow_up_decision`. Every other value (``CLAIMED_UNVERIFIED``,
+    ``PARTIAL``, ``CONTRADICTORY``, ``INSUFFICIENT``) is a *hint* only - a casual "I've also
+    touched Java" must never silently close out the Java question on its own.
+    """
+
+    target: str = Field(description="The other coverage target's name, exactly as given.")
+    evidence_type: AnswerEvidenceType
+    note: str = Field(
+        default="",
+        description="A short quote or close paraphrase from the answer supporting this signal.",
+    )
+
+
 class AnswerEvaluation(BaseModel):
     """Structured, evidence-based evaluation of one candidate answer to one question."""
 
     score: float = Field(
         ge=0.0, le=1.0, description="0 (no relevant evidence) to 1 (strong, specific evidence)."
+    )
+    evidence_type: AnswerEvidenceType = Field(
+        description=(
+            "What kind of evidence, if any, the answer actually provides for the target - see "
+            "AnswerEvidenceType. Must reflect only what the candidate's own words support: an "
+            "answer that attempts to answer but can't recall/verify a detail is "
+            "`claimed_unverified`, never `explicit_lack` (reserved for the candidate explicitly "
+            "denying the experience) and never `demonstrated`/`partial` (those require the "
+            "answer to actually describe real, specific work)."
+        )
     )
     decision: EvaluationDecision
     strengths: list[str] = Field(default_factory=list)
@@ -83,6 +187,14 @@ class AnswerEvaluation(BaseModel):
     follow_up_question: str | None = Field(
         default=None,
         description="Set only when follow_up_needed is true.",
+    )
+    cross_target_evidence: list[CrossTargetEvidence] = Field(
+        default_factory=list,
+        description=(
+            "Evidence for OTHER coverage targets (not the one asked about), found incidentally "
+            "in this answer - see CrossTargetEvidence. Empty list when the answer says nothing "
+            "about any other target; never fabricated to fill this in."
+        ),
     )
 
     @model_validator(mode="after")

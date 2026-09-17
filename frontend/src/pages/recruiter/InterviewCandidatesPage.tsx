@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react"
 import type { FormEvent } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { getJob } from "../../api/jobs"
-import { getInterviewPlan } from "../../api/interviewPlans"
 import { getInterview, listJobInterviews, startInterview } from "../../api/interviews"
 import { ApiError, RECRUITER_ACCESS_TOKEN } from "../../api/client"
 import { useAsyncData } from "../../hooks/useAsyncData"
@@ -39,8 +38,6 @@ export function InterviewCandidatesPage() {
 
   const jobFetcher = useCallback(() => getJob(jobId!), [jobId])
   const job = useAsyncData(jobFetcher, [jobId])
-  const planFetcher = useCallback(() => getInterviewPlan(jobId!), [jobId])
-  const plan = useAsyncData(planFetcher, [jobId])
 
   const candidatesFetcher = useCallback(() => listJobInterviews(jobId!), [jobId])
   const candidates = useAsyncData(candidatesFetcher, [jobId])
@@ -106,7 +103,7 @@ export function InterviewCandidatesPage() {
     }
   }
 
-  if (job.isLoading || plan.isLoading) return <Spinner label="Loading interview…" />
+  if (job.isLoading) return <Spinner label="Loading interview…" />
   if (job.error) return <ErrorBanner message={job.error} onRetry={job.refetch} />
   if (!job.data) return null
 
@@ -117,7 +114,6 @@ export function InterviewCandidatesPage() {
   const completedCount = sortedCandidates.filter((c) => c.status === "completed").length
   const inProgressCount = sortedCandidates.filter((c) => c.status === "in_progress").length
   const notStartedCount = sortedCandidates.filter((c) => c.status === "not_started").length
-  const totalQuestions = plan.data?.questions.length ?? null
 
   return (
     <div className="flex flex-col gap-6 animate-enter">
@@ -129,9 +125,6 @@ export function InterviewCandidatesPage() {
             ? `${sortedCandidates.length} candidate${sortedCandidates.length === 1 ? "" : "s"} · ${completedCount} completed · ${inProgressCount} in progress · ${notStartedCount} not started`
             : undefined
         }
-        actions={
-          <Button onClick={() => setShowInviteForm((v) => !v)}>Invite Candidate</Button>
-        }
       />
 
       <div className="flex flex-wrap items-center gap-4 text-xs text-ink-muted">
@@ -142,6 +135,14 @@ export function InterviewCandidatesPage() {
         <Link to={`/recruiter/interviews/${jobId}/plan`} className="underline underline-offset-2 hover:text-ink">
           Interview plan
         </Link>
+      </div>
+
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold text-ink">Candidates</h2>
+        {/* The single, unambiguous "Invite Candidate" action for this page - it used to also
+            appear as its own button inside the empty state below, competing with this one for
+            the same action. */}
+        <Button onClick={() => setShowInviteForm((v) => !v)}>Invite Candidate</Button>
       </div>
 
       {inviteError && <ErrorBanner message={inviteError} />}
@@ -199,11 +200,14 @@ export function InterviewCandidatesPage() {
       {candidates.isLoading && <Spinner label="Loading candidates…" />}
       {candidates.error && <ErrorBanner message={candidates.error} onRetry={candidates.refetch} />}
 
-      {candidates.data && sortedCandidates.length === 0 && (
+      {/* Hidden while the invite form is open or a link was just generated - showing the empty
+          state at the same time as the invite form (or the just-generated link, before the
+          candidate list refetch resolves) reads as if the invitation flow did nothing, since
+          the page looks unchanged. */}
+      {candidates.data && sortedCandidates.length === 0 && !showInviteForm && !newLink && (
         <EmptyState
           title="No candidates yet"
-          description="Invite a candidate to generate a secure interview link. Their progress and report will appear here as soon as they start."
-          action={<Button onClick={() => setShowInviteForm(true)}>Invite Candidate</Button>}
+          description="Invite a candidate to begin this interview."
         />
       )}
 
@@ -231,20 +235,19 @@ export function InterviewCandidatesPage() {
                   <td className="px-5 py-3">
                     <StatusBadge status={candidate.status} />
                     {candidate.status === "in_progress" &&
-                      totalQuestions !== null &&
                       progressByInterview[candidate.interview_id] !== undefined && (
                         <span className="ml-2 text-xs text-ink-muted">
-                          Q{progressByInterview[candidate.interview_id]} of {totalQuestions}
+                          Question {progressByInterview[candidate.interview_id]} so far
                         </span>
                       )}
                   </td>
                   <td className="px-5 py-3 text-ink">
                     {candidate.overall_score !== null
                       ? Math.round(candidate.overall_score * 100)
-                      : "—"}
+                      : "N/A"}
                   </td>
                   <td className="px-5 py-3 text-ink">
-                    {candidate.recommendation ? formatRecommendation(candidate.recommendation) : "—"}
+                    {candidate.recommendation ? formatRecommendation(candidate.recommendation) : "N/A"}
                   </td>
                   <td className="px-5 py-3 text-right">
                     {candidate.status === "completed" ? (
@@ -257,7 +260,7 @@ export function InterviewCandidatesPage() {
                         View Report
                       </Button>
                     ) : (
-                      <span className="text-ink-muted">—</span>
+                      <span className="text-ink-muted">N/A</span>
                     )}
                   </td>
                 </tr>

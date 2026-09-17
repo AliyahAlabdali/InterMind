@@ -1,6 +1,6 @@
 import pytest
 
-from app.domain.evaluation import AnswerEvaluation, EvaluationDecision
+from app.domain.evaluation import AnswerEvaluation, AnswerEvidenceType, EvaluationDecision
 from app.llm.fake_client import FakeLLMClient
 from app.services.answer_evaluation import AnswerEvaluationService
 
@@ -52,6 +52,7 @@ async def test_evaluate_empty_answer_requests_follow_up():
 async def test_evaluate_uses_configured_fake_response():
     canned = AnswerEvaluation(
         score=0.95,
+        evidence_type=AnswerEvidenceType.DEMONSTRATED,
         decision=EvaluationDecision.ADVANCE,
         strengths=["Clear, specific example."],
         weaknesses=[],
@@ -73,6 +74,7 @@ def test_decision_authoritative_over_follow_up_needed():
     never contradict."""
     evaluation = AnswerEvaluation(
         score=0.9,
+        evidence_type=AnswerEvidenceType.DEMONSTRATED,
         decision=EvaluationDecision.ADVANCE,
         follow_up_needed=True,
         follow_up_question="Kept - see below.",
@@ -88,6 +90,7 @@ def test_follow_up_question_survives_an_advance_decision():
     real LLM under-calling a follow-up it had otherwise correctly identified)."""
     evaluation = AnswerEvaluation(
         score=0.9,
+        evidence_type=AnswerEvidenceType.DEMONSTRATED,
         decision=EvaluationDecision.ADVANCE,
         follow_up_needed=True,
         follow_up_question="A concrete, answer-grounded question.",
@@ -100,6 +103,7 @@ def test_score_out_of_range_rejected(score):
     with pytest.raises(ValueError):
         AnswerEvaluation(
             score=score,
+            evidence_type=AnswerEvidenceType.DEMONSTRATED,
             decision=EvaluationDecision.ADVANCE,
             follow_up_needed=False,
         )

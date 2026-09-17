@@ -1,10 +1,17 @@
 import { NavLink } from "react-router-dom"
 import { Logo } from "../../brand/Logo"
 
-const NAV_ITEMS = [
-  { to: "/recruiter/dashboard", label: "Dashboard" },
-  { to: "/recruiter/interviews/new", label: "New Interview" },
-]
+// A single, unambiguous "New Interview" action lives in the dashboard page body (see
+// DashboardPage) - keeping it out of the nav too avoids two competing primary CTAs for the
+// same action.
+//
+// Only one destination exists today (the interview list, at /recruiter/dashboard) - "Job
+// Analysis" is reachable only from within a specific interview (see InterviewCandidatesPage)
+// and deliberately stays contextual rather than becoming a second top-level item, and there is
+// no settings page to link to yet. Labelled "Interviews" (matching the page's own heading)
+// rather than the more generic "Dashboard", since that's what it actually shows - a fake
+// second nav item pointing at the same page would not be a real IA improvement.
+const NAV_ITEMS = [{ to: "/recruiter/dashboard", label: "Interviews" }]
 
 function linkClasses(isActive: boolean): string {
   const base = "rounded-[10px] px-3 py-2 text-sm font-medium transition-colors"

@@ -1,12 +1,6 @@
 import type { CompetencyAssessment } from "../../types"
-import { formatCategory, formatEvidenceStrength } from "../../lib/format"
+import { formatCategory } from "../../lib/format"
 import { Badge } from "../ui/Badge"
-
-const CATEGORY_TONE = {
-  competency: "blush",
-  technology: "sky",
-  task: "lilac",
-} as const
 
 const EVIDENCE_STRENGTH_TONE = {
   strong: "success",
@@ -16,19 +10,25 @@ const EVIDENCE_STRENGTH_TONE = {
   not_assessed: "neutral",
 } as const
 
+// Rendered as one clear "{Category} · {Evidence label}" line rather than two separate,
+// unlabeled badges sitting side by side - a real report review found the latter unreadable at
+// a glance (e.g. two adjacent badges reading as one run-on string like "PythonTechnology" or
+// "AdvancedInsufficient evidence"). `evidence_label` is the backend's evidence-type-aware label
+// (see app.domain.evaluation.evidence_label) - more precise than the score-only
+// `evidence_strength` band, since it can say "No evidence" vs "Insufficient evidence" vs
+// "Unverified claim" instead of collapsing all of them into one generic phrase.
 export function CompetencyAssessmentCard({ assessment }: { assessment: CompetencyAssessment }) {
   return (
     <div className="rounded-[10px] border border-border p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-ink">{assessment.name}</span>
-          <Badge tone={CATEGORY_TONE[assessment.category]}>
-            {formatCategory(assessment.category)}
+        <span className="text-sm font-semibold text-ink">{assessment.name}</span>
+        <span className="flex items-center gap-1.5 text-xs text-ink-muted">
+          {formatCategory(assessment.category)}
+          <span aria-hidden="true">·</span>
+          <Badge tone={EVIDENCE_STRENGTH_TONE[assessment.evidence_strength]}>
+            {assessment.evidence_label}
           </Badge>
-        </div>
-        <Badge tone={EVIDENCE_STRENGTH_TONE[assessment.evidence_strength]}>
-          {formatEvidenceStrength(assessment.evidence_strength)}
-        </Badge>
+        </span>
       </div>
 
       {(assessment.strengths.length > 0 || assessment.weaknesses.length > 0) && (

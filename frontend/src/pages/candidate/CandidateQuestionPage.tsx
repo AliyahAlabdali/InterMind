@@ -58,7 +58,9 @@ export function CandidateQuestionPage() {
 
   const questionMeta = useMemo(() => {
     if (!plan.data || !questionId) return undefined
-    return plan.data.questions.find((q) => q.id === questionId)
+    // A follow-up's id is never in coverage_targets (it isn't a target of its own - see
+    // app.agents.interview_graph) - falls through to `undefined`, same as before.
+    return plan.data.coverage_targets.find((t) => t.id === questionId)
   }, [plan.data, questionId])
 
   const previousTurn = useMemo(() => {
@@ -94,7 +96,6 @@ export function CandidateQuestionPage() {
     return <ErrorBanner message={initial.error} onRetry={initial.refetch} />
   }
 
-  const totalQuestions = plan.data?.questions.length ?? interview.asked_question_ids.length
   const isFollowUp = isViewingCurrent && interview.current_question_is_follow_up
 
   return (
@@ -102,7 +103,6 @@ export function CandidateQuestionPage() {
       <QuestionProgress
         viewingIndex={Math.max(viewingIndex, 0)}
         askedCount={interview.asked_question_ids.length}
-        total={totalQuestions}
         onSelect={(index) => {
           const targetId = interview.asked_question_ids[index]
           if (targetId) navigate(`/candidate/interviews/${interviewId}/question/${targetId}`)

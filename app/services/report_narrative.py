@@ -30,8 +30,16 @@ class ReportNarrativeService:
         overall_score: float,
         recommendation: str,
         competencies: list[CompetencyAssessment],
+        unassessed_required_targets: list[str] = (),
     ) -> ReportNarrative:
         """Return a concise narrative synthesis grounded only in ``competencies``.
+
+        ``unassessed_required_targets`` (see
+        ``app.services.report_scoring.build_unassessed_required_targets``) lists required
+        targets the adaptive interview never reached at all - distinct from a target that was
+        asked about but scored poorly (already reflected in ``competencies``). Passed through
+        so the narrative can name them honestly rather than silently implying every requirement
+        was covered - never as evidence of any kind about the candidate.
 
         Raises:
             app.core.exceptions.LLMError: the request failed or the output was unusable.
@@ -39,12 +47,15 @@ class ReportNarrativeService:
         lines = [
             f"OVERALL_SCORE: {overall_score:.2f}",
             f"RECOMMENDATION: {recommendation}",
+            "UNASSESSED_REQUIRED_TARGETS: "
+            + (", ".join(unassessed_required_targets) if unassessed_required_targets else "(none)"),
         ]
         for c in competencies:
             lines.append("---")
             lines.append(f"COMPETENCY: {c.name}")
             lines.append(f"CATEGORY: {c.category.value}")
             lines.append(f"EVIDENCE_STRENGTH: {c.evidence_strength.value}")
+            lines.append(f"EVIDENCE_TYPE: {c.evidence_type.value if c.evidence_type else 'none'}")
             lines.append(f"STRENGTHS: {'; '.join(c.strengths) or '(none)'}")
             lines.append(f"WEAKNESSES: {'; '.join(c.weaknesses) or '(none)'}")
             lines.append(f"EVIDENCE: {'; '.join(c.evidence) or '(none)'}")

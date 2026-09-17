@@ -116,9 +116,8 @@ def get_question_generation_service(
 
 def get_interview_planner_service(
     knowledge_base: OnetKnowledgeBase = Depends(get_onet_kb),
-    question_service: QuestionGenerationService = Depends(get_question_generation_service),
 ) -> InterviewPlannerService:
-    return InterviewPlannerService(knowledge_base=knowledge_base, question_service=question_service)
+    return InterviewPlannerService(knowledge_base=knowledge_base)
 
 
 def get_answer_evaluation_service(
@@ -130,16 +129,19 @@ def get_answer_evaluation_service(
 def get_interview_graph(
     request: Request,
     evaluator: AnswerEvaluationService = Depends(get_answer_evaluation_service),
+    question_service: QuestionGenerationService = Depends(get_question_generation_service),
 ) -> CompiledStateGraph:
     """Lazily build the interview graph once per process and cache it on app state.
 
     The graph's checkpointer is what makes ``thread_id``-based state persist across requests,
     so it must stay a single instance for the app's lifetime - see
-    :func:`app.agents.interview_graph.build_interview_graph`.
+    :func:`app.agents.interview_graph.build_interview_graph`. ``question_service`` is what the
+    graph now calls at runtime to phrase each main question adaptively (see that module) -
+    the planner itself no longer generates any question text.
     """
     graph = getattr(request.app.state, "interview_graph", None)
     if graph is None:
-        graph = build_interview_graph(evaluator)
+        graph = build_interview_graph(evaluator, question_service)
         request.app.state.interview_graph = graph
     return graph
 

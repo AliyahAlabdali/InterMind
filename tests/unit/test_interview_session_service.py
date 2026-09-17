@@ -8,12 +8,16 @@ from app.core.exceptions import (
     InterviewNotFound,
     InterviewStateUnavailable,
 )
-from app.domain.evaluation import AnswerEvaluation, EvaluationDecision
+from app.domain.evaluation import AnswerEvaluation, AnswerEvidenceType, EvaluationDecision
 from app.domain.interview import InterviewStatus
 from app.domain.interview_plan import (
+    CoverageTarget,
+    EvidenceSource,
+    GeneratedQuestion,
+    GeneratedQuestionSet,
     InterviewPlan,
-    InterviewQuestion,
     QuestionCategory,
+    RequirementLevel,
 )
 from app.domain.occupation import OccupationMatch
 from app.llm.fake_client import FakeLLMClient
@@ -29,6 +33,35 @@ from app.services.interview_session import (
     InterviewSessionService,
     _to_interview_state,
 )
+from app.services.question_generation import QuestionGenerationService
+
+
+# The old fixed-script plan pre-generated question text ("Q1?", "Q2?", "Q3?") once, upfront.
+# Under the adaptive architecture, that text is generated at runtime, one target at a time, as
+# the interview actually reaches it - see `app.agents.interview_graph.select_target`. This
+# client reproduces the exact same "Q1?"/"Q2?"/"Q3?" sequence deterministically so the bulk of
+# this file's existing assertions (about ids, history, follow-up behaviour - none of which care
+# what the literal question text is, just that it's controllable and distinct per target) keep
+# working unchanged; a few tests below assert on the runtime-generation mechanism itself.
+class _ScriptedQuestionClient:
+    def __init__(self, texts: list[str]):
+        self._texts = iter(texts)
+        self.calls: list[str] = []
+
+    async def generate_structured(self, *, prompt, input_text, schema):
+        assert schema is GeneratedQuestionSet, f"unexpected schema requested: {schema}"
+        self.calls.append(input_text)
+        category = target = None
+        for line in input_text.splitlines():
+            stripped = line.strip()
+            for cat in ("COMPETENCY", "TECHNOLOGY", "TASK"):
+                if stripped.upper().startswith(f"{cat}:"):
+                    category = cat.lower()
+                    target = stripped.partition(":")[2].strip()
+        assert category is not None, f"no target line found in: {input_text!r}"
+        return GeneratedQuestionSet(
+            questions=[GeneratedQuestion(category=category, target=target, text=next(self._texts))]
+        )
 
 DETAILED_ANSWER = (
     "I led a project where I diagnosed a race condition in a queue consumer, wrote a "
@@ -45,23 +78,45 @@ def _occupation_match() -> OccupationMatch:
 def _make_plan(job_id: str = "job-1") -> InterviewPlan:
     return InterviewPlan(
         job_id=job_id,
+        role_title="Software Developer",
         occupation_match=_occupation_match(),
-        questions=[
-            InterviewQuestion(
-                id="q1", category=QuestionCategory.COMPETENCY, text="Q1?", target="A", grounding="g"
+        coverage_targets=[
+            CoverageTarget(
+                id="q1",
+                category=QuestionCategory.COMPETENCY,
+                target="A",
+                requirement_level=RequirementLevel.REQUIRED,
+                source=EvidenceSource.JOBSPEC,
+                priority=0,
+                grounding="g",
             ),
-            InterviewQuestion(
-                id="q2", category=QuestionCategory.COMPETENCY, text="Q2?", target="B", grounding="g"
+            CoverageTarget(
+                id="q2",
+                category=QuestionCategory.COMPETENCY,
+                target="B",
+                requirement_level=RequirementLevel.REQUIRED,
+                source=EvidenceSource.JOBSPEC,
+                priority=1,
+                grounding="g",
             ),
-            InterviewQuestion(
-                id="q3", category=QuestionCategory.COMPETENCY, text="Q3?", target="C", grounding="g"
+            CoverageTarget(
+                id="q3",
+                category=QuestionCategory.COMPETENCY,
+                target="C",
+                requirement_level=RequirementLevel.REQUIRED,
+                source=EvidenceSource.JOBSPEC,
+                priority=2,
+                grounding="g",
             ),
         ],
     )
 
 
-def _make_service(llm=None) -> InterviewSessionService:
-    graph = build_interview_graph(AnswerEvaluationService(llm=llm or FakeLLMClient()))
+def _make_service(llm=None, question_texts=("Q1?", "Q2?", "Q3?")) -> InterviewSessionService:
+    graph = build_interview_graph(
+        AnswerEvaluationService(llm=llm or FakeLLMClient()),
+        QuestionGenerationService(llm=_ScriptedQuestionClient(list(question_texts))),
+    )
     return InterviewSessionService(
         graph=graph,
         plan_repo=InMemoryInterviewPlanRepository(),
@@ -203,10 +258,17 @@ async def test_submit_after_completion_raises_already_completed():
     service = _make_service()
     plan = InterviewPlan(
         job_id="job-1",
+        role_title="Software Developer",
         occupation_match=_occupation_match(),
-        questions=[
-            InterviewQuestion(
-                id="q1", category=QuestionCategory.COMPETENCY, text="Q1?", target="A", grounding="g"
+        coverage_targets=[
+            CoverageTarget(
+                id="q1",
+                category=QuestionCategory.COMPETENCY,
+                target="A",
+                requirement_level=RequirementLevel.REQUIRED,
+                source=EvidenceSource.JOBSPEC,
+                priority=0,
+                grounding="g",
             )
         ],
     )
@@ -296,6 +358,50 @@ async def test_follow_up_does_not_require_resubmitting_the_original_answer():
     assert advanced.current_question_id == "q2"
 
 
+async def test_current_question_id_contract_during_a_follow_up():
+    """Copilot review, SHOULD FIX 4: pins down the deliberate identity contract documented on
+    `app.domain.interview.InterviewState` - reviewed and kept as-is rather than changed.
+
+    Three distinct identities exist at any point in an interview, and the API only ever
+    exposes two of them: the ROOT TARGET's id (`current_question_id` - stable across an entire
+    follow-up), the ACTUAL CURRENT TURN's content (`current_question_text` - which *does*
+    change once a follow-up is asked), and the FOLLOW-UP's own id (never exposed as
+    `current_question_id` - only ever visible via `history`/`asked_question_ids`, each tagged
+    with its `root_question_id`).
+    """
+    service = _make_service()
+    await service.plan_repo.add(_make_plan())
+    interview_id, initial_state = await service.start("job-1")
+    root_id = initial_state.current_question_id
+    assert root_id == "q1"
+    original_text = initial_state.current_question_text
+
+    # First submission: a weak answer to the ROOT question itself triggers a follow-up. This
+    # turn's own question_id is still the root id - it hasn't been asked the follow-up yet.
+    follow_up_state = await service.submit_answer(interview_id, SHORT_ANSWER)
+    assert follow_up_state.history[-1]["question_id"] == root_id
+
+    # Root target identity: unchanged by the follow-up.
+    assert follow_up_state.current_question_id == root_id
+    # Actual current turn content: changed to the follow-up's own phrasing.
+    assert follow_up_state.current_question_text != original_text
+    assert follow_up_state.current_question_text
+
+    # Second submission: answering the follow-up itself. THIS turn's own identity is the
+    # follow-up's - distinct from the root id, and never what current_question_id reports,
+    # even though it was the answer that resolved this same root target.
+    advanced_state = await service.submit_answer(interview_id, DETAILED_ANSWER)
+    follow_up_turn = advanced_state.history[-1]
+    follow_up_id = follow_up_turn["question_id"]
+    assert follow_up_id != root_id
+    assert follow_up_turn["root_question_id"] == root_id
+    assert follow_up_id in advanced_state.asked_question_ids
+
+    # current_question_id has already moved on to the NEXT target's root id - never to the
+    # follow-up's own id, which simply stops being "current" anything once it resolves.
+    assert advanced_state.current_question_id not in (root_id, follow_up_id)
+
+
 async def test_viewing_previous_questions_does_not_corrupt_interview_state():
     """Candidate "previous question" navigation is read-only `GET` polling (`get_state`), never
     `submit_answer` - repeating it must never advance, regenerate, or otherwise mutate the
@@ -336,7 +442,10 @@ async def test_viewing_previous_questions_does_not_corrupt_interview_state():
 
 def _strong_evaluation() -> AnswerEvaluation:
     return AnswerEvaluation(
-        score=0.9, decision=EvaluationDecision.ADVANCE, follow_up_needed=False
+        score=0.9,
+        evidence_type=AnswerEvidenceType.DEMONSTRATED,
+        decision=EvaluationDecision.ADVANCE,
+        follow_up_needed=False,
     )
 
 
@@ -346,6 +455,7 @@ def _gap_evaluation(follow_up_question: str | None) -> AnswerEvaluation:
     specific target/domain baked in - see the requirement that this must generalize)."""
     return AnswerEvaluation(
         score=0.85,
+        evidence_type=AnswerEvidenceType.DEMONSTRATED,
         decision=EvaluationDecision.ADVANCE,  # the model's own (miscalibrated) guess
         strengths=["Described a real, specific piece of work."],
         weaknesses=["A specific metric/number mentioned was never actually given."],
@@ -411,6 +521,7 @@ async def test_follow_up_is_stored_in_history_and_asked_question_ids_with_a_stab
             _gap_evaluation("What were the actual numbers behind that tradeoff?"),
             AnswerEvaluation(
                 score=0.9,
+                evidence_type=AnswerEvidenceType.DEMONSTRATED,
                 decision=EvaluationDecision.ADVANCE,
                 strengths=["Gave the specific numbers requested."],
                 follow_up_needed=False,
@@ -705,6 +816,7 @@ async def test_regression_F_report_grouping_still_works():
             _gap_evaluation(follow_up_text),
             AnswerEvaluation(
                 score=0.9,
+                evidence_type=AnswerEvidenceType.DEMONSTRATED,
                 decision=EvaluationDecision.ADVANCE,
                 strengths=["Gave the specific numbers."],
                 follow_up_needed=False,

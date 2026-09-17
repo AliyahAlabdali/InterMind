@@ -13,11 +13,11 @@ enriches how InterMind understands and asks about those requirements.**
                                   |    |     |
                                   +----+-----+
                                        |
-                                O*NET matching -> relevant O*NET context
+                                O*NET matching -> relevant O*NET context (persisted, not spent)
                                        |
-                                Question Generation
+                                Coverage Targets (WHAT to assess)
                                        |
-                                Interview Questions
+                          (interview time) adaptive selection + runtime question generation
 
 ``InterviewPlan.competencies``/``technologies``/``tasks`` are always built from the JobSpec
 alone (``EvidenceSource.JOBSPEC``, or ``BOTH`` when the matched occupation happens to rate the
@@ -25,11 +25,20 @@ same name too - see each model's docstring in ``app.domain.interview_plan``). O*
 the source of a *new* competency/technology/task: it cannot silently add a candidate
 requirement the job description never stated. What O*NET *can* do is supply relevant
 occupational context - the matched occupation's title/description plus a handful of its own
-technologies/tasks that are actually relevant to this JobSpec - to the question-generation
-step, so questions can be phrased with more depth/realism. See ``_build_onet_context``.
+technologies/tasks that are actually relevant to this JobSpec - to runtime question phrasing,
+so questions can be phrased with more depth/realism. See ``_build_onet_context``.
 
-Two independent relevance gates decide what, if anything, ends up in that context, reusing the
-same signals this module already computed for the (now-retired) "inject into the plan" design:
+**This service no longer generates any question text.** It used to call an LLM once, upfront,
+to phrase every question for the whole interview - producing a fixed script the candidate would
+always be asked in the same order, regardless of their answers. That is the architectural issue
+this module was rewritten to fix: it now only decides *what* the interview should be able to
+assess (``coverage_targets``, see ``_build_coverage_targets``) and persists the O*NET context
+that phrasing will eventually use (``InterviewPlan.onet_context``). *What to ask next* and
+*the actual question text* are decided at interview time by ``app.services.target_selection``
+and ``app.agents.interview_graph`` - see those modules for the adaptive loop.
+
+Two independent relevance gates decide what, if anything, ends up in the O*NET context, reusing
+the same signals this module already computed for the (retired) "inject into the plan" design:
 ``_match_is_reliable`` decides whether the matched *occupation* is trusted at all; corpus-wide
 technology prevalence (``OnetKnowledgeBase.technology_prevalence``) and per-task relevance to
 the JobSpec (``OnetKnowledgeBase.relevance_to_jobspec``) decide, per candidate item, whether
@@ -39,38 +48,24 @@ to a technology, task, or occupation name - the gates are purely statistical/rel
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 
 from app.core.exceptions import NoOccupationMatch
 from app.domain.interview_plan import (
     CompetencyCoverage,
+    CoverageTarget,
     EvidenceSource,
     InterviewPlan,
-    InterviewQuestion,
     QuestionCategory,
+    RequirementLevel,
     SelectedTask,
     SelectedTechnology,
 )
 from app.domain.job import JobSpec
 from app.domain.occupation import OccupationRecord
 from app.knowledge.onet_kb import OnetKnowledgeBase
-from app.services.question_generation import QuestionGenerationService
+from app.services.target_identity import target_question_id as _question_id
 from app.services.text_normalize import normalize_name as _normalize
-
-
-def _question_id(job_id: str, category: QuestionCategory, target: str) -> str:
-    """Stable id for a (job, category, target) slot.
-
-    Deterministic (not a fresh ``uuid4()``) so rebuilding the same plan from the same JobSpec
-    and the same knowledge-base signals always produces the same question ids in the same
-    order - the identity a later stateful interview loop (Milestone 4) would reference stays
-    valid even if the plan is recomputed, and is independent of the phrased question text
-    itself (which may legitimately vary between LLM providers/calls).
-    """
-    key = f"{job_id}|{category.value}|{_normalize(target)}"
-    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:32]
-
 
 #: Minimum absolute TF-IDF cosine score for a top match to be trusted at all. Calibrated
 #: against this baseline's real score range (see the Milestone O*NET-matching investigations
@@ -170,25 +165,32 @@ class InterviewPlannerService:
     """Builds an :class:`InterviewPlan` from a :class:`JobSpec`.
 
     Occupation matching uses :class:`OnetKnowledgeBase` (deterministic TF-IDF baseline - a
-    retrieval proof-of-concept, not a validated classifier; see Milestone 2). Question text
-    generation goes through :class:`QuestionGenerationService`, which uses the same
-    provider-agnostic ``LLMClient`` boundary as JD analysis, so the fake provider needs no
-    API credits and OpenAI/Azure OpenAI stay strictly optional.
+    retrieval proof-of-concept, not a validated classifier; see Milestone 2). This service is
+    purely deterministic and makes no LLM calls of its own - see the module docstring for why
+    question phrasing moved to interview time.
 
     The job description is the *only* source of plan competencies/technologies/tasks (see the
     module docstring). The matched O*NET occupation contributes, at most, a short relevance
-    -filtered context block passed to question generation - never a new plan entry.
+    -filtered context block, persisted on the plan for the interview graph to use when phrasing
+    questions - never a new plan entry.
+
+    **Coverage, not a question count**: ``max_competencies``/``max_technologies``/``max_tasks``
+    still bound how much content is even eligible to be assessed (so an unusually long JD
+    doesn't produce an unbounded coverage list), but this service no longer decides how many of
+    those actually become questions, or in what order - that is an interview-time decision (see
+    ``app.services.target_selection.TargetSelectionPolicy``), made adaptively against the
+    candidate's actual answers. ``coverage_targets`` carries a ``requirement_level``
+    (``Skill.required`` for technologies; competencies/tasks have no such distinction in
+    ``JobSpec`` and are always ``required``) and a ``priority`` (required-before-preferred,
+    then JD order) so that policy has what it needs to prioritize required targets without this
+    service pre-committing to which ones "win" a question slot.
     """
 
     knowledge_base: OnetKnowledgeBase
-    question_service: QuestionGenerationService
     top_k_matches: int = 5
     max_competencies: int = 8
     max_technologies: int = 8
     max_tasks: int = 5
-    competency_questions: int = 4
-    technology_questions: int = 4
-    task_questions: int = 2
 
     async def plan(self, job_id: str, job_spec: JobSpec) -> InterviewPlan:
         matches = self.knowledge_base.match_jobspec(job_spec, top_k=self.top_k_matches)
@@ -210,24 +212,22 @@ class InterviewPlannerService:
         onet_context = self._build_onet_context(
             job_spec, occupation, reliable, confident_for_tech_context
         )
-        questions = await self._generate_questions(
-            job_id=job_id,
-            job_spec=job_spec,
-            competencies=competencies,
-            technologies=technologies,
-            tasks=tasks,
-            onet_context=onet_context,
+        coverage_targets = _build_coverage_targets(
+            job_id, competencies=competencies, technologies=technologies, tasks=tasks
         )
 
         return InterviewPlan(
             job_id=job_id,
+            role_title=job_spec.role_title,
+            seniority=job_spec.seniority,
             occupation_match=top_match,
             alternate_matches=alternates,
             onet_grounding_used=bool(onet_context),
+            onet_context=onet_context,
             competencies=competencies,
             technologies=technologies,
             tasks=tasks,
-            questions=questions,
+            coverage_targets=coverage_targets,
         )
 
     def _build_competencies(
@@ -254,7 +254,19 @@ class InterviewPlannerService:
     def _build_technologies(
         self, job_spec: JobSpec, occupation: OccupationRecord, reliable: bool
     ) -> list[SelectedTechnology]:
-        """JD technologies only. O*NET may annotate (-> BOTH) an existing one, never add one."""
+        """JD technologies only. O*NET may annotate (-> BOTH) an existing one, never add one.
+
+        Real-run finding: with more than ``max_technologies`` skills in the JD, capping in raw
+        JD order could silently drop a *required* skill (e.g. PostgreSQL, Git) listed after
+        enough earlier, merely-preferred ones (e.g. Docker, AWS) to fill the cap - the required
+        skill would then never even become a coverage target, let alone get asked about,
+        regardless of how well ``app.services.target_selection`` prioritizes required targets
+        afterward, since it was never in the pool to begin with. Sorting required-before-
+        preferred (stable - JD order preserved within each tier) before applying the cap is the
+        same "required must never lose to preferred merely because of list position" principle
+        already applied one layer later, at question-selection time - applied here too, at
+        plan-build time, so a required skill is never excluded from the plan in the first place.
+        """
         selected: dict[str, SelectedTechnology] = {
             _normalize(s.name): SelectedTechnology(
                 name=s.name, source=EvidenceSource.JOBSPEC, required=s.required
@@ -272,7 +284,13 @@ class InterviewPlannerService:
                             "in_demand": ot.in_demand,
                         }
                     )
-        return list(selected.values())[: self.max_technologies]
+        # Decide which technologies *survive* the cap using required-first priority, but keep
+        # the returned list in JD order (recruiter-facing display, and the existing "the plan
+        # never reorders the JD" contract - see interview_planner tests) - only *which* subset
+        # makes it past `max_technologies`, not the order they're shown in, changes.
+        prioritized = sorted(selected.values(), key=lambda t: 0 if t.required else 1)
+        surviving = {_normalize(t.name) for t in prioritized[: self.max_technologies]}
+        return [t for t in selected.values() if _normalize(t.name) in surviving]
 
     def _build_tasks(
         self, job_spec: JobSpec, occupation: OccupationRecord, reliable: bool
@@ -349,57 +367,73 @@ class InterviewPlannerService:
             lines.extend(f"- {t}" for t in relevant_tasks)
         return "\n".join(lines)
 
-    async def _generate_questions(
-        self,
-        *,
-        job_id: str,
-        job_spec: JobSpec,
-        competencies: list[CompetencyCoverage],
-        technologies: list[SelectedTechnology],
-        tasks: list[SelectedTask],
-        onet_context: str,
-    ) -> list[InterviewQuestion]:
-        # (category, target name, grounding reference) for every question we want phrased.
-        # Every target here comes from the JobSpec - O*NET context (below) enriches phrasing
-        # only, and is never itself a target a question must be generated for.
-        items: list[tuple[QuestionCategory, str, str]] = []
-        for c in competencies[: self.competency_questions]:
-            items.append((QuestionCategory.COMPETENCY, c.name, _competency_grounding(c)))
-        for t in technologies[: self.technology_questions]:
-            items.append((QuestionCategory.TECHNOLOGY, t.name, _technology_grounding(t)))
-        for t in tasks[: self.task_questions]:
-            items.append((QuestionCategory.TASK, t.task, _task_grounding(t)))
 
-        generated = await self.question_service.generate(
-            role_title=job_spec.role_title,
-            targets=[(category.value, name) for category, name, _ in items],
-            onet_context=onet_context,
-        )
-        text_by_target = {
-            (g.category.strip().lower(), _normalize(g.target)): g.text.strip()
-            for g in generated.questions
-        }
+#: Priority offset added to every preferred-tier target so it always sorts after every
+#: required-tier one within the same category, regardless of how many required targets that
+#: category has - see ``_build_coverage_targets``.
+_PREFERRED_PRIORITY_OFFSET = 1000
 
-        questions: list[InterviewQuestion] = []
-        seen_text: set[str] = set()
-        for category, name, grounding in items:
-            text = text_by_target.get((category.value, _normalize(name)))
-            if not text:
-                continue
-            norm_text = _normalize(text)
-            if norm_text in seen_text:
-                continue  # avoid duplicate/redundant questions
-            seen_text.add(norm_text)
-            questions.append(
-                InterviewQuestion(
-                    id=_question_id(job_id, category, name),
-                    category=category,
-                    text=text,
-                    target=name,
-                    grounding=grounding,
-                )
+
+def _build_coverage_targets(
+    job_id: str,
+    *,
+    competencies: list[CompetencyCoverage],
+    technologies: list[SelectedTechnology],
+    tasks: list[SelectedTask],
+) -> list[CoverageTarget]:
+    """Flatten competencies/technologies/tasks into the interview graph's working list.
+
+    Each target's ``priority`` alone is enough to prioritize required targets ahead of
+    preferred ones within its own category (required: JD index; preferred: JD index +
+    ``_PREFERRED_PRIORITY_OFFSET``) while preserving JD order within each tier - the exact
+    "required before preferred, JD order otherwise" rule the old ``_prioritize_required`` used
+    to apply only at question-generation time, now available to any interview-time selector
+    without it needing to know about ``Skill.required`` at all, just ``priority``. Competencies
+    and tasks have no required/preferred distinction in ``JobSpec`` - see ``RequirementLevel``'s
+    docstring - so every one is ``REQUIRED`` with a plain JD-index priority.
+    """
+    targets: list[CoverageTarget] = []
+    for index, c in enumerate(competencies):
+        targets.append(
+            CoverageTarget(
+                id=_question_id(job_id, QuestionCategory.COMPETENCY, c.name),
+                target=c.name,
+                category=QuestionCategory.COMPETENCY,
+                requirement_level=RequirementLevel.REQUIRED,
+                source=c.source,
+                priority=index,
+                grounding=_competency_grounding(c),
             )
-        return questions
+        )
+    for index, t in enumerate(technologies):
+        # `None` (no JD origin - shouldn't happen for technologies) counts as required.
+        required = t.required is not False
+        targets.append(
+            CoverageTarget(
+                id=_question_id(job_id, QuestionCategory.TECHNOLOGY, t.name),
+                target=t.name,
+                category=QuestionCategory.TECHNOLOGY,
+                requirement_level=(
+                    RequirementLevel.REQUIRED if required else RequirementLevel.PREFERRED
+                ),
+                source=t.source,
+                priority=index if required else index + _PREFERRED_PRIORITY_OFFSET,
+                grounding=_technology_grounding(t),
+            )
+        )
+    for index, t in enumerate(tasks):
+        targets.append(
+            CoverageTarget(
+                id=_question_id(job_id, QuestionCategory.TASK, t.task),
+                target=t.task,
+                category=QuestionCategory.TASK,
+                requirement_level=RequirementLevel.REQUIRED,
+                source=t.source,
+                priority=index,
+                grounding=_task_grounding(t),
+            )
+        )
+    return targets
 
 
 def _competency_grounding(competency: CompetencyCoverage) -> str:

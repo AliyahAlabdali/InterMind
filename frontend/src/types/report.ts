@@ -1,4 +1,4 @@
-import type { EvaluationDecision } from "./evaluation"
+import type { AnswerEvidenceType, EvaluationDecision } from "./evaluation"
 import type { QuestionCategory } from "./interviewPlan"
 
 export type Recommendation = "strong_hire" | "hire" | "consider" | "no_hire"
@@ -13,6 +13,8 @@ export interface QuestionEvaluationSummary {
   candidate_answer: string
   score: number | null
   evidence_strength: EvidenceStrength
+  evidence_type: AnswerEvidenceType | null
+  evidence_label: string
   decision: EvaluationDecision | null
   evidence: string[]
   strengths: string[]
@@ -24,6 +26,8 @@ export interface CompetencyAssessment {
   category: QuestionCategory
   score: number | null
   evidence_strength: EvidenceStrength
+  evidence_type: AnswerEvidenceType | null
+  evidence_label: string
   evidence: string[]
   strengths: string[]
   weaknesses: string[]

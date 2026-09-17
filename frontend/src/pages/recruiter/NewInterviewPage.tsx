@@ -27,8 +27,8 @@ export function NewInterviewPage() {
     <div className="flex flex-col gap-8 animate-enter">
       <PageHeader
         eyebrow="Create Interview"
-        title="Plan an intelligent interview"
-        description="Paste a job description and InterMind will extract the role, match it against O*NET occupational data, and build a grounded, competency-based interview plan. InterMind is autonomous by default — you define the role, it handles the interview intelligence."
+        title="Turn a job description into a structured interview"
+        description="Paste the role requirements below. InterMind will identify the skills and competencies that matter and build an interview tailored to the role, autonomously, from job description to candidate report."
       />
 
       {error && <ErrorBanner message={error} />}

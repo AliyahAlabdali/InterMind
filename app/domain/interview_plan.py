@@ -13,6 +13,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
+from app.domain.job import Seniority
 from app.domain.occupation import OccupationMatch
 
 
@@ -28,6 +29,68 @@ class EvidenceSource(StrEnum):
     JOBSPEC = "jobspec"
     ONET = "onet"
     BOTH = "both"
+
+
+class RequirementLevel(StrEnum):
+    """Whether the job description treats a target as must-have or nice-to-have.
+
+    Technologies inherit this directly from :attr:`~app.domain.job.Skill.required`.
+    Competencies and tasks have no such distinction in :class:`~app.domain.job.JobSpec` (a JD
+    names a competency/responsibility because it matters, full stop) - see
+    ``InterviewPlannerService`` for where each category's level is actually decided.
+    """
+
+    REQUIRED = "required"
+    PREFERRED = "preferred"
+
+
+class AssessmentStatus(StrEnum):
+    """Whether a coverage target has been assessed yet.
+
+    A :class:`CoverageTarget` on an :class:`InterviewPlan` is always ``NOT_ASSESSED`` - the plan
+    is a JD-level artifact built before any candidate answers anything, so it has no notion of
+    "this candidate's" progress. Live, per-candidate assessment status lives in the interview
+    session's own history (see ``app.agents.interview_graph``) and the generated report (see
+    ``app.domain.report``), not here - this field exists so ``CoverageTarget`` is
+    self-describing about that distinction rather than silently omitting a status concept
+    entirely.
+    """
+
+    NOT_ASSESSED = "not_assessed"
+
+
+class CoverageTarget(BaseModel):
+    """One thing the interview should assess - WHAT to cover, never pre-written question text.
+
+    Replaces the old fixed, pre-generated ``InterviewQuestion`` list as the plan's main
+    interview-facing artifact: the actual question text for a target is generated at runtime,
+    once that target is actually selected during a live interview (see
+    ``app.agents.interview_graph`` and ``app.services.target_selection``), using the target
+    plus everything asked/answered so far - never predetermined here. This is the architectural
+    fix for the reported "fixed 7-question script" issue: the plan defines *what* to assess,
+    the interview graph decides *what to ask* and *when*, and the number of questions actually
+    asked is an outcome of that adaptive process, not a property of the plan.
+
+    ``id`` is a stable, deterministic identity for this target (see
+    ``app.services.target_identity.target_question_id``) - the interview graph uses it verbatim
+    as the id of whatever question ends up being generated for this target, exactly as it used
+    to trust a pre-generated ``InterviewQuestion.id``.
+    """
+
+    id: str
+    target: str
+    category: QuestionCategory
+    requirement_level: RequirementLevel
+    source: EvidenceSource
+    priority: int = Field(
+        description=(
+            "Lower sorts first within the same category. Required targets are given a lower "
+            "priority value than preferred ones, and JD order is preserved within each - see "
+            "InterviewPlannerService._build_coverage_targets."
+        )
+    )
+    grounding: str = Field(description="Human-readable evidence reference for this target.")
+    assessment_status: AssessmentStatus = AssessmentStatus.NOT_ASSESSED
 
 
 class CompetencyCoverage(BaseModel):
@@ -79,7 +142,13 @@ class SelectedTask(BaseModel):
 
 
 class InterviewQuestion(BaseModel):
-    """One interview question, grounded in a specific selected signal."""
+    """One interview question actually generated at runtime for a specific target.
+
+    No longer a plan-level artifact (see :class:`CoverageTarget`) - this shape is used by the
+    runtime question-generation path (``app.services.question_generation``,
+    ``app.agents.interview_graph``) to represent a single generated question, and by the
+    ``FakeLLMClient``/tests that need to construct one.
+    """
 
     id: str
     category: QuestionCategory
@@ -89,9 +158,28 @@ class InterviewQuestion(BaseModel):
 
 
 class InterviewPlan(BaseModel):
-    """A structured, role-specific interview plan generated from a JobSpec."""
+    """A structured, role-specific interview plan generated from a JobSpec.
+
+    ``coverage_targets`` is what the adaptive interview actually works from (see
+    :class:`CoverageTarget`) - it is not a fixed question script, and its length is not the
+    number of questions a candidate will be asked (that is decided at interview time by
+    ``app.services.target_selection``). ``competencies``/``technologies``/``tasks`` remain the
+    detailed, per-category provenance breakdown they always were (unchanged) - ``coverage_
+    targets`` is a flat, prioritized, id-bearing view built from exactly those three lists, for
+    the interview graph and for a recruiter-facing "what will this interview cover" summary.
+    """
 
     job_id: str
+    role_title: str = Field(
+        description=(
+            "Copied from the JobSpec at plan-build time so the interview graph can phrase "
+            "runtime-generated questions without needing to re-fetch the JobSpec."
+        )
+    )
+    seniority: Seniority = Field(
+        default=Seniority.UNKNOWN,
+        description="Copied from the JobSpec, for the same reason as role_title above.",
+    )
     occupation_match: OccupationMatch
     alternate_matches: list[OccupationMatch] = Field(default_factory=list)
     onet_grounding_used: bool = Field(
@@ -106,10 +194,18 @@ class InterviewPlan(BaseModel):
             "alternate_matches are still returned for transparency either way."
         ),
     )
+    onet_context: str = Field(
+        default="",
+        description=(
+            "The same relevance-filtered O*NET context block described by onet_grounding_used, "
+            "persisted here (rather than only used transiently at plan-build time) so the "
+            "interview graph can pass it to each runtime question-generation call."
+        ),
+    )
     competencies: list[CompetencyCoverage] = Field(default_factory=list)
     technologies: list[SelectedTechnology] = Field(default_factory=list)
     tasks: list[SelectedTask] = Field(default_factory=list)
-    questions: list[InterviewQuestion] = Field(default_factory=list)
+    coverage_targets: list[CoverageTarget] = Field(default_factory=list)
 
 
 class GeneratedQuestion(BaseModel):

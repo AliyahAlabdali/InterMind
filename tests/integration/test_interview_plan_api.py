@@ -25,7 +25,7 @@ async def test_create_then_get_interview_plan(client):
     plan = create_resp.json()
     assert plan["job_id"] == job_id
     assert plan["occupation_match"]["onet_soc_code"] == "15-1252.00"
-    assert len(plan["questions"]) > 0
+    assert len(plan["coverage_targets"]) > 0
     assert len(plan["competencies"]) > 0
     assert len(plan["technologies"]) > 0
 
@@ -65,8 +65,8 @@ async def test_repeated_post_is_idempotent_and_preserves_plan_identity(client):
     assert third.status_code == 200
     assert first.json() == second.json() == third.json()
 
-    first_question_ids = [q["id"] for q in first.json()["questions"]]
-    second_question_ids = [q["id"] for q in second.json()["questions"]]
+    first_question_ids = [q["id"] for q in first.json()["coverage_targets"]]
+    second_question_ids = [q["id"] for q in second.json()["coverage_targets"]]
     assert first_question_ids == second_question_ids
 
     got = await client.get(f"/jobs/{job_id}/interview-plan")
@@ -102,4 +102,4 @@ async def test_interview_plan_flow_works_without_openai_credits(app, client):
 
     resp = await client.post(f"/jobs/{job_id}/interview-plan")
     assert resp.status_code == 201
-    assert len(resp.json()["questions"]) > 0
+    assert len(resp.json()["coverage_targets"]) > 0

@@ -12,7 +12,7 @@ import { OccupationMatchCard } from "../../components/plan/OccupationMatchCard"
 import { CompetencyList } from "../../components/plan/CompetencyList"
 import { TechnologyList } from "../../components/plan/TechnologyList"
 import { TaskList } from "../../components/plan/TaskList"
-import { QuestionList } from "../../components/plan/QuestionList"
+import { CoverageList } from "../../components/plan/CoverageList"
 import { formatSeniority } from "../../lib/format"
 
 export function InterviewPlanPage() {
@@ -44,7 +44,9 @@ export function InterviewPlanPage() {
   if (!job.data || !plan.data) return null
 
   const spec = job.data.job_spec
-  const competencyCount = new Set(plan.data.questions.map((q) => q.target)).size
+  const requiredCount = plan.data.coverage_targets.filter(
+    (t) => t.requirement_level === "required",
+  ).length
 
   return (
     <div className="flex flex-col gap-6 animate-enter">
@@ -61,7 +63,7 @@ export function InterviewPlanPage() {
       <div className="flex flex-wrap items-center gap-3">
         <Badge tone="lilac">{formatSeniority(spec.seniority)}</Badge>
         <span className="text-sm text-ink-muted">
-          {plan.data.questions.length} Questions · {competencyCount} Focus Areas
+          {plan.data.coverage_targets.length} Assessment Targets · {requiredCount} Required
         </span>
       </div>
 
@@ -71,7 +73,7 @@ export function InterviewPlanPage() {
       </div>
 
       <TaskList tasks={plan.data.tasks} />
-      <QuestionList questions={plan.data.questions} />
+      <CoverageList targets={plan.data.coverage_targets} />
 
       <OccupationMatchCard
         match={plan.data.occupation_match}

@@ -17,6 +17,7 @@ import pytest
 
 from app.domain.evaluation import (
     AnswerEvaluation,
+    AnswerEvidenceType,
     EvaluationDecision,
     resolve_follow_up_decision,
 )
@@ -36,6 +37,7 @@ def _evaluation(
 ) -> AnswerEvaluation:
     return AnswerEvaluation(
         score=score,
+        evidence_type=AnswerEvidenceType.DEMONSTRATED,
         decision=decision,
         strengths=["Described a real, specific piece of work."],
         weaknesses=weaknesses or [],

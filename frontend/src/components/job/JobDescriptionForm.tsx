@@ -26,7 +26,7 @@ export function JobDescriptionForm({ onSubmit, isSubmitting }: JobDescriptionFor
         id="job-description"
         value={description}
         onChange={(event) => setDescription(event.target.value)}
-        placeholder="Paste the full job description here — role, responsibilities, required skills…"
+        placeholder="Paste the full job description here: role, responsibilities, required skills…"
         rows={14}
         disabled={isSubmitting}
         className="w-full resize-y rounded-[10px] border border-border bg-white px-4 py-3 text-sm text-ink outline-none transition-colors placeholder:text-ink-muted focus:border-periwinkle disabled:bg-ivory-100"

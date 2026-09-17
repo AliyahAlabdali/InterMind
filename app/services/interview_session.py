@@ -9,6 +9,8 @@ interview or evaluation logic of its own.
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -27,6 +29,8 @@ from app.repositories.ports import (
     InterviewSession,
     InterviewSessionRepository,
 )
+
+logger = logging.getLogger(__name__)
 
 _REQUIRED_STATE_KEYS = ("job_id", "status", "asked_question_ids")
 
@@ -127,8 +131,18 @@ class InterviewSessionService:
             InterviewSession(job_id=job_id, candidate_id=candidate.id)
         )
 
+        # Latency instrumentation (adaptive-runtime review, item 6): the total time for this
+        # turn's graph invocation, for comparison against the per-phase measurements logged
+        # inside app.agents.interview_graph (answer_evaluation/cross_target_evidence/
+        # target_selection/question_generation) - this is what a candidate actually waits for.
+        started_at = time.perf_counter()
         raw_state = await self.graph.ainvoke(
             build_graph_state(plan), config=_thread_config(session.id)
+        )
+        logger.info(
+            "interview_timing phase=total_turn seconds=%.4f interview_id=%s turn=start",
+            time.perf_counter() - started_at,
+            session.id,
         )
         return session.id, _to_interview_state(session.id, raw_state)
 
@@ -157,7 +171,13 @@ class InterviewSessionService:
             if current_state.status == InterviewStatus.COMPLETED:
                 raise InterviewAlreadyCompleted(interview_id)
 
+            started_at = time.perf_counter()
             raw_state = await self.graph.ainvoke(Command(resume=answer), config=config)
+            logger.info(
+                "interview_timing phase=total_turn seconds=%.4f interview_id=%s turn=answer",
+                time.perf_counter() - started_at,
+                interview_id,
+            )
             return _to_interview_state(interview_id, raw_state)
 
     async def get_state(self, interview_id: str) -> InterviewState:

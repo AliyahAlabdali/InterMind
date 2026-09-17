@@ -4,7 +4,9 @@ import pytest
 
 from app.api.deps import get_llm_client, get_onet_kb
 from app.core.exceptions import LLMError
+from app.domain.interview_plan import GeneratedQuestion, GeneratedQuestionSet
 from app.knowledge.onet_kb import OnetKnowledgeBase
+from app.llm.fake_client import FakeLLMClient
 from app.repositories.ports import InterviewSession
 from tests.conftest import FIXTURES
 
@@ -29,7 +31,11 @@ async def _create_job_with_plan(client) -> tuple[str, list[str]]:
     job_id = job_resp.json()["id"]
 
     plan_resp = await client.post(f"/jobs/{job_id}/interview-plan")
-    question_ids = [q["id"] for q in plan_resp.json()["questions"]]
+    # Coverage-target ids are computed the same deterministic way the interview graph computes
+    # them at runtime (see app.services.target_identity) - so, for this JD's targets (all
+    # required, no O*NET-context-driven reordering possible since none is O*NET-sourced), the
+    # order the adaptive interview actually asks them in matches this list exactly.
+    question_ids = [t["id"] for t in plan_resp.json()["coverage_targets"]]
     return job_id, question_ids
 
 
@@ -251,3 +257,41 @@ async def test_llm_failure_returns_sanitized_generic_error(app, client):
     body = resp.json()
     assert body == {"detail": "The language model provider failed to process the request."}
     assert "sk-super-secret" not in resp.text
+
+
+class _WrongTargetQuestionClient:
+    """Delegates JD-analysis/answer-evaluation calls to a real FakeLLMClient, but always
+    returns a question for an unrequested target - reproducing the exact reported production
+    incident (a real OpenAI call generating a question for `competency: collaboration` /
+    `task: develop restful apis` instead of the actually-selected runtime target) without a
+    live OpenAI call. Used to prove the end-to-end, over-HTTP behaviour once BOTH the first
+    attempt and the bounded retry fail (see app.services.question_generation): a sanitized
+    502, never a 500, and never the raw "unrequested target(s)" message."""
+
+    def __init__(self):
+        self._fake = FakeLLMClient()
+
+    async def generate_structured(self, *, prompt, input_text, schema):
+        if schema is GeneratedQuestionSet:
+            return GeneratedQuestionSet(
+                questions=[
+                    GeneratedQuestion(
+                        category="task", target="Some other target", text="Unrelated question?"
+                    )
+                ]
+            )
+        return await self._fake.generate_structured(
+            prompt=prompt, input_text=input_text, schema=schema
+        )
+
+
+async def test_runtime_question_generation_failure_after_retry_returns_sanitized_502(app, client):
+    job_id, _ = await _create_job_with_plan(client)
+    app.dependency_overrides[get_llm_client] = lambda: _WrongTargetQuestionClient()
+
+    resp = await client.post("/interviews", json={"job_id": job_id})
+
+    assert resp.status_code == 502
+    assert resp.json() == {"detail": "The language model provider failed to process the request."}
+    assert "unrequested target" not in resp.text.lower()
+    assert "collaboration" not in resp.text.lower()

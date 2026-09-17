@@ -11,8 +11,8 @@ export function QuestionEvaluationList({ items }: { items: QuestionEvaluationSum
         Question-by-Question Evidence
       </h3>
       <div className="flex flex-col gap-3">
-        {items.map((item) => (
-          <QuestionEvaluationCard key={item.question_id} item={item} />
+        {items.map((item, index) => (
+          <QuestionEvaluationCard key={item.question_id} item={item} index={index} />
         ))}
       </div>
     </Card>
