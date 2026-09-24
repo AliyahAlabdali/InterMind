@@ -17,9 +17,12 @@ from app.core.exceptions import (
     InterviewNotFound,
     InterviewPlanNotFound,
     InterviewStateUnavailable,
+    InvalidSignup,
     JobNotFound,
     LLMError,
     OccupationNotFound,
+    RecruiterEmailTaken,
+    SpeechServiceUnavailable,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,6 +46,20 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(InterviewNotFound)
     async def _handle_interview_not_found(_: Request, exc: InterviewNotFound) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(InvalidSignup)
+    async def _handle_invalid_signup(_: Request, exc: InvalidSignup) -> JSONResponse:
+        # 422, and the actual reason: this one is safe to state plainly, because it describes
+        # the submitted input rather than anything about existing accounts.
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+    @app.exception_handler(RecruiterEmailTaken)
+    async def _handle_recruiter_email_taken(_: Request, exc: RecruiterEmailTaken) -> JSONResponse:
+        # 409, and a message a person can act on. Registration inherently reveals whether an
+        # address is taken - the alternative (claiming success and sending a "you already have
+        # an account" email) needs mail infrastructure this product does not have, and silently
+        # doing nothing would strand someone on a form that appears to work.
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     @app.exception_handler(AccessDenied)
     async def _handle_access_denied(_: Request, exc: AccessDenied) -> JSONResponse:
@@ -99,6 +116,19 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=502,
             content={"detail": "The language model provider failed to process the request."},
+        )
+
+    @app.exception_handler(SpeechServiceUnavailable)
+    async def _handle_speech_unavailable(
+        _: Request, exc: SpeechServiceUnavailable
+    ) -> JSONResponse:
+        # Same sanitisation rule as LLMError: the upstream detail can carry endpoint/key
+        # information, so it is logged and never returned. The candidate UI falls back to
+        # typing on a 503.
+        logger.error("Speech token request failed: %s", exc, exc_info=exc)
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Voice input is temporarily unavailable."},
         )
 
     @app.exception_handler(DomainError)

@@ -1,9 +1,10 @@
-import { apiGet, apiPost, RECRUITER_ACCESS_TOKEN } from "./client"
+import { apiGet, apiPost } from "./client"
 import type { CandidateSessionSummary, InterviewReport, InterviewState } from "../types"
 
-// Milestone 4 access boundary (see app.api.auth on the backend): starting a session,
-// reading its report, and listing a job's candidates are all recruiter-only.
-const RECRUITER = { token: RECRUITER_ACCESS_TOKEN }
+// Milestone 4 access boundary (see app.api.auth on the backend): starting a session, reading
+// its report, and listing a job's candidates are all recruiter-only. These carry no credential
+// of their own - the recruiter session cookie authenticates them, and the browser never holds
+// the underlying recruiter secret.
 
 /** Recruiter-only: mints the interview and its own `candidate_access_token` (see
  * `InterviewState`) - the recruiter's invite-link UI is responsible for passing that token on
@@ -16,12 +17,12 @@ export function startInterview(
   return apiPost<InterviewState>(
     "/interviews",
     { job_id: jobId, candidate_name: candidateName, candidate_email: candidateEmail },
-    RECRUITER,
   )
 }
 
 /** `candidateToken` is this interview's own access token (from `startInterview`'s response, or
- * carried in the candidate's link) - a recruiter may also pass `RECRUITER_ACCESS_TOKEN`. */
+ * carried in the candidate's link). A recruiter reaches the same endpoint via their session
+ * cookie instead, by passing an empty token. */
 export function getInterview(interviewId: string, candidateToken: string): Promise<InterviewState> {
   return apiGet<InterviewState>(`/interviews/${encodeURIComponent(interviewId)}`, {
     token: candidateToken,
@@ -42,13 +43,10 @@ export function submitAnswer(
 
 /** Recruiter-only. */
 export function getInterviewReport(interviewId: string): Promise<InterviewReport> {
-  return apiGet<InterviewReport>(`/interviews/${encodeURIComponent(interviewId)}/report`, RECRUITER)
+  return apiGet<InterviewReport>(`/interviews/${encodeURIComponent(interviewId)}/report`)
 }
 
 /** Recruiter-only: every candidate session for one job/interview, with live status. */
 export function listJobInterviews(jobId: string): Promise<CandidateSessionSummary[]> {
-  return apiGet<CandidateSessionSummary[]>(
-    `/jobs/${encodeURIComponent(jobId)}/interviews`,
-    RECRUITER,
-  )
+  return apiGet<CandidateSessionSummary[]>(`/jobs/${encodeURIComponent(jobId)}/interviews`)
 }

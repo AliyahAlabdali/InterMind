@@ -16,7 +16,7 @@ export function CopyLinkButton({ link }: { link: string }) {
 
   return (
     <Button type="button" variant="secondary" onClick={handleCopy}>
-      {copied ? "Copied" : "Copy Candidate Link"}
+      {copied ? "Copied" : "Copy link"}
     </Button>
   )
 }

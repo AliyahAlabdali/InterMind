@@ -153,10 +153,25 @@ class CrossTargetEvidence(BaseModel):
     """
 
     target: str = Field(description="The other coverage target's name, exactly as given.")
-    evidence_type: AnswerEvidenceType
+    evidence_type: AnswerEvidenceType = Field(
+        description=(
+            "What the answer's own words say about THIS other target. `explicit_lack` requires "
+            "the candidate to have actually stated they lack it ('I've never used Kafka') - it "
+            "describes something the candidate SAID. If the answer simply does not mention "
+            "this target, that is not `explicit_lack` and not evidence of any kind: omit the "
+            "entry entirely rather than reporting the absence. Never report silence as a "
+            "finding: 'no mention of X' is an observation about the answer, not something the "
+            "candidate told you."
+        )
+    )
     note: str = Field(
         default="",
-        description="A short quote or close paraphrase from the answer supporting this signal.",
+        description=(
+            "A short quote or close paraphrase of the CANDIDATE'S OWN WORDS supporting this "
+            "signal. It must come from the answer. Never a description of what the answer "
+            "lacks or does not cover - if there is nothing to quote, there is no entry to "
+            "make."
+        ),
     )
 
 
@@ -186,7 +201,18 @@ class AnswerEvaluation(BaseModel):
     follow_up_needed: bool
     follow_up_question: str | None = Field(
         default=None,
-        description="Set only when follow_up_needed is true.",
+        description=(
+            "One concise, answer-grounded question for any concrete, specific detail the "
+            "answer leaves unexplored - populate it whenever such a detail exists, REGARDLESS "
+            "of `decision`/`follow_up_needed`. The system applies its own deterministic "
+            "advance-vs-follow-up policy on top of `decision`, and reads this field as the "
+            "evidence for it, so a turn you lean `advance` on must still carry the question "
+            "when there is one. If `evidence_type` is `claimed_unverified` or `partial`, there "
+            "is BY DEFINITION something concrete left to ask (the candidate claimed or part-"
+            "described work without verifiable detail) - populate this. Null/empty ONLY when "
+            "there is genuinely nothing to ask: `explicit_lack` (they denied the experience) "
+            "or an off-topic/blank answer."
+        ),
     )
     cross_target_evidence: list[CrossTargetEvidence] = Field(
         default_factory=list,

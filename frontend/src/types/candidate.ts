@@ -12,4 +12,12 @@ export interface CandidateSessionSummary {
   status: InterviewStatus
   overall_score: number | null
   recommendation: Recommendation | null
+  /**
+   * This candidate's own stable interview access token (see `app.api.auth` on the backend) -
+   * the same one minted once when the interview was created, never regenerated. Lets the
+   * recruiter recover the candidate's invitation link from this listing at any time (after
+   * dismissing the creation dialog, after a page refresh) instead of only ever seeing it once.
+   * Recruiter-only, like the rest of this type - never expose it anywhere a candidate could see.
+   */
+  candidate_access_token: string
 }

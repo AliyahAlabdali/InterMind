@@ -1,0 +1,54 @@
+/* A quiet reading surface using the restored landing's original night-room palette. */
+.legal-page { isolation: isolate; }
+.legal-page .atmo-field { animation: none; opacity: .35; }
+.legal-header,.legal-layout,.legal-footer { max-width: 68rem; margin-inline: auto; padding-inline: 24px; }
+.legal-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-block: 22px; }
+.legal-header a,.legal-back { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; }
+.legal-back { font-size: 13px; color: var(--color-fg-muted); }
+.legal-layout { display: grid; grid-template-columns: 11rem minmax(0,40rem); gap: 56px; padding-block: 56px 72px; }
+.legal-layout aside { align-self: start; position: sticky; top: 32px; }
+.legal-layout nav { display: flex; flex-direction: column; margin-top: 16px; gap: 4px; }
+.legal-layout nav a { display: flex; align-items: center; min-height: 44px; padding: 8px 12px; font-size: 14px; color: var(--color-fg-muted); border-left: 1px solid var(--color-hair); }
+.legal-layout nav a.active { color: var(--color-fg); border-color: var(--color-accent); background: var(--color-raise); }
+.legal-page h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(28px,3vw,38px); letter-spacing: -.025em; line-height: 1.2; }
+.legal-intro { margin-top: 14px; font-size: 15px; line-height: 1.7; color: var(--color-fg-soft); }
+/* A note, not a warning. One hairline above it and nothing below, so it reads as a caption on
+   the page rather than as a banner across it. */
+.legal-notice { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--color-hair); color: var(--color-fg-muted); font-size: 12px; line-height: 1.7; }
+.legal-notice span { color: var(--color-fg); font-weight: 600; }
+.legal-notice span::after { content: " · "; color: var(--color-fg-muted); font-weight: 400; }
+.legal-section { margin-top: 30px; }
+.legal-section h2,.legal-contact h2 { font-size: 17px; font-weight: 600; line-height: 1.4; color: var(--color-fg); }
+.legal-section > div { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; font-size: 14px; line-height: 1.8; color: var(--color-fg-soft); }
+.legal-section ul { list-style: disc; padding-left: 19px; }
+.legal-section li + li { margin-top: 7px; }
+.legal-section strong { font-weight: 600; color: var(--color-fg); }
+.legal-section code { font-size: 12px; overflow-wrap: anywhere; color: var(--color-accent); }
+.legal-section a { text-decoration: underline; text-underline-offset: 3px; }
+.legal-contact { margin-top: 36px; padding-top: 24px; border-top: 1px solid var(--color-hair); font-size: 13px; line-height: 1.75; color: var(--color-fg-soft); }
+.legal-contact p { margin-top: 10px; max-width: 56ch; text-wrap: pretty; }
+.legal-contact a { color: var(--color-accent); text-decoration: underline; text-underline-offset: 3px; }
+/* Four ways to reach one person, written as a line rather than as four buttons. The separators
+   are drawn by the list so they can never be read out or copied as part of a link. */
+.legal-links { display: flex; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+.legal-links li { display: flex; align-items: center; }
+.legal-links li + li::before { content: "·"; margin-inline: 10px; color: var(--color-fg-muted); }
+.legal-links a { display: inline-flex; align-items: center; min-height: 44px; }
+.legal-repo { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; margin-top: 4px; }
+.legal-contact .legal-contact-note { max-width: 52ch; margin-top: 4px; font-size: 12px; color: var(--color-fg-muted); }
+.legal-footer { border-top: 1px solid var(--color-hair); padding-block: 22px; display: flex; justify-content: space-between; gap: 20px; font-size: 12px; color: var(--color-fg-muted); }
+.legal-footer a { color: var(--color-fg); }
+.legal-skip { position: absolute; left: 16px; top: -100px; padding: 12px 20px; background: var(--color-fg); color: var(--color-canvas); z-index: 50; }
+.legal-skip:focus { top: 12px; }
+@media(max-width:767px) {
+ .legal-header,.legal-layout,.legal-footer { padding-inline: 20px; }
+ .legal-header { gap: 12px; padding-block: 14px; }
+ .legal-back { font-size: 12px; }
+ .legal-layout { grid-template-columns: minmax(0,1fr); gap: 28px; padding-block: 28px 48px; }
+ .legal-layout aside { position: static; }
+ .legal-layout aside > p { font-size: 10px; }
+ .legal-layout nav { flex-direction: row; margin-top: 8px; gap: 16px; }
+ .legal-layout nav a { border-left: 0; border-bottom: 1px solid var(--color-hair); padding: 8px 0; }
+ .legal-layout nav a.active { background: transparent; }
+ .legal-footer { flex-wrap: wrap; gap: 8px; }
+}

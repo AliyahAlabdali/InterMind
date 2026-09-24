@@ -1,9 +1,10 @@
 import pytest
+from httpx import ASGITransport, AsyncClient
 
 from app.api.deps import get_onet_kb
 from app.knowledge.onet_kb import OnetKnowledgeBase
 from app.repositories.ports import InterviewSession
-from tests.conftest import FIXTURES
+from tests.conftest import FIXTURES, recruiter_credentials
 
 FIXTURE_KB_PATH = FIXTURES / "onet_kb_fixture.jsonl"
 
@@ -102,12 +103,36 @@ async def test_report_for_unknown_interview_returns_404(client):
 
 
 async def test_report_with_missing_checkpoint_returns_sanitized_500(app, client):
+    """A session the recruiter owns, whose checkpointed state has gone missing.
+
+    The session is attached to one of this recruiter's real jobs on purpose: the ownership check
+    now runs before anything is read, so a session hung off a made-up job id would 404 on
+    ownership and never reach the state lookup this test is about.
+    """
+    job_id, _ = await _create_job_with_plan(client)
     session_repo = app.state.interview_session_repository
-    orphan = await session_repo.add(InterviewSession(job_id="does-not-matter", id="orphan-report"))
+    orphan = await session_repo.add(InterviewSession(job_id=job_id, id="orphan-report"))
 
     resp = await client.get(f"/interviews/{orphan.id}/report")
     assert resp.status_code == 500
     assert resp.json() == {"detail": "Interview state is currently unavailable."}
+
+
+async def test_report_for_another_recruiters_interview_is_not_found(app, client):
+    """Tenant isolation at the report endpoint - the one that carries scores and evidence."""
+    job_id, _ = await _create_job_with_plan(client)
+    start = await client.post("/interviews", json={"job_id": job_id})
+    interview_id = start.json()["interview_id"]
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as other:
+        await other.post(
+            "/auth/recruiter/signup", json=recruiter_credentials("other@intermind.test")
+        )
+        resp = await other.get(f"/interviews/{interview_id}/report")
+
+    # Not 403: another recruiter's interview is indistinguishable from one that does not exist.
+    assert resp.status_code == 404
 
 
 async def test_report_reflects_a_weak_final_answer_without_inventing_success(client):

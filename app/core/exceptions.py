@@ -104,6 +104,22 @@ class InterviewReportNotFound(DomainError):
         self.interview_id = interview_id
 
 
+class InvalidSignup(DomainError):
+    """Signup input the server rejected (malformed email, password too short).
+
+    Unlike a sign-in failure, this message *is* shown to the user: they need to know what to
+    change, and none of it reveals anything about existing accounts.
+    """
+
+
+class RecruiterEmailTaken(DomainError):
+    """Signup for an email that already has an account.
+
+    Raised from the database's unique constraint rather than a prior lookup, so two concurrent
+    signups for the same address cannot both succeed.
+    """
+
+
 class AccessDenied(DomainError):
     """The caller's access token is missing, invalid, or does not authorize this request.
 
@@ -111,6 +127,16 @@ class AccessDenied(DomainError):
     module docstring). Deliberately carries no detail about *why* (missing header vs. wrong
     token vs. wrong interview) - the HTTP mapping returns one generic message, the same
     "sanitized error" principle already applied to ``LLMError``/``ConfigurationError``.
+    """
+
+
+class SpeechServiceUnavailable(DomainError):
+    """The speech service could not issue an authorization token.
+
+    Covers an upstream rejection (bad key, wrong region, throttling) and a network failure
+    reaching it. Like ``LLMError``, the detail is logged server-side and never returned to the
+    caller - an upstream error message could carry key or endpoint detail, and the candidate UI
+    only needs "voice is unavailable, keep typing".
     """
 
 

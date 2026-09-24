@@ -113,6 +113,11 @@ def build_question_evaluations(
         evidence_type = evaluation.get("evidence_type") if evaluation else None
         summaries.append(
             QuestionEvaluationSummary(
+                # The grouping key: the coverage target this turn belongs to, whether the turn
+                # itself was the main question, a follow-up, or a cross-target resolution.
+                target_id=question_id,
+                # The turn actually shown to the candidate - a follow-up reports its own id and
+                # text here, so its answer is never attributed to the original question.
                 question_id=turn["question_id"],
                 question=turn.get("question") or question.target,
                 category=question.category,
@@ -146,12 +151,18 @@ def build_unassessed_required_targets(
     generated for it and no evidence was ever volunteered about it (directly or via cross-
     target evidence - see ``app.services.cross_target_evidence``), because the adaptive
     interview ended (budget exhausted, or the candidate simply stopped) before reaching it.
-    Matched by target id (``QuestionEvaluationSummary.question_id`` for a directly-asked
-    target equals its coverage target id; a cross-target-resolved one is keyed the same way -
-    see ``app.services.report_scoring.build_question_evaluations``), never by name, so two
-    different-category targets that happen to share a name are never confused.
+    Matched on ``QuestionEvaluationSummary.target_id`` - the coverage target each summary is
+    *about* - never by name (two different-category targets can share one) and never by
+    ``question_id`` (that identifies the turn, and is the follow-up's own id whenever a target's
+    last turn was a follow-up; see :func:`build_question_evaluations`).
     """
-    evaluated_ids = {qe.question_id for qe in question_evaluations}
+    # `target_id`, never `question_id`: a target whose last turn was a follow-up carries the
+    # follow-up's own id in `question_id`, so matching on that reported a target that had been
+    # asked, answered and scored as "never reached" (the Docker/Distributed Systems
+    # inconsistency). `target_id` is the coverage target the summary is *about*, which is the
+    # only thing "reached" can consistently mean. Falls back to `question_id` for hand-built or
+    # legacy summaries that predate `target_id`, where the two were by definition the same.
+    evaluated_ids = {(qe.target_id or qe.question_id) for qe in question_evaluations}
     return [
         target.target
         for target in plan.coverage_targets

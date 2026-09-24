@@ -235,8 +235,12 @@ async def test_concurrent_submissions_over_http_do_not_corrupt_state(client):
 async def test_orphaned_interview_session_returns_sanitized_500(app, client):
     """Repository/graph-checkpointer desync (session recorded, no matching checkpoint) must
     surface as a stable, generic 500 - not a raw KeyError/stack trace."""
+    # Hung off one of this recruiter's real jobs: ownership is checked before the state is
+    # read, so a session attached to a made-up job id would 404 on ownership and never reach
+    # the desync this test is about.
+    job_id, _ = await _create_job_with_plan(client)
     session_repo = app.state.interview_session_repository
-    orphan = await session_repo.add(InterviewSession(job_id="does-not-matter", id="orphan-id"))
+    orphan = await session_repo.add(InterviewSession(job_id=job_id, id="orphan-id"))
 
     resp = await client.get(f"/interviews/{orphan.id}")
     assert resp.status_code == 500

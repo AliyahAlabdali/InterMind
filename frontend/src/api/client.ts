@@ -1,17 +1,26 @@
-const BASE_URL = import.meta.env.VITE_API_BASE_URL
+/**
+ * Same-origin by default: the dev server proxies `/api` to the backend (see `vite.config.ts`),
+ * and a production deployment is expected to serve the app and its API from one origin. That is
+ * what lets recruiter auth use a `SameSite=Strict` session cookie.
+ */
+const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api"
 
 /**
- * Milestone 4 recruiter access token (see `app.api.auth` on the backend) - a single shared
- * credential standing in for "is a recruiter", not a per-user login. Attached by every
- * recruiter-facing API call (jobs, plans, starting interviews, reports, candidate listings).
- * Real recruiter accounts/login are out of scope until Milestone 6-B; see that module's
- * docstring for the full rationale.
+ * There is deliberately **no recruiter credential in this file, and none anywhere in browser
+ * code.**
+ *
+ * It used to live here, read from `VITE_RECRUITER_ACCESS_TOKEN`, which Vite inlines into the
+ * production bundle - so the shared recruiter secret was readable in `dist/assets/*.js` by
+ * anyone who loaded the site, including every candidate. Recruiter requests now authenticate
+ * with an `HttpOnly` session cookie that the browser cannot read and that carries no copy of
+ * the underlying credential. See `app/api/recruiter_session.py`.
+ *
+ * `token` below is for **candidate** access tokens only - a per-interview credential the
+ * candidate legitimately holds, in their own link.
  */
-export const RECRUITER_ACCESS_TOKEN: string = import.meta.env.VITE_RECRUITER_ACCESS_TOKEN ?? ""
-
 export interface RequestOptions {
-  /** `Authorization: Bearer <token>` to send - the recruiter token, or a candidate's own
-   * per-interview access token. Omitted only for the (rare) unauthenticated endpoint. */
+  /** `Authorization: Bearer <token>`: a candidate's own per-interview access token. Never a
+   * recruiter credential - recruiters authenticate by session cookie. */
   token?: string
 }
 
@@ -47,6 +56,9 @@ async function request<T>(path: string, init?: RequestInit, token?: string): Pro
   try {
     response = await fetch(`${BASE_URL}${path}`, {
       ...init,
+      // Sends the recruiter session cookie on same-origin requests, and nothing at all
+      // cross-origin - which is the intended behaviour, not a limitation.
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),

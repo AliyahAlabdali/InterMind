@@ -64,6 +64,19 @@ class QuestionEvaluationSummary(BaseModel):
     are ``None`` when that turn was never evaluated (e.g. a blank answer) - never guessed.
     """
 
+    target_id: str = Field(
+        default="",
+        description=(
+            "The coverage target this summarises, by id - the single source of truth for "
+            "'was this target reached?' (see "
+            "app.services.report_scoring.build_unassessed_required_targets). Distinct from "
+            "`question_id`, which identifies the TURN shown to the candidate and is the "
+            "follow-up's own id when the last turn was a follow-up. Conflating the two is "
+            "what previously let a target that was asked, answered and scored also appear "
+            "under 'required, never reached'. Defaults to empty only for hand-built/legacy "
+            "summaries; every summary this codebase builds sets it."
+        ),
+    )
     question_id: str
     question: str
     category: QuestionCategory

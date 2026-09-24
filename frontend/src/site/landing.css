@@ -1,0 +1,123 @@
+/* Landing-only refinements. Original night-room tokens remain the visual authority. */
+.landing-restored { isolation: isolate; overflow-x: clip; }
+.landing-restored .hero-actions > * { white-space: nowrap; }
+.landing-restored #how-it-works { scroll-margin-top: 96px; }
+@media (min-width: 1024px) and (max-height: 800px) {
+  .landing-restored .landing-hero { padding-bottom: 48px; }
+  .landing-restored .hero-visual { height: 530px; }
+  .landing-restored .hero-copy .type-hero { font-size: clamp(3rem, 4.6vw, 4rem); }
+}
+@media (max-width: 639px) {
+  .landing-restored .hero-visual { height: 350px; }
+  .landing-restored .hero-actions { width: 100%; }
+  .landing-restored .hero-actions > * { width: 100%; }
+}
+.landing-instrument canvas { opacity: 0; }
+.landing-instrument[data-ready] canvas { opacity: 1; }
+.landing-instrument[data-ready] .instrument-poster { visibility: hidden; }
+.landing-restored .process-step { scroll-margin-top: 96px; }
+.landing-restored .hero-stage[data-paused] *,
+.landing-restored .laptop-fallback * { animation-play-state: paused !important; }
+@media (prefers-reduced-motion: reduce) {
+  .landing-restored *, .landing-restored *::before, .landing-restored *::after { animation: none !important; transition: none !important; }
+}
+@media (max-width: 1023px) {
+  .landing-restored .hero-visual { height: min(480px, 85vw); }
+  .landing-restored .hero-stage { transform: none !important; }
+}
+/* --- The opening -------------------------------------------------------------------------
+   A finite product opening, just under six seconds long, that hands the visitor the Hero and
+   then stops. The resting Hero has no scroll transform, no replay and nothing left running.
+
+   Every stage overlaps the next. The name is still legible while the machine is turning, the
+   screen lights before the turn finishes, and the analysis assembles while the composition is
+   already on its way to its place on the right. Played one after another the same beats would
+   run to nine seconds and feel like a title sequence. */
+.landing-opening { position: fixed; inset: 0; z-index: 45; background: #000505; pointer-events: none; transition: opacity 760ms var(--ease-settle); }
+.opening-brand { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 14px; padding: 24px; opacity: 0; }
+.opening-brand > span { font-family: var(--font-display); font-weight: 600; font-size: clamp(32px,5vw,52px); letter-spacing: -.025em; color: var(--color-fg); }
+.opening-brand p { max-width: 34ch; text-align: center; font-size: 15px; line-height: 1.6; color: var(--color-fg-muted); }
+
+/* The brand's own clock, not the phase's.
+   It reads in, holds long enough for the line to actually be read, then lifts clear of the
+   machine instead of cutting. The hold ends after the turn has already started, which is the
+   overlap: two things are on screen, and neither is waiting for the other. */
+@keyframes landing-opening-brand {
+  0%   { opacity: 0; transform: translate3d(0, calc(-11vh + 20px), 0) scale(1); }
+  14%  { opacity: 1; transform: translate3d(0, -11vh, 0) scale(1); }
+  56%  { opacity: 1; transform: translate3d(0, -11vh, 0) scale(1); }
+  82%  { opacity: .42; transform: translate3d(0, -18vh, 0) scale(.88); }
+  100% { opacity: 0; transform: translate3d(0, -20vh, 0) scale(.86); }
+}
+.landing-opening:not([data-phase="settled"]) .opening-brand { animation: landing-opening-brand 2950ms var(--ease-settle) both; }
+.landing-opening[data-phase="dock"] { opacity: 0; }
+.opening-skip { position: absolute; right: 28px; top: 20px; min-height: 44px; padding: 10px 16px; font-size: 12px; color: var(--color-fg-muted); pointer-events: auto; }
+.opening-skip:hover { color: var(--color-fg); }
+
+/* --- Docking -----------------------------------------------------------------------------
+   The composition is never rebuilt. The same element the Hero keeps is held centre stage and
+   slightly forward during the opening and then released to its own geometry, so the last beat
+   is the camera settling rather than one thing being swapped for another.
+
+   The transition is unconditional so that a skip resolves rather than snaps: whatever phase the
+   visitor cut in on, the composition travels home instead of teleporting there. It costs
+   nothing at rest, because after docking nothing changes the transform again. */
+.landing-restored .hero-visual { transition: transform 820ms var(--ease-settle), opacity 420ms ease; }
+/* Held above the veil for the whole opening, including the dock: the veil is still clearing
+   while the composition travels, and losing the stacking a frame early would put the machine
+   back behind it at exactly the moment it is meant to be handing the page over.
+
+   The words are raised only for the dock, and never on a viewport that has no choreography.
+   They are readable at every other moment of the opening, so anything that lifts them over an
+   opaque veil prints them straight through the brand. */
+.landing-restored:not([data-intro="settled"]) .hero-visual { position: relative; z-index: 46; }
+.landing-restored[data-intro="dock"] .hero-copy { position: relative; z-index: 46; }
+.landing-restored:is([data-intro="brand"],[data-intro="reveal"],[data-intro="wake"],[data-intro="listen"],[data-intro="analyze"]) .hero-visual {
+  transform: translate3d(var(--intro-x,0px), 9vh, 0) scale(1.05);
+}
+.landing-restored[data-intro="brand"] .hero-visual { opacity: 0; transform: translate3d(var(--intro-x,0px), calc(9vh + 26px), 0) scale(1.01); }
+
+/* The Hero's own words arrive as the composition lands, so the page resolves as one movement
+   rather than as an overlay being taken away from a page that was already sitting there. */
+.landing-restored .hero-copy > * { transition: opacity 560ms ease, transform 760ms var(--ease-settle); }
+.landing-restored:is([data-intro="brand"],[data-intro="reveal"],[data-intro="wake"],[data-intro="listen"],[data-intro="analyze"]) .hero-copy > * {
+  opacity: 0; transform: translate3d(0,18px,0);
+}
+.landing-restored[data-intro="dock"] .hero-copy > *:nth-child(1) { transition-delay: 120ms; }
+.landing-restored[data-intro="dock"] .hero-copy > *:nth-child(2) { transition-delay: 210ms; }
+.landing-restored[data-intro="dock"] .hero-copy > *:nth-child(3) { transition-delay: 300ms; }
+.landing-restored[data-intro="dock"] .hero-copy > *:nth-child(4) { transition-delay: 390ms; }
+
+/* --- The interview waking up ---------------------------------------------------------------
+   The screen and the cards are gated by the stage the machine has reached, not by the clock, so
+   the same markup plays the sequence and then stays exactly where it landed. */
+.hero-stage .hero-screen > * { opacity: 0; transition: opacity 480ms ease; }
+.hero-stage .hero-screen[data-lit] > * { opacity: 1; }
+.hero-stage .screen-listen { opacity: 0; transition: opacity 360ms ease 220ms; }
+.hero-stage .hero-screen[data-lit] .screen-listen { opacity: 1; }
+
+/* Each card starts pulled back toward the display that produced it, behind the glass and small,
+   and arrives at the position it keeps. The origin is per card and computed from the projection,
+   so nothing here is a generic fade-up. */
+.hero-stage .hero-panel-content {
+  opacity: 0;
+  transform: translate3d(var(--from-x,0px), var(--from-y,0px), var(--from-z,-90px)) scale(.82);
+  transition: opacity 380ms ease var(--emerge-delay,0ms), transform 620ms var(--ease-settle) var(--emerge-delay,0ms);
+}
+.hero-stage .hero-panel-content[data-emerged] { opacity: 1; transform: none; }
+
+/* Nothing loops until the machine has finished turning, and the competency arc does not draw
+   until the card carrying it is the thing being looked at. */
+.landing-restored .hero-stage:is([data-stage="brand"],[data-stage="reveal"]) * { animation-play-state: paused !important; }
+.landing-restored .hero-stage:is([data-stage="brand"],[data-stage="reveal"],[data-stage="wake"],[data-stage="listen"]) .hud-arc { animation-play-state: paused !important; }
+
+/* --- Where the opening does not go ---------------------------------------------------------
+   Reduced motion and small viewports get the name and then the page. There is no turn to watch
+   and no card flight to follow, so every element rests at the pose it would have settled at. */
+@media (max-width: 1023px), (prefers-reduced-motion: reduce) {
+  .landing-restored:not([data-intro="settled"]) .hero-visual { transform: none; }
+  .landing-restored :is(.hero-visual, .hero-copy) { z-index: auto; }
+  .landing-restored .hero-copy > * { opacity: 1 !important; transform: none !important; }
+  .hero-stage .hero-screen > *, .hero-stage .screen-listen, .hero-stage .hero-panel-content { opacity: 1; transform: none; }
+}
+.landing-restored .laptop-fallback .hud-arc { animation: none; stroke-dasharray: var(--arc-length); stroke-dashoffset: var(--arc-offset); }

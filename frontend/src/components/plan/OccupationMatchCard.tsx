@@ -14,24 +14,25 @@ interface OccupationMatchCardProps {
  */
 export function OccupationMatchCard({ match, alternates, onetGroundingUsed }: OccupationMatchCardProps) {
   return (
-    <details className="rounded-[14px] border border-border bg-white px-5 py-4 text-sm">
-      <summary className="cursor-pointer select-none font-medium text-ink-soft">
+    <details className="group border-t border-hair pt-5 text-sm">
+      <summary className="inline-flex min-h-[44px] cursor-pointer select-none list-none items-center gap-2 text-sm text-fg-muted transition-colors hover:text-fg">
         How this plan was grounded
+        <span aria-hidden="true" className="transition-transform duration-200 group-open:rotate-180">▾</span>
       </summary>
-      <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4">
-        <p className="text-sm leading-relaxed text-ink-soft">
+      <div className="mt-4 flex max-w-2xl flex-col gap-3">
+        <p className="text-sm leading-relaxed text-fg-soft">
           {onetGroundingUsed ? (
             <>
               The job description is the primary source for this plan. As supplementary
               context, InterMind also referenced O*NET's{" "}
-              <span className="font-medium text-ink">{match.title}</span> occupation profile,
+              <span className="font-medium text-fg">{match.title}</span> occupation profile,
               which it judged a confident match for this role.
             </>
           ) : (
             <>
               This plan is grounded entirely in the job description. InterMind checked O*NET
               for a supplementary occupation match, but no candidate (the closest being{" "}
-              <span className="font-medium text-ink">{match.title}</span>) was a confident
+              <span className="font-medium text-fg">{match.title}</span>) was a confident
               enough match to add anything beyond what the job description already provides.
             </>
           )}
@@ -39,10 +40,10 @@ export function OccupationMatchCard({ match, alternates, onetGroundingUsed }: Oc
 
         {alternates.length > 0 && (
           <div>
-            <p className="mb-1.5 text-xs font-medium text-ink-muted">Other occupations considered</p>
+            <p className="type-data mb-1.5 font-medium text-fg">Other occupations considered</p>
             <ul className="flex flex-col gap-1">
               {alternates.slice(0, 3).map((alt) => (
-                <li key={alt.onet_soc_code} className="text-xs text-ink-muted">
+                <li key={alt.onet_soc_code} className="type-data text-fg-muted">
                   {alt.title}
                 </li>
               ))}

@@ -150,6 +150,42 @@ async def test_job_with_no_candidates_yet_returns_an_empty_list(client):
     assert resp.json() == []
 
 
+async def test_candidate_listing_carries_the_same_stable_access_token(client):
+    """The recruiter candidate table must be able to recover a candidate's invitation link at
+    any time (after the creation dialog is dismissed, after a page refresh, in a new tab)
+    without minting a new token - see the candidate-link-recovery UX fix. The token in the
+    listing must be the exact one issued at creation, and re-fetching the listing (simulating a
+    refresh) must return that same value again, not a fresh one.
+    """
+    job_id, _ = await _create_job_with_plan(client)
+    start_resp = await client.post(
+        "/interviews",
+        json={
+            "job_id": job_id,
+            "candidate_name": "Ahmed Ali",
+            "candidate_email": "ahmed@example.com",
+        },
+    )
+    interview_id = start_resp.json()["interview_id"]
+    minted_token = start_resp.json()["candidate_access_token"]
+    assert minted_token
+
+    first_listing = (await client.get(f"/jobs/{job_id}/interviews")).json()
+    summary = next(c for c in first_listing if c["interview_id"] == interview_id)
+    assert summary["candidate_access_token"] == minted_token
+
+    # Re-fetching (a "page refresh") must not regenerate it.
+    second_listing = (await client.get(f"/jobs/{job_id}/interviews")).json()
+    summary_again = next(c for c in second_listing if c["interview_id"] == interview_id)
+    assert summary_again["candidate_access_token"] == minted_token
+
+    # The candidate's own interview endpoint never re-carries the token after creation - the
+    # listing above is the only recruiter-facing place it is recoverable from, and it must not
+    # have leaked into an endpoint the candidate themselves can also reach.
+    own_view = (await client.get(f"/interviews/{interview_id}")).json()
+    assert own_view["candidate_access_token"] is None
+
+
 async def test_candidate_facing_endpoints_never_expose_recruiter_only_fields(client):
     """The candidate's own interview endpoints must never carry score, recommendation, or any
     other recruiter-only evaluation field - see the recruiter/candidate API-boundary review.

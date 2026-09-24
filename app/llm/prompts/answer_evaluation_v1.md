@@ -130,11 +130,23 @@ Each entry needs:
   no real detail is `claimed_unverified`, not `demonstrated` - only genuinely descriptive
   evidence (naming real work, comparable to what would earn `demonstrated` if it had been the
   actual question) is `demonstrated`. Do not inflate a passing mention into strong evidence.
+  **`explicit_lack` describes something the candidate SAID** - they stated they have not used
+  this target ("I've never worked with Kafka"). The answer simply not mentioning a target is
+  NOT `explicit_lack`, and not evidence of any kind: say nothing about that target at all.
+  Reporting "no mention of X" is describing the answer, not reporting what the candidate told
+  you, and it is read downstream as the candidate having denied experience they were never
+  asked about.
 - `note`: a short quote or close paraphrase from the answer supporting it - same rule as
   `evidence` above, never fabricated.
 
 Leave `cross_target_evidence` empty (the default) when the answer says nothing about any other
-target, or when `OTHER_TARGETS` was not given at all. Evidence about the *current* target you
+target, or when `OTHER_TARGETS` was not given at all. Most answers mention few or none of the
+`OTHER_TARGETS`, so an empty list is the normal, expected result - it is not a gap to fill, and
+there is no need to account for every target listed. Only the targets the answer's own words
+actually speak to belong here. Worked example: for "I worked on a computer vision project using
+Python and PyTorch to train an object detection model", with `OTHER_TARGETS` of Computer Vision
+and NLP - report Computer Vision (`demonstrated`: they describe real work on it), and report
+NOTHING for NLP (the answer never raises it; it is neither denied nor claimed). Evidence about the *current* target you
 were actually asked to evaluate never belongs here - that is what `score`/`decision`/
 `strengths`/`weaknesses`/`evidence` above are for. An explicit lack of experience with the
 *current* target is not, by itself, evidence about any other target - never invent a

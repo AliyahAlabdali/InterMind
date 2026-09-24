@@ -411,6 +411,10 @@ def _make_evaluate_answer(evaluator: AnswerEvaluationService):
                 coverage_targets=state["coverage_targets"],
                 current_target_id=target["id"],
                 assessed_target_ids=assessed_so_far,
+                # The words the evidence is supposed to have come from: a denial about a target
+                # the candidate never named is the evaluator describing an absence, not the
+                # candidate making a statement. See `resolve_cross_target_evidence`.
+                answer=answer,
                 cross_target_evidence=[
                     item.model_dump(mode="json") for item in raw_result.cross_target_evidence
                 ],
@@ -437,9 +441,27 @@ def decide_after_evaluation(state: InterviewGraphState) -> str:
     which is where the follow-up cap and evidence-based policy are actually applied (in
     `evaluate_answer`), not here. Keeping a single source of truth for that policy avoids two
     places silently disagreeing on when a follow-up is warranted."""
-    if state["evaluation"] == EvaluationDecision.FOLLOW_UP.value:
-        return "follow_up"
-    return "next_question"
+    route = (
+        "follow_up"
+        if state["evaluation"] == EvaluationDecision.FOLLOW_UP.value
+        else "next_question"
+    )
+    # The one place the whole advance-vs-follow-up chain becomes visible in a log. QA could
+    # previously see `phase=answer_evaluation` followed by `phase=target_selection` and not tell
+    # whether a follow-up had been declined on evidence, capped, or lost - the three look
+    # identical from the timing lines alone. Ids and counts only: never the question text, the
+    # answer, or any candidate content.
+    logger.info(
+        "interview_routing evaluation_decision=%s router_decision=%s next_phase=%s "
+        "follow_ups_used=%d has_follow_up_question=%s target=%s",
+        state["evaluation"],
+        route,
+        "follow_up" if route == "follow_up" else "target_selection",
+        state["follow_up_count"],
+        bool(state.get("follow_up_question")),
+        state.get("current_question_id"),
+    )
+    return route
 
 
 def follow_up_question(state: InterviewGraphState) -> dict:

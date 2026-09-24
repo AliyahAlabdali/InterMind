@@ -6,6 +6,7 @@ from fastapi import Depends, Request
 from langgraph.graph.state import CompiledStateGraph
 
 from app.agents.interview_graph import build_interview_graph
+from app.api.recruiter_session import RecruiterSessionStore
 from app.core.config import Settings, get_settings
 from app.core.exceptions import ConfigurationError
 from app.knowledge.onet_kb import OnetKnowledgeBase
@@ -14,11 +15,13 @@ from app.llm.openai_client import OpenAIStructuredClient
 from app.llm.ports import LLMClient
 from app.observability.trace import TraceRecorder
 from app.repositories.ports import (
+    ActivityRepository,
     CandidateRepository,
     InterviewPlanRepository,
     InterviewReportRepository,
     InterviewSessionRepository,
     JobRepository,
+    RecruiterRepository,
 )
 from app.services.answer_evaluation import AnswerEvaluationService
 from app.services.interview_planner import InterviewPlannerService
@@ -27,6 +30,7 @@ from app.services.jd_analysis import JDAnalysisService
 from app.services.question_generation import QuestionGenerationService
 from app.services.report_generation import ReportGenerationService
 from app.services.report_narrative import ReportNarrativeService
+from app.services.speech_token import SpeechTokenService
 
 
 def get_job_repository(request: Request) -> JobRepository:
@@ -49,6 +53,17 @@ def get_interview_report_repository(request: Request) -> InterviewReportReposito
     return request.app.state.interview_report_repository
 
 
+def get_activity_repository(request: Request) -> ActivityRepository:
+    return request.app.state.activity_repository
+
+
+def get_speech_token_service(
+    settings: Settings = Depends(get_settings),
+) -> SpeechTokenService:
+    """Stateless, so a fresh instance per request is fine - it holds only settings."""
+    return SpeechTokenService(settings)
+
+
 def get_interview_lock_registry(request: Request) -> InterviewLockRegistry:
     """Return the process-lifetime lock registry cached on app state.
 
@@ -62,6 +77,19 @@ def get_interview_lock_registry(request: Request) -> InterviewLockRegistry:
         registry = InterviewLockRegistry()
         request.app.state.interview_lock_registry = registry
     return registry
+
+
+def get_recruiter_session_store(request: Request) -> RecruiterSessionStore:
+    """The process-wide recruiter session store (see app.api.recruiter_session).
+
+    One instance per application, created in `create_app`. In-memory, so sessions end with the
+    process - documented in that module.
+    """
+    return request.app.state.recruiter_session_store
+
+
+def get_recruiter_repository(request: Request) -> RecruiterRepository:
+    return request.app.state.recruiter_repository
 
 
 def get_trace_recorder(request: Request) -> TraceRecorder:

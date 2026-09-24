@@ -11,11 +11,25 @@ __pycache__/
 .venv/
 venv/
 
+# Node
+node_modules/
+dist/
+
 # Datasets: keep the directory structure, ignore the contents
 data/raw/*
 !data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
+
+# Local AI/agent tooling. Machine-local working state, not project source: it belongs to
+# whoever is working in this checkout, not to the repository. Anchored to the root so nothing
+# with a similar name deeper in the tree is hidden by accident.
+/.agents/
+/.claude/
+/.codex/
+/.impeccable/
+/PRODUCT.md
+/skills-lock.json
 
 # OS / editor
 .DS_Store

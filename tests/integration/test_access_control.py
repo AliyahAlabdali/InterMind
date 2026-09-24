@@ -15,17 +15,17 @@ control which credential (if any) is presented.
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.api.deps import get_onet_kb
-from app.core.config import get_settings
 from app.knowledge.onet_kb import OnetKnowledgeBase
-from tests.conftest import FIXTURES
+from tests.conftest import FIXTURES, recruiter_credentials
 
 FIXTURE_KB_PATH = FIXTURES / "onet_kb_fixture.jsonl"
 
-RECRUITER_TOKEN = get_settings().recruiter_access_token
 
 DETAILED_ANSWER = (
     "I led a project where I diagnosed a race condition in a queue consumer, wrote a "
@@ -43,6 +43,22 @@ def _use_fixture_kb(app):
 def _client(app, token: str | None = None) -> AsyncClient:
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers=headers)
+
+
+@asynccontextmanager
+async def _recruiter_client(app):
+    """A client signed in as the configured recruiter, holding its session cookie.
+
+    Registers the account and keeps its session cookie. Recruiters are persistent rows now, so
+    a test that needs one creates it the same way a person would.
+
+    A context manager rather than a plain factory: httpx refuses to re-enter a client that has
+    already issued a request, and signing in is a request.
+    """
+    async with _client(app) as client:
+        response = await client.post("/auth/recruiter/signup", json=recruiter_credentials())
+        assert response.status_code == 201, f"recruiter signup failed: {response.text}"
+        yield client
 
 
 async def _create_job_with_plan(recruiter: AsyncClient) -> tuple[str, list[str]]:
@@ -79,7 +95,7 @@ async def _complete_interview(client: AsyncClient, interview_id: str, num_questi
 
 
 async def test_A_candidate_token_can_access_its_own_interview_flow(app):
-    async with _client(app, RECRUITER_TOKEN) as recruiter:
+    async with _recruiter_client(app) as recruiter:
         job_id, questions = await _create_job_with_plan(recruiter)
         interview_id, candidate_token = await _start_interview(recruiter, job_id)
 
@@ -99,7 +115,7 @@ async def test_A_candidate_token_can_access_its_own_interview_flow(app):
 
 
 async def test_B_candidate_token_cannot_access_recruiter_report(app):
-    async with _client(app, RECRUITER_TOKEN) as recruiter:
+    async with _recruiter_client(app) as recruiter:
         job_id, _ = await _create_job_with_plan(recruiter)
         interview_id, candidate_token = await _start_interview(recruiter, job_id)
 
@@ -115,7 +131,7 @@ async def test_B_candidate_token_cannot_access_recruiter_report(app):
 
 
 async def test_C_candidate_token_cannot_access_recruiter_candidate_listing(app):
-    async with _client(app, RECRUITER_TOKEN) as recruiter:
+    async with _recruiter_client(app) as recruiter:
         job_id, _ = await _create_job_with_plan(recruiter)
         _, candidate_token = await _start_interview(recruiter, job_id)
 
@@ -128,7 +144,7 @@ async def test_C_candidate_token_cannot_access_recruiter_candidate_listing(app):
 
 
 async def test_D_recruiter_access_can_access_recruiter_report(app):
-    async with _client(app, RECRUITER_TOKEN) as recruiter:
+    async with _recruiter_client(app) as recruiter:
         job_id, questions = await _create_job_with_plan(recruiter)
         interview_id, _ = await _start_interview(recruiter, job_id)
         await _complete_interview(recruiter, interview_id, len(questions))
@@ -141,7 +157,7 @@ async def test_D_recruiter_access_can_access_recruiter_report(app):
 
 
 async def test_E_recruiter_access_can_access_recruiter_candidate_listing(app):
-    async with _client(app, RECRUITER_TOKEN) as recruiter:
+    async with _recruiter_client(app) as recruiter:
         job_id, _ = await _create_job_with_plan(recruiter)
         interview_id, _ = await _start_interview(recruiter, job_id, name="Ada Lovelace")
 
@@ -156,7 +172,7 @@ async def test_E_recruiter_access_can_access_recruiter_candidate_listing(app):
 
 
 async def test_F_missing_or_invalid_credential_is_rejected(app):
-    async with _client(app, RECRUITER_TOKEN) as recruiter:
+    async with _recruiter_client(app) as recruiter:
         job_id, _ = await _create_job_with_plan(recruiter)
         interview_id, candidate_token = await _start_interview(recruiter, job_id)
 
@@ -183,7 +199,7 @@ async def test_F_missing_or_invalid_credential_is_rejected(app):
 
 
 async def test_G_interview_a_token_cannot_access_interview_b(app):
-    async with _client(app, RECRUITER_TOKEN) as recruiter:
+    async with _recruiter_client(app) as recruiter:
         job_id, _ = await _create_job_with_plan(recruiter)
         interview_a, token_a = await _start_interview(
             recruiter, job_id, name="Alice", email="a@x.com"

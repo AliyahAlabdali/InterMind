@@ -1,11 +1,12 @@
 # Documentation
 
-The comprehensive technical documentation for this project is maintained separately as a
-single PDF and will be added here **after the initial architecture and implementation are
-finalised**:
+Developer documentation for InterMind. The root `README.md` is the project overview and the
+setup guide; these are the deeper notes that would bloat it.
 
-    docs/Autonomous-AI-Interviewer-Technical-Documentation.pdf
+| Document | Covers |
+|---|---|
+| [`recruiter-auth.md`](recruiter-auth.md) | How a recruiter signs in: accounts and persistence, password hashing, session and cookie mechanics, CSRF, tenant isolation, and the boundary between recruiter and candidate access. |
+| [`deployment.md`](deployment.md) | The deployment architecture (Vercel, Azure, Azure Database for PostgreSQL), the environment variables each tier needs, the migration step, and the known limitations of the current topology. Nothing has been provisioned; this is the guide, not a record of a live deployment. |
 
-That PDF is the single source of truth for architecture rationale,
-design decisions, and responsible-AI considerations. No other Markdown documentation files
-are kept in this directory on purpose.
+Architecture rationale that belongs next to the code lives in module docstrings rather than
+here, so it stays in view of whoever changes the code.

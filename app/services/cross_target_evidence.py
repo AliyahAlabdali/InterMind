@@ -96,6 +96,28 @@ def _synthesized_evaluation(evidence_type: str, target_name: str, note: str) -> 
     }
 
 
+def _name_variants(target_name: str) -> list[str]:
+    """Every form of ``target_name`` a candidate might plausibly have used.
+
+    Coverage targets are named as the plan writes them ("Natural Language Processing (NLP)"),
+    but a candidate says whichever form is natural to them - usually the abbreviation. Both the
+    full name and any parenthesised abbreviation count as having named the target.
+    """
+    normalized = normalize_name(target_name)
+    variants = [normalized]
+    if "(" in normalized and ")" in normalized:
+        head, _, rest = normalized.partition("(")
+        abbreviation, _, _ = rest.partition(")")
+        variants.extend(v for v in (head.strip(), abbreviation.strip()) if v)
+    return variants
+
+
+def _answer_mentions(answer: str, target_name: str) -> bool:
+    """Whether the candidate's own words name ``target_name`` at all."""
+    haystack = normalize_name(answer)
+    return any(variant and variant in haystack for variant in _name_variants(target_name))
+
+
 def resolve_cross_target_evidence(
     *,
     coverage_targets: list[dict],
@@ -103,6 +125,7 @@ def resolve_cross_target_evidence(
     assessed_target_ids: list[str],
     cross_target_evidence: list[dict],
     existing_hints: dict[str, dict],
+    answer: str | None = None,
 ) -> CrossTargetResolution:
     """Turn one turn's ``cross_target_evidence`` (a list of ``{"target", "evidence_type",
     "note"}`` dicts - see :class:`~app.domain.evaluation.CrossTargetEvidence`) into concrete
@@ -116,6 +139,27 @@ def resolve_cross_target_evidence(
     call, is never resolved a second time - avoids duplicate history entries/evidence for the
     same target. ``current_target_id`` is excluded outright: cross-target evidence about the
     target actually being asked about *is* the primary evaluation, not a cross-target signal.
+
+    ``answer`` is the candidate answer this evidence was extracted from. When given, it gates
+    the one conclusive type that can be asserted about a target the answer never raised:
+    ``explicit_lack``. A candidate cannot deny something they did not mention, so an
+    ``explicit_lack`` entry for a target absent from their own words is downgraded to a hint
+    rather than closing the target.
+
+    This exists because the evaluator was observed reporting the *absence* of a statement as
+    though it were a statement - for "I worked on a computer vision project using Python and
+    PyTorch", it returned ``explicit_lack`` for NLP with the note "No mention of experience
+    with Natural Language Processing", in 4 of 6 identical real calls. That marked NLP assessed
+    without asking, ended the interview after one answer, and put a denial the candidate never
+    made into the report. The schema and prompt now tell the evaluator not to do this; this
+    check means the runtime no longer depends on it obeying.
+
+    Deliberately narrow. Only ``explicit_lack`` is gated: a demonstration describes work and is
+    self-evidencing, so applying a name-match to it could suppress genuine evidence (a
+    candidate can demonstrate FastAPI by describing what they built without ever saying
+    "FastAPI"). Denial is the opposite - it is a claim *about* a named thing, so naming it is
+    inherent to making it. ``answer`` defaults to ``None`` for callers that predate this
+    (hand-built state, older fixtures), which behave exactly as before.
     """
     resolution = CrossTargetResolution(updated_hints=dict(existing_hints))
     assessed = set(assessed_target_ids)
@@ -133,6 +177,16 @@ def resolve_cross_target_evidence(
             continue  # already resolved - never duplicated
 
         evidence_type = item["evidence_type"]
+        # A denial about a target the candidate never named is not a denial - it is the
+        # evaluator describing what the answer does not contain. Recorded as a hint so the
+        # signal is not lost, but never conclusive: the target stays open and gets asked.
+        if (
+            evidence_type == "explicit_lack"
+            and answer is not None
+            and not _answer_mentions(answer, match["target"])
+        ):
+            evidence_type = "insufficient"
+
         if evidence_type in CONCLUSIVE_EVIDENCE_TYPES:
             resolved_this_turn.add(target_id)
             resolution.newly_assessed_ids.append(target_id)

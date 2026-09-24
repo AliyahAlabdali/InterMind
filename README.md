@@ -1,349 +1,258 @@
-# InterMind: Autonomous AI Interviewer
+<div align="center">
 
-<p align="center">
-  <em>An adaptive AI interviewer that designs, conducts, and evaluates structured, role-specific interviews.</em>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/intermind-wordmark-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/intermind-wordmark-light.png">
+  <img src="docs/assets/intermind-wordmark-light.png" alt="InterMind" width="420">
+</picture>
+
+### Autonomous AI Technical Interviewer
+
+Adaptive interviews. Evidence-based hiring insight.
+
+<p>
+  <img alt="Python 3.11+" src="https://img.shields.io/badge/Python-3.11%2B-6F7FA3?style=flat-square&labelColor=3B3355">
+  <img alt="FastAPI 0.141" src="https://img.shields.io/badge/FastAPI-0.141-6F7FA3?style=flat-square&labelColor=3B3355">
+  <img alt="LangGraph 1.2" src="https://img.shields.io/badge/LangGraph-1.2-6F7FA3?style=flat-square&labelColor=3B3355">
+  <img alt="React 19" src="https://img.shields.io/badge/React-19-6F7FA3?style=flat-square&labelColor=3B3355">
+  <img alt="PostgreSQL with SQLAlchemy and Alembic" src="https://img.shields.io/badge/PostgreSQL-SQLAlchemy%20%2B%20Alembic-6F7FA3?style=flat-square&labelColor=3B3355">
 </p>
 
----
+</div>
 
-## Overview
+![The InterMind landing page: the headline "Every candidate gets a different interview" beside a 3D laptop running the interview, with transcript, live waveform and competency panels floating around it.](docs/assets/intermind-landing.png)
 
-InterMind is an AI engineering project that explores how autonomous AI can improve the technical interviewing process.
+## What InterMind is
 
-The system takes a **job description** as input, identifies the role's requirements, and uses them to create a structured interview. During the interview, the AI can select relevant questions, evaluate candidate responses, ask follow-up questions when needed, and produce an evidence-based interview report.
+Most interview tooling generates a list of questions and then plays it back in order. InterMind does
+not have a list.
 
-The goal is to build an interview experience that is **structured, adaptive, and explainable**, rather than simply generating a fixed list of questions.
+It reads a job description into a structured role specification, grounds that role in occupational
+data from O\*NET, and derives **coverage targets**: the competencies, technologies and tasks worth
+assessing for it. The interview then runs as a stateful loop. Each time a question is needed,
+InterMind chooses the next target from what has already been established, phrases a question for it
+in the moment, evaluates the answer into structured evidence, and decides whether that settled the
+target or needs one more push.
 
-### How It Works
+How many questions a candidate answers is an outcome of the conversation, not a property of the
+plan, and every score in the report points back to something the candidate said.
 
-```text
-Job Description
-       ↓
-Job Requirements
-       ↓
-Role-Specific Interview Plan
-       ↓
-Adaptive Interview
-       ↓
-Candidate Evaluation
-       ↓
-Interview Report
+![Creating a new interview in the recruiter workspace. The stepper reads "Describe the role, Check what was read, Build the interview", and the page lists what InterMind read out of the job description: the role, its seniority, a short summary, required and preferred skill chips, and competencies.](docs/assets/intermind-new-interview.png)
+
+An interview starts from a job description and nothing else. Step two is the recruiter reading back
+what InterMind understood, before anything is built on top of it.
+
+## Why it is different
+
+- **Questions are generated during the interview, not before it.** The plan supplies targets; the
+  phrasing happens at the moment of asking, with the interview's own history in context.
+- **Target selection is deterministic and testable.** Which target comes next is a pure function of
+  interview state and a category budget policy, not an LLM guess and not a static index.
+- **Follow-ups are re-derived from structured evidence.** The evaluator returns an evidence type and
+  a decision; the routing policy recomputes the call from that evidence rather than trusting the
+  model's one-shot classification, which was observed under-calling follow-ups while simultaneously
+  recording the gap.
+- **Evidence volunteered about other targets is not lost.** Demonstrate Java while answering a Python
+  question and the Java target resolves through a pure, LLM-free rule instead of being asked again.
+- **Scores are deterministic; only the prose is generated.** Aggregation and the recommendation are
+  pure functions of the recorded interview. The LLM writes the narrative and has no field through
+  which it can change a number.
+- **Multi-recruiter from the database up.** Recruiters register their own accounts, and ownership is
+  enforced on every query rather than assumed.
+
+## How the adaptive interview works
+
+```mermaid
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#ECEFF6","primaryTextColor":"#000505","primaryBorderColor":"#3B3355","lineColor":"#6F7FA3","edgeLabelBackground":"#ECEFF6","tertiaryTextColor":"#000505","tertiaryColor":"#F6F8FB"}}}%%
+flowchart LR
+    JD["Job description"] --> PLAN["Role analysis and<br/>coverage targets<br/>from O#42;NET"]
+    PLAN --> SEL{"Select next<br/>target"}
+    SEL -->|"target found"| ASK["Ask"]
+    ASK --> EVAL["Evaluate evidence"]
+    EVAL -->|"gap recorded"| FU["Follow up"]
+    FU --> EVAL
+    EVAL -->|"target settled"| SEL
+    SEL -->|"nothing left"| REP["Report"]
+
+    linkStyle default stroke:#6F7FA3,color:black;
+    classDef accent fill:#3B3355,stroke:#3B3355,stroke-width:1px,color:#FEFCFD;
+    classDef step fill:#ECEFF6,stroke:#3B3355,stroke-width:1px,color:#000505;
+    classDef gate fill:#FEFCFD,stroke:#3B3355,stroke-width:1px,color:#000505;
+    class JD,REP accent;
+    class PLAN,ASK,EVAL,FU step;
+    class SEL gate;
 ```
 
----
+The loop is a LangGraph state machine compiled in `app/agents/interview_graph.py`, suspended on a
+human-in-the-loop `interrupt` at every question so it waits for a real answer rather than simulating
+one. Category budgets default to four competency questions, four technology questions and two task
+questions, and each target may be followed up once.
 
-## Current Status
+![The candidate's interview room, part way through a session. The header reads "Senior Backend Engineer" and "6 of 11 areas explored"; the question is labelled "Following up on your answer" and asks for a specific Kubernetes deployment example.](docs/assets/intermind-interview.png)
 
-InterMind is being developed incrementally. The core backend workflow, evaluation pipeline, access-control boundary, and functional frontend are now in place. The remaining work focuses on frontend polish, visual identity, and productionization.
+The label above the question is the routing decision made visible: the candidate had just given a
+broad answer about Kubernetes, so the graph followed up on that same target instead of moving on.
+The counter tracks targets covered, not a fixed question list.
 
-### 1. Job Analysis ✅
+## Evidence-based evaluation
 
-The system converts an unstructured job description into structured information including:
+Each answer is evaluated into a score, an evidence type, strengths, weaknesses, supporting
+quotations and any evidence about other targets. Scoring then aggregates those records
+deterministically into competency assessments, an overall score and a recommendation. An LLM writes
+the narrative around them, with a template fallback if generation fails.
 
-* Role title
-* Seniority level
-* Required and preferred skills
-* Competencies
-* Job summary
+![The Evidence section of an interview report, listing each requirement the interview reached with its category and evidence strength, above a legend distinguishing demonstrated, partly shown, claimed, explicitly lacked and nothing established.](docs/assets/intermind-report.png)
 
-This information is used to build the interview around the specific role.
+Every row is a requirement the interview actually reached, and the legend is the distinction the
+scoring is built on: a candidate saying they lack something is not the same as the interview never
+establishing it, and neither is treated as a failed requirement.
 
-### 2. Interview Knowledge Base ✅
+## Architecture
 
-InterMind uses **O*NET 31.0** to provide additional occupational information, including relevant skills, technologies, and tasks.
+```mermaid
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#ECEFF6","primaryTextColor":"#000505","primaryBorderColor":"#3B3355","lineColor":"#6F7FA3","edgeLabelBackground":"#ECEFF6","tertiaryTextColor":"#000505","tertiaryColor":"#F6F8FB"}}}%%
+flowchart LR
+    WEB["React<br/>recruiter workspace<br/>candidate interview"] --> API["FastAPI<br/>sessions, jobs, plans,<br/>interviews, reports"]
+    API --> ENG["Interview engine<br/>JD analysis, planning,<br/>LangGraph runtime, scoring"]
+    ENG --> KB[("O#42;NET 31.0<br/>TF-IDF matching")]
+    API --> DB[("PostgreSQL<br/>Alembic schema")]
+    ENG -.-> OAI["OpenAI API"]
+    API -.->|"short-lived token"| AZ["Azure AI Speech"]
 
-A data processing pipeline converts the O*NET data into a searchable knowledge base. The system then uses a TF-IDF matching approach to identify occupations that are relevant to the job requirements.
-
-### 3. Interview Planning ✅
-
-The system combines the requirements extracted from the job description with relevant O*NET information to create a structured interview plan.
-
-The plan includes:
-
-* Competency-based questions
-* Technology-based questions
-* Task-based questions
-* Evidence showing whether each question comes from the job description or O*NET
-
-Generated questions are validated to ensure they are complete, correctly ordered, and uniquely identifiable.
-
-### 4. Autonomous Interview ✅
-
-The interview is managed as a stateful workflow using **LangGraph**.
-
-The system can:
-
-* Select the next relevant question
-* Receive and evaluate candidate answers
-* Decide whether a follow-up question is needed
-* Continue to the next question
-* Track interview progress
-* Safely handle completed or invalid interview sessions
-
-This allows the interview to adapt to the candidate's responses rather than following only a fixed sequence.
-
-### 5. Candidate Evaluation & Report ✅
-
-Candidate responses are evaluated against the requirements covered during the interview.
-
-The system produces a structured report containing:
-
-* Overall score
-* Recommendation
-* Competency assessments
-* Question-level evaluations
-* Evidence from candidate responses
-* Strengths and areas for improvement
-
-The evaluation logic is designed to be consistent and traceable rather than relying only on an unstructured LLM-generated conclusion.
-
-### 6. Web Application 🟡
-
-InterMind includes a React-based frontend connected to the FastAPI backend.
-
-The current interface supports the core recruiter and candidate workflows:
-
-```text
-Create Job
-   ↓
-Job Analysis
-   ↓
-Interview Plan
-   ↓
-Conduct Interview
-   ↓
-Complete Interview
-   ↓
-Interview Report
+    linkStyle default stroke:#6F7FA3,color:black;
+    classDef accent fill:#3B3355,stroke:#3B3355,stroke-width:1px,color:#FEFCFD;
+    classDef step fill:#ECEFF6,stroke:#3B3355,stroke-width:1px,color:#000505;
+    classDef store fill:#FEFCFD,stroke:#3B3355,stroke-width:1px,color:#000505;
+    classDef ext fill:#EDF1F7,stroke:#6F7FA3,stroke-width:1px,color:#000505;
+    class API accent;
+    class WEB,ENG step;
+    class KB,DB store;
+    class OAI,AZ ext;
 ```
 
-The core frontend workflow is functional. UI refinement, visual identity, responsive polish, and final product experience improvements remain in progress.
+Storage is chosen at startup: with `DATABASE_URL` set the SQL repositories are wired, and without it
+the in-memory implementations are used and the application logs a warning. Alembic owns the schema
+and the application never creates tables. Voice input is optional throughout and typing never
+depends on any speech configuration: the Azure key stays server-side, and the browser receives only
+a short-lived authorization token issued through the candidate access boundary.
 
----
+**Access model.** Recruiters sign in to an opaque server-side session carried in an
+`HttpOnly; SameSite=Strict` cookie, with passwords stored only as `scrypt` hashes; every
+recruiter-scoped query takes its owner from the resolved session, never from the request.
+Candidates hold a per-interview opaque token that satisfies only their own interview. Jobs, plans,
+interviews and reports are owner-scoped, and another tenant's resource is reported exactly like an
+unknown one. A candidate may read the plan for the job they are interviewing for and receives only
+the role name and bare target list their screen needs. See
+[docs/recruiter-auth.md](docs/recruiter-auth.md).
 
-## Features
+## Tech stack
 
-* Job description analysis
-* Structured job requirements
-* O*NET-based occupational matching
-* Role-specific interview planning
-* Automated question generation
-* Adaptive interview workflow
-* Candidate response evaluation
-* Evidence-based assessment
-* Structured interview reports
-* Interview-level access control
-* Recruiter and candidate role separation
-* React web interface
-* FastAPI backend
-* Automated tests and validation
+| Layer | Technologies |
+| :--- | :--- |
+| Frontend | React 19.3, TypeScript 6.0, Vite 8.3, Tailwind CSS 4.3, React Router 7.18, Motion 13.4, Three.js 0.186 |
+| Backend | FastAPI 0.141, Uvicorn 0.52, Pydantic 2.13 |
+| AI and orchestration | LangGraph 1.2, OpenAI SDK 3.6, versioned Markdown prompts, structured Pydantic outputs |
+| Knowledge | O\*NET 31.0 covering 1,016 occupations, scikit-learn 1.9 for TF-IDF and cosine similarity |
+| Persistence | PostgreSQL via SQLAlchemy 2.0 async ORM, asyncpg 0.31, Alembic 1.20 |
+| Speech | Azure AI Speech, Web Speech API for offline development |
+| Quality | pytest 9.1, Vitest 5.0, Ruff 0.16, oxlint 1.82 |
 
----
+Backend versions are those resolved in this checkout and `pyproject.toml` declares minimum bounds;
+frontend versions are pinned in `frontend/package-lock.json`.
 
-## Tech Stack
+## Getting started
 
-| Area                | Technologies                                   |
-| :------------------ | :--------------------------------------------- |
-| Frontend            | React, TypeScript, Vite, Tailwind CSS          |
-| Backend             | FastAPI, Uvicorn, Pydantic                     |
-| AI / LLM            | OpenAI, Structured Outputs, Prompt Engineering |
-| Agent Orchestration | LangGraph                                      |
-| Knowledge Base      | O*NET 31.0, TF-IDF                             |
-| Testing             | Pytest, HTTPX                                  |
-| Code Quality        | Ruff, oxlint                                   |
-| Language            | Python, TypeScript                             |
-| Development         | Git, GitHub                                    |
-
----
-
-## Project Structure
-
-```text
-.
-├── app/
-│   ├── agents/
-│   ├── api/
-│   ├── core/
-│   ├── domain/
-│   ├── knowledge/
-│   ├── llm/
-│   ├── repositories/
-│   ├── services/
-│   └── main.py
-├── data/
-│   ├── raw/
-│   └── processed/
-├── docs/
-├── frontend/
-├── notebooks/
-├── scripts/
-├── tests/
-├── .env.example
-├── pyproject.toml
-└── README.md
-```
-
----
-
-## Getting Started
-
-### Requirements
-
-* Python 3.11+
-* Node.js 18+
-* Git
-
-### Installation
-
-Clone the repository:
+Python 3.11 or newer, and Node.js 22.12 or newer (the floor Vitest 5 requires). PostgreSQL is
+optional locally.
 
 ```bash
 git clone https://github.com/AliyahAlabdali/InterMind.git
 cd InterMind
-```
 
-Create and activate a Python virtual environment:
-
-```bash
 python -m venv .venv
-```
-
-Install the backend dependencies:
-
-```bash
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
-```
 
-Install the frontend dependencies:
+cd frontend && npm install && cd ..
+```
 
 ```bash
-cd frontend
-npm install
-cd ..
+cp .env.example .env                        # Windows: copy .env.example .env
+cp frontend/.env.example frontend/.env      # Windows: copy frontend\.env.example frontend\.env
 ```
 
-### Configuration
+The defaults run entirely offline: `LLM_PROVIDER=fake` uses a deterministic in-process client and
+`SPEECH_PROVIDER=browser` avoids any Azure dependency, so a fresh checkout starts with no
+credentials. For real models set `LLM_PROVIDER=openai` and `OPENAI_API_KEY`. `.env` is git-ignored,
+and nothing with a `VITE_` prefix may hold a secret, because that prefix compiles the value into the
+public JavaScript bundle.
 
-Copy `.env.example` to `.env`.
+**The O\*NET knowledge base is not in the repository.** `data/raw/` and `data/processed/` are
+git-ignored, so interview planning reports the knowledge base as missing until you place the O\*NET
+31.0 text database under `data/raw/onet/db_31_0_text/` and run
+`notebooks/ONET_knowledge_base_pipeline.ipynb` end to end.
 
-For local development and testing:
+To run against PostgreSQL, set `DATABASE_URL` and apply the schema with `alembic upgrade head`.
+Without it the application runs on in-memory repositories and warns at startup.
 
-```text
-LLM_PROVIDER=fake
-```
-
-To use OpenAI:
-
-```text
-LLM_PROVIDER=openai
-OPENAI_API_KEY=your_api_key
-```
-
-API keys should be kept in local environment files and never committed to the repository.
-
-### Run the Backend
-
-From the project root:
+Then two terminals. The API serves on `http://127.0.0.1:8000` with interactive documentation at
+`/docs`, and the web application on `http://localhost:5173`, proxying `/api` to the backend so the
+browser stays same-origin with its API.
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-The API will be available at:
-
-```text
-http://127.0.0.1:8000
-```
-
-Interactive API documentation:
-
-```text
-http://127.0.0.1:8000/docs
-```
-
-### Run the Frontend
-
-In a separate terminal:
-
 ```bash
-cd frontend
-npm run dev
+cd frontend && npm run dev
 ```
 
-The web application will be available at:
+## Verification
 
-```text
-http://localhost:5173
-```
+| Suite | Command | Result |
+| :--- | :--- | :--- |
+| Backend | `pytest -q` | 544 passed, across 40 files (25 unit, 15 integration) |
+| Backend lint | `ruff check .` | all checks passed |
+| Frontend | `npm run test` | 158 passed, across 19 files |
+| Frontend types | `npm run typecheck` | clean |
+| Frontend lint | `npm run lint` | 0 errors, 1 pre-existing warning |
+| Frontend build | `npm run build` | succeeds |
 
-### Run Tests
+Every test runs against the in-memory repositories and the deterministic fake LLM client, including
+the API integration tests, which covers the domain models, services, interview graph, scoring,
+access control and tenant isolation end to end through the real ASGI app. It does not exercise the
+SQL repositories, the Alembic migration, a live OpenAI model or a live Azure Speech resource; the
+speech token endpoint is tested against a mocked HTTP transport.
 
-From the project root:
+## Current limitations
 
-```bash
-pytest -v
-```
+- **Single backend process.** Recruiter sessions are held in memory, so two workers would sign
+  recruiters out at random. Accounts and data are in PostgreSQL and unaffected. Scaling out needs a
+  shared session store first.
+- **In-flight interviews do not survive a restart.** LangGraph checkpoints to an in-memory saver, so
+  a part-finished interview would have to be reissued. Completed interviews are unaffected: their
+  reports are stored, and are served from persistence rather than from the graph.
+- **The SQL persistence path has no automated test coverage.** It is verified by review and manual
+  use.
+- **No login rate limiting.** `scrypt` makes each attempt cost real CPU, which is a brake rather than
+  brute-force protection.
+- **No email verification, password reset, teams, roles or audit trail,** and one account per person.
+- **Occupation matching is a TF-IDF baseline.** Adequate for common software roles, weaker on
+  ambiguous ones.
+- **Not deployed.** The repository holds the deployment architecture and configuration, not running
+  infrastructure: there is no Dockerfile, no CI workflow and no provisioned environment. The intended
+  topology is the frontend on Vercel with the backend and database on Azure.
 
-Run code quality checks:
+## Documentation
 
-```bash
-ruff check .
-```
+- [docs/deployment.md](docs/deployment.md) for the step-by-step deployment guide, written against the
+  architecture as built.
+- [docs/recruiter-auth.md](docs/recruiter-auth.md) for the authentication, session and CSRF model.
 
-The current test suite contains **306 passing tests**.
+## Author
 
----
+Built by **Aliyah Alabdali**.
 
-## Roadmap
+[GitHub](https://github.com/AliyahAlabdali) · [LinkedIn](https://www.linkedin.com/in/aliyah-alabdali-5ba599274/) · [Portfolio](https://aliyahalabdali.github.io)
 
-### Completed
-
-* [x] Analyze job descriptions
-* [x] Build structured job requirements
-* [x] Build O*NET knowledge base
-* [x] Match job requirements to relevant occupations
-* [x] Generate role-specific interview plans
-* [x] Generate and validate interview questions
-* [x] Build LangGraph interview workflow
-* [x] Conduct multi-turn interviews
-* [x] Generate adaptive follow-up questions
-* [x] Evaluate candidate responses
-* [x] Generate structured interview reports
-* [x] Build functional web frontend
-* [x] Implement interview-level access control
-* [x] Protect recruiter interview management and reports
-* [x] Validate candidate interview ownership
-
-### In Progress
-
-* [ ] UI redesign and visual identity
-* [ ] Improve interview experience and animations
-* [ ] Final responsive and product polish
-* [ ] Improve occupation matching beyond the current TF-IDF baseline
-
-### Planned
-
-* [ ] PostgreSQL persistence
-* [ ] Production authentication and authorization
-* [ ] Observability
-* [ ] Dockerization
-* [ ] Production deployment
-* [ ] Portfolio integration
-
----
-
-## Project Goal
-
-InterMind is being built as a **production-oriented AI engineering project**.
-
-The project focuses on designing an AI system as a complete application rather than simply connecting an LLM to an interface. It combines structured data, deterministic processing, validation, stateful agent workflows, evidence-based evaluation, and clear separation between AI components and application logic.
-
-The long-term goal is to create an interviewer that can understand a role, conduct a meaningful adaptive interview, evaluate candidate evidence, and provide a useful report for hiring decisions.
-
----
-
-<div align="center">
-
-Exceeds expectations • Aliyah Alabdali ⭐
-
-</div>
+<sub>O\*NET data is published by the U.S. Department of Labor. The hero laptop model is by <a href="https://sketchfab.com/3d-models/realistic-3d-laptop-model-high-quality-design-920fe8eceaf748a5b9ddd53385519322">Taohid Animation</a>, used under CC BY 4.0.</sub>

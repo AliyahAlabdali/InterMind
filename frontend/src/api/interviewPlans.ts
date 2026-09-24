@@ -1,9 +1,8 @@
 import { apiGet, apiPost } from "./client"
-import type { InterviewPlan } from "../types"
+import type { CandidateInterviewPlan, InterviewPlan } from "../types"
 
-// Note: like job endpoints (see api/jobs.ts), interview-plan endpoints are not part of the
-// Milestone 4 access boundary (see app.api.auth on the backend) and are left unauthenticated
-// here to match. Resource-level protection for these is Milestone 6-B work.
+// Both endpoints are recruiter-owner scoped on the backend (see app/api/auth.py). The two
+// functions below carry the recruiter session cookie and are for workspace screens only.
 
 export function createInterviewPlan(jobId: string): Promise<InterviewPlan> {
   return apiPost<InterviewPlan>(`/jobs/${encodeURIComponent(jobId)}/interview-plan`)
@@ -11,4 +10,21 @@ export function createInterviewPlan(jobId: string): Promise<InterviewPlan> {
 
 export function getInterviewPlan(jobId: string): Promise<InterviewPlan> {
   return apiGet<InterviewPlan>(`/jobs/${encodeURIComponent(jobId)}/interview-plan`)
+}
+
+/**
+ * The same endpoint, read by the candidate taking the interview.
+ *
+ * `candidateToken` is this interview's own access token, exactly as `getInterview` uses it. The
+ * backend answers a candidate with the reduced `CandidateInterviewPlan`, so this is a different
+ * return type rather than the same one fetched differently.
+ */
+export function getCandidateInterviewPlan(
+  jobId: string,
+  candidateToken: string,
+): Promise<CandidateInterviewPlan> {
+  return apiGet<CandidateInterviewPlan>(
+    `/jobs/${encodeURIComponent(jobId)}/interview-plan`,
+    { token: candidateToken },
+  )
 }

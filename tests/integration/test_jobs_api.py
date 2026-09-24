@@ -18,7 +18,14 @@ async def test_create_then_get_job(client):
 
     got = await client.get(f"/jobs/{body['id']}")
     assert got.status_code == 200
-    assert got.json() == body
+    # The public read is a narrower shape than the recruiter's own: same job, but without the
+    # raw job-description text, which no candidate screen renders and which used to be readable
+    # by anyone holding a job id.
+    public = got.json()
+    assert public["id"] == body["id"]
+    assert public["job_spec"] == body["job_spec"]
+    assert "job_description" not in public
+    assert "recruiter_id" not in public
 
 
 async def test_get_unknown_job_returns_404(client):

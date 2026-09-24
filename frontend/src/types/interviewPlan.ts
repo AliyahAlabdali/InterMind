@@ -56,3 +56,17 @@ export interface InterviewPlan {
   tasks: SelectedTask[]
   coverage_targets: CoverageTarget[]
 }
+
+/**
+ * The plan as a candidate taking the interview receives it.
+ *
+ * `GET /jobs/{jobId}/interview-plan` returns the full `InterviewPlan` to the recruiter who owns
+ * the job and this to a candidate holding that interview's access token. The rest of the plan is
+ * the recruiter's assessment strategy (requirement level, priority, provenance, O*NET grounding)
+ * and is deliberately not sent to the person being assessed. See `app/api/auth.py`.
+ */
+export interface CandidateInterviewPlan {
+  job_id: string
+  role_title: string
+  coverage_targets: Array<{ id: string; target: string }>
+}

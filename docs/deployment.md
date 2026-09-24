@@ -1,0 +1,225 @@
+# Deploying InterMind
+
+Frontend on **Vercel**, backend on **Azure**, database on **Azure Database for PostgreSQL**.
+
+Nothing here has been provisioned and no URLs are real — this is the list of what to configure,
+written against the architecture as built.
+
+---
+
+## The shape of it
+
+```
+Browser
+   │  https://<your-vercel-domain>
+   ▼
+Vercel ─── /            → the built React app (static)
+       └── /api/*       → rewrite → https://<your-azure-backend>/*
+                                        │
+                                        ▼
+                          Azure (FastAPI) ──► Azure Database for PostgreSQL
+                                          └─► OpenAI · Azure AI Speech
+```
+
+**The rewrite is load-bearing, not a convenience.** It is what keeps the recruiter session
+cookie secure — see *Cookies and CSRF* below. Do not point the browser directly at the Azure
+origin.
+
+---
+
+## 1. Azure Database for PostgreSQL
+
+Create an **Azure Database for PostgreSQL – Flexible Server** and a database on it (e.g.
+`intermind`).
+
+- **Networking.** Allow the backend to reach it. If the backend is an App Service, either enable
+  *Allow public access from Azure services* or put both in a VNet. Do not open it to the
+  internet.
+- **TLS.** Azure requires it. Append `?ssl=require` to the URL.
+- **Extensions.** None needed. The schema uses only standard types plus `JSONB`.
+
+Connection string:
+
+```
+DATABASE_URL=postgresql://<user>:<password>@<server>.postgres.database.azure.com:5432/intermind?ssl=require
+```
+
+`postgres://` and a missing `+asyncpg` driver are both normalised automatically
+(`app/db/engine.py`), so a string copied straight out of the Azure portal works unchanged.
+
+## 2. Run the migration
+
+The application **never creates tables**. Alembic owns the schema, so every environment gets the
+same one and a model change cannot silently diverge from what is deployed.
+
+```bash
+DATABASE_URL="postgresql://…" alembic upgrade head
+```
+
+Run this **before** the new backend starts, on every deploy that includes a migration. From CI,
+from a release step, or once by hand from a machine that can reach the database — but not from
+application startup.
+
+Verify:
+
+```bash
+DATABASE_URL="postgresql://…" alembic current   # should print the head revision
+```
+
+## 3. Azure backend
+
+Deploy the FastAPI app (App Service, Container Apps, or a container on whatever you prefer).
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+**Single process for now.** Recruiter *sessions* are in-memory, so two workers would each have
+their own set and a recruiter would be signed out at random as requests landed on different
+ones. Accounts and all data are in PostgreSQL and are unaffected. Running multiple workers needs
+a shared session store first — see *Known limitations*.
+
+### Environment variables
+
+| Variable | Required | Notes |
+|---|---|---|
+| `DATABASE_URL` | **yes** | Without it the app runs on in-memory storage and logs a warning. Never deploy that way. |
+| `RECRUITER_SESSION_COOKIE_SECURE` | **yes** | `true`. Over HTTPS a non-`Secure` session cookie is a needless exposure. |
+| `ALLOWED_ORIGINS` | **yes** | Your Vercel domain. See *CORS*. |
+| `LLM_PROVIDER` | yes | `openai` |
+| `OPENAI_API_KEY` | yes | |
+| `OPENAI_MODEL` | no | defaults to `gpt-4o-mini` |
+| `SPEECH_PROVIDER` | yes | `azure` |
+| `AZURE_SPEECH_REGION` | yes | |
+| `AZURE_SPEECH_KEY` | yes* | *or managed identity — see `docs/` and `app/services/speech_token.py` |
+| `RECRUITER_SESSION_TTL_SECONDS` | no | defaults to 8 hours |
+| `DATABASE_ECHO` | no | leave false; SQL logs can contain candidate answers |
+
+Store all of these as App Service application settings or Key Vault references. **None of them
+may ever be given a `VITE_` prefix** — that prefix compiles a value into the public JavaScript
+bundle.
+
+There is no `RECRUITER_EMAIL` or `RECRUITER_PASSWORD_HASH` any more, and no
+`RECRUITER_ACCESS_TOKEN`. Recruiters register themselves.
+
+## 4. Vercel frontend
+
+Build settings:
+
+- Root directory: `frontend`
+- Build command: `npm run build`
+- Output directory: `dist`
+
+### The `/api` rewrite
+
+Create `frontend/vercel.json`:
+
+```json
+{
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://<your-azure-backend>/:path*" }
+  ]
+}
+```
+
+This is what makes the browser same-origin with the API. Every request goes to your Vercel
+domain; Vercel forwards it server-side.
+
+### Frontend environment variables
+
+| Variable | Value |
+|---|---|
+| `VITE_SPEECH_PROVIDER` | `azure` |
+| `VITE_API_BASE_URL` | **leave unset** — it defaults to `/api`, which is the rewrite |
+
+Setting `VITE_API_BASE_URL` to the Azure origin would make the browser talk to a second site
+directly, and **would break the cookie**. Don't.
+
+## 5. Cookies and CSRF
+
+The recruiter session cookie is:
+
+```
+HttpOnly; SameSite=Strict; Secure; Path=/
+```
+
+with **no `Domain` attribute** — so the browser scopes it to the host that set it, which through
+the rewrite is your Vercel domain. Host-only, first-party.
+
+**Why `SameSite=Strict` still works.** A Strict cookie is only sent on same-site requests. With
+the rewrite the browser only ever talks to one origin, so every API call is first-party and the
+cookie is attached normally. No cross-site request can carry it, which is what makes CSRF
+structurally impossible here rather than merely unlikely — there is nothing for a forged request
+to ride on, so no CSRF token scheme is needed.
+
+**If you ever drop the rewrite** and point the browser at the Azure origin directly, this stops
+being true: the cookie becomes cross-site, `SameSite=Strict` suppresses it, and sign-in breaks.
+The fix is *not* `SameSite=None`. That would re-enable cross-site sending and require a real
+CSRF defence (double-submit token or an `Origin` check on every mutating request). Keep the
+rewrite.
+
+## 6. CORS
+
+With the rewrite the browser never makes a cross-origin request, so CORS is not exercised by the
+app at all. It stays configured for direct API access (tooling, `curl`, a staging frontend):
+
+```
+ALLOWED_ORIGINS=https://<your-vercel-domain>
+```
+
+An explicit list, never `*`. A wildcard cannot be combined with credentialed requests, and doing
+so with session cookies would be a genuine hole.
+
+## 7. HTTPS
+
+Both tiers. Vercel terminates TLS for you; on Azure enable *HTTPS Only* so plain HTTP is
+redirected. `RECRUITER_SESSION_COOKIE_SECURE=true` depends on it — a `Secure` cookie is simply
+never stored over HTTP, so sign-in would appear to succeed and then not work.
+
+---
+
+## Fresh deployment, in order
+
+1. Create the PostgreSQL server and database.
+2. `DATABASE_URL="…" alembic upgrade head`.
+3. Deploy the backend with the environment variables above; confirm `GET /health` → 200.
+4. Deploy the frontend to Vercel with `vercel.json` pointing at the backend.
+5. Open the site, **Create your workspace**, and register the first recruiter. There is no seed
+   account and no bootstrap step — the first person to register is simply the first account.
+6. Create a job, invite a candidate, confirm the invitation link works in a private window.
+
+## Verifying persistence after deploy
+
+The point of this milestone. Do it once on the real deployment:
+
+1. Register a recruiter and create a job.
+2. Restart the backend (App Service → Restart).
+3. Sign in again with the same credentials.
+
+**Expected:** sign-in succeeds, the job is still listed, the candidate table still shows who was
+invited.
+
+```
+Account and data survive a restart.   ← PostgreSQL
+Sessions do not.                      ← in-memory; you sign in again
+```
+
+An interview that was *mid-answer* across the restart loses its live state — LangGraph's
+checkpointer is in-memory. Its record survives and the recruiter still sees the candidate; the
+candidate would need to be re-invited to complete it. Persisting in-flight interview state is
+future work.
+
+---
+
+## Known limitations at this milestone
+
+- **Single backend process.** In-memory sessions; scale out needs a shared session store.
+- **In-flight interviews do not survive a restart** (above).
+- **No login rate limiting.** scrypt makes each attempt cost real CPU, which is a brake, not
+  brute-force protection. Do not describe it as protected.
+- **No email verification and no password reset** — there is no mail infrastructure. Do not add
+  a "Forgot password?" link until there is.
+- **One account per person, no teams, no roles, no audit trail.**
+- **No account deletion.** `jobs.recruiter_id` is `RESTRICT`, so a recruiter cannot be deleted
+  while they own jobs — deliberately, so no cascade can quietly erase candidate interview
+  history. Deletion semantics are future product and legal work.
