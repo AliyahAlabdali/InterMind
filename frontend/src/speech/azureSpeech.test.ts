@@ -45,13 +45,19 @@ function newConfig() {
 }
 
 const fromAuthorizationToken = vi.fn(() => newConfig())
-/** The managed-identity path: an Entra token is only accepted at the resource's custom domain,
- * so the provider must build the config from a host rather than a region. */
+/** The managed-identity path. It must be `fromEndpoint`, never `fromHost`: `fromHost` pins the
+ * SDK to endpoint version 1 and so to the regional path layout, which a custom subdomain answers
+ * with 404 - the websocket upgrade then fails before the token is examined at all. Asserting the
+ * factory by name is the only way to catch that from a unit test, since both calls "succeed"
+ * locally and the difference only appears as a dead socket against real Azure. */
+const fromEndpoint = vi.fn(() => newConfig())
+/** Present only so a regression back to it is a visible failure rather than a silent no-op. */
 const fromHost = vi.fn(() => newConfig())
 
 vi.mock("microsoft-cognitiveservices-speech-sdk", () => ({
   SpeechConfig: {
     fromAuthorizationToken: (...args: unknown[]) => fromAuthorizationToken(...(args as [])),
+    fromEndpoint: (...args: unknown[]) => fromEndpoint(...(args as [])),
     fromHost: (...args: unknown[]) => fromHost(...(args as [])),
   },
   AudioConfig: {
@@ -146,16 +152,19 @@ describe("azureSpeechInput", () => {
 
       await azureSpeechInput.start(handlers(), CONTEXT)
 
-      expect(fromHost).toHaveBeenCalledTimes(1)
-      const [hostUrl] = fromHost.mock.calls[0] as unknown as [URL]
-      expect(hostUrl.toString()).toBe(
+      expect(fromEndpoint).toHaveBeenCalledTimes(1)
+      const [endpointUrl] = fromEndpoint.mock.calls[0] as unknown as [URL]
+      // Deliberately path-less: the SDK appends /stt/speech/universal/v2 itself and resolves the
+      // custom domain through it. Supplying a path here would skip that resolution.
+      expect(endpointUrl.toString()).toBe(
         "wss://intermind-speech-aliyah.cognitiveservices.azure.com/",
       )
-      // fromHost takes no token, so the authorization token has to be set on the config.
+      // fromEndpoint takes no token, so the authorization token has to be set on the config.
       expect(lastSpeechConfig?.authorizationToken).toBe(
         "aad#/subscriptions/0000/resourceGroups/rg/providers/x#entra-token",
       )
       expect(fromAuthorizationToken).not.toHaveBeenCalled()
+      expect(fromHost).not.toHaveBeenCalled()
     })
 
     it("prefers the host over a region when the backend sends both", async () => {
@@ -169,8 +178,9 @@ describe("azureSpeechInput", () => {
 
       await azureSpeechInput.start(handlers(), CONTEXT)
 
-      expect(fromHost).toHaveBeenCalledTimes(1)
+      expect(fromEndpoint).toHaveBeenCalledTimes(1)
       expect(fromAuthorizationToken).not.toHaveBeenCalled()
+      expect(fromHost).not.toHaveBeenCalled()
     })
 
     it("falls back to the region for the key-based local-development path", async () => {
@@ -186,7 +196,7 @@ describe("azureSpeechInput", () => {
       await azureSpeechInput.start(handlers(), CONTEXT)
 
       expect(fromAuthorizationToken).toHaveBeenCalledWith("short-lived-token", "westeurope")
-      expect(fromHost).not.toHaveBeenCalled()
+      expect(fromEndpoint).not.toHaveBeenCalled()
     })
 
     it("fails cleanly when the backend names neither, leaving typing available", async () => {
@@ -202,7 +212,7 @@ describe("azureSpeechInput", () => {
         fatal: true,
         message: expect.stringContaining("continue by typing"),
       })
-      expect(fromHost).not.toHaveBeenCalled()
+      expect(fromEndpoint).not.toHaveBeenCalled()
       expect(fromAuthorizationToken).not.toHaveBeenCalled()
     })
   })

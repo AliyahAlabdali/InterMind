@@ -131,9 +131,19 @@ export const azureSpeechInput: SpeechInputProvider = {
     // resource's own custom-domain host, while a key-issued token is regional. So `host` wins
     // when present, and `fromAuthorizationToken` - which targets the regional endpoint - is the
     // fallback for the key path used in local development.
+    //
+    // `fromEndpoint` and not `fromHost`, which looks like the obvious choice and silently cannot
+    // work here: `fromHost` pins the SDK's RecognitionEndpointVersion to "1", which forces the
+    // regional path layout `/speech/recognition/conversation/cognitiveservices/v1`. A custom
+    // subdomain does not serve that path - it answers 404, the websocket upgrade fails before the
+    // token is ever looked at, and DevTools shows only "provisional headers". `fromEndpoint` with
+    // a path-less URL lets the SDK resolve the custom domain properly: it requests
+    // `/stt/speech/universal/v2`, and the service replies with the regional endpoint plus an
+    // `Ocp-Apim-Custom-Domain-Name` parameter that ties the connection back to this resource, so
+    // the `aad#` token validates. That redirect step is the whole point, and `fromHost` skips it.
     let speechConfig
     if (credentials.host) {
-      speechConfig = SpeechConfig.fromHost(new URL(`wss://${credentials.host}`))
+      speechConfig = SpeechConfig.fromEndpoint(new URL(`wss://${credentials.host}`))
       speechConfig.authorizationToken = credentials.token
     } else if (credentials.region) {
       speechConfig = SpeechConfig.fromAuthorizationToken(credentials.token, credentials.region)
