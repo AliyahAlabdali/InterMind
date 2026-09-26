@@ -235,18 +235,21 @@
 
 /* --- Portrait process strip ----------------------------------------------------------------
    The strip is a marquee: two copies of the sequence in a `max-content` track, translated by
-   -50% forever, inside `overflow: hidden`. On a phone that track measures 3519px against a
-   375px window, so at any instant seven of the eight terms are outside the box - and under
-   `prefers-reduced-motion` the animation stops dead at offset zero, leaving "Read the role →
-   Plan the inter" cut at the edge with no way to reach the rest. Reduce Motion is common on
-   iOS, so that frozen, truncated state was the likely one.
+   -50% forever inside `overflow: hidden`, which is what makes the loop seamless.
 
-   Touch has a better answer than motion: let it be scrolled. The same markup becomes a
-   horizontal scroller with momentum and proximity snapping, the duplicate run is dropped
-   because there is no loop to hide a seam in any more, and the edge mask becomes a one-sided
-   hint that there is more to the right. Nothing is clipped that cannot be reached by a thumb,
-   and the behaviour is identical whether or not reduced motion is on. */
-@media (max-width: 1023px) {
+   Portrait briefly turned it into a manual scroller instead - `animation: none`, the duplicate
+   run hidden, `overflow-x: auto`. That fixed the real bug it was aimed at (under reduced motion
+   the track froze at offset zero with seven of eight terms cut off and no way to reach them) but
+   it fixed it for everyone, so on a phone the strip simply sat still unless it was swiped. A
+   marquee that has to be dragged is not a marquee.
+
+   So the motion is the default again at every width, and the scroller is kept for exactly the
+   case that needed it: reduced motion, where the animation is off and the content would
+   otherwise be unreachable. Automatic everywhere, manual where automatic is not allowed.
+
+   `overflow: hidden` on the mask is what contains the 3519px track, so this cannot put a
+   horizontal scrollbar on the page. */
+@media (prefers-reduced-motion: reduce) {
   .landing-restored .process-band .marquee-mask {
     overflow-x: auto;
     overscroll-behavior-x: contain;
@@ -259,8 +262,14 @@
     padding-inline: 20px;
   }
   .landing-restored .process-band .marquee-mask::-webkit-scrollbar { display: none; }
-  .landing-restored .process-band .marquee-track { animation: none; }
-  /* The second run exists only to make the loop seamless. There is no loop now. */
+  /* The second run exists only to hide the loop's seam. With the animation off there is no
+     loop, and a duplicate would just be the same eight terms again at the end of the scroll. */
   .landing-restored .process-band .marquee-track > [aria-hidden="true"] { display: none; }
   .landing-restored .process-band .marquee-track span > span:first-child { scroll-snap-align: center; }
 }
+
+/* No portrait-specific duration. `Marquee` sets `--marquee-duration` as an inline style, so a
+   stylesheet rule here is simply ignored unless it shouts `!important` - and at 72s for a
+   1760px half-track the strip already drifts at about 24px a second, which is the "slow" this
+   was reaching for. Left as one speed at every width rather than as a rule that looks like it
+   does something. */

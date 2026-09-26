@@ -76,12 +76,21 @@ const CARD_ORIGIN_MAX = 118
  * - enough for the cards to hang off the device's edges without being cropped, and not so much
  * that the machine shrinks back into the middle of the stage.
  *
- * `PORTRAIT_LIFT` then slides the artwork up so the display - the part that carries the meaning,
- * because the live interface is drawn on it - clears the top of the stage rather than sitting in
- * the middle of it behind the fold.
+ * `PORTRAIT_LIFT` then slides the artwork up. It used to lift far enough to put the display hard
+ * against the top of the stage, which read well on its own but cropped away the entire band
+ * *above* the display - the band desktop hangs all three cards in. That is why portrait ended up
+ * with a different composition rather than a narrower one. The lift is now just enough to crop
+ * the empty desk below while leaving that band intact, so the cards can sit where they sit
+ * everywhere else.
  */
-const PORTRAIT_CROP = 424
-const PORTRAIT_LIFT = -106
+const PORTRAIT_CROP = 452
+const PORTRAIT_LIFT = -14
+
+/**
+ * The slice of artwork a phone actually sees, as artwork pixels, and the margin cards keep
+ * inside it. Derived rather than written down twice, so the crop and the clamp cannot drift.
+ */
+const PORTRAIT_WINDOW = { min: (676 - PORTRAIT_CROP) / 2 + 10, max: (676 + PORTRAIT_CROP) / 2 - 10 }
 
 const SKY = "#bfcde0"
 const INDIGO = "#3b3355"
@@ -367,18 +376,31 @@ export function InteractiveHero3D({ className = "", phase = "settled", reveal = 
 
               The arrival order is also portrait's own: both side cards at `listen`, staggered,
               and the channel at `analyze`. Desktop keeps the order it had. */}
-          <Floating quad={fallbackQuad} stage={676} width={portrait ? 222 : 292} u={.5} v={portrait ? 1.24 : -.3} align="centre" depth={0}
+          {/* Portrait keeps desktop's arrangement, not a different one: transcript upper-left,
+              competency upper-right, the live channel centred between them and slightly lower,
+              all of them in the band above the display.
+
+              The `u` values are pulled in from desktop's -0.8 and 1.8 because those sit outside
+              a window this narrow - they are the same relationship measured against the width
+              actually available, not the same numbers. `bounds` then guarantees the result:
+              a card can never settle in the cropped margin, at any viewport width.
+
+              The channel sits closer to the display than the side cards so the three do not
+              collide horizontally, which is what desktop achieves with width it does not have
+              here. Entrance directions are unchanged - left, right, and up - only the
+              destinations moved. */}
+          <Floating quad={fallbackQuad} stage={676} bounds={portrait ? PORTRAIT_WINDOW : undefined} width={portrait ? 292 : 292} u={.5} v={portrait ? -.2 : -.3} align="centre" depth={0}
             emerged={portrait ? assessed : heard}
             delay={portrait ? 120 : 0}
-            from={portrait ? { x: 0, y: 86, z: -40 } : undefined}><WaveformPill /></Floating>
-          <Floating quad={fallbackQuad} stage={676} width={portrait ? 196 : 228} u={portrait ? -.05 : -.8} v={portrait ? .68 : -.46} depth={0}
+            from={portrait ? { x: 0, y: 74, z: -40 } : undefined}><WaveformPill /></Floating>
+          <Floating quad={fallbackQuad} stage={676} bounds={portrait ? PORTRAIT_WINDOW : undefined} width={portrait ? 224 : 228} u={portrait ? -.16 : -.8} v={portrait ? -.5 : -.46} depth={0}
             emerged={portrait ? heard : assessed}
             delay={0}
-            from={portrait ? { x: -132, y: 18, z: -30 } : undefined}><TranscriptPanel /></Floating>
-          <Floating quad={fallbackQuad} stage={676} width={portrait ? 140 : 188} u={portrait ? .9 : 1.8} v={portrait ? .14 : -.52} align="end" depth={0}
+            from={portrait ? { x: -128, y: 14, z: -30 } : undefined}><TranscriptPanel /></Floating>
+          <Floating quad={fallbackQuad} stage={676} bounds={portrait ? PORTRAIT_WINDOW : undefined} width={portrait ? 185 : 188} u={portrait ? 1.16 : 1.8} v={portrait ? -.54 : -.52} align="end" depth={0}
             emerged={portrait ? heard : assessed}
             delay={portrait ? 190 : (stagger ? 420 : 0)}
-            from={portrait ? { x: 132, y: 10, z: -30 } : undefined}><RadialPanel /></Floating>
+            from={portrait ? { x: 128, y: 8, z: -30 } : undefined}><RadialPanel /></Floating>
         </div>
       </div>}
       {enabled && <canvas
@@ -476,6 +498,7 @@ function Floating({
   emerged,
   delay,
   from,
+  bounds,
   children,
 }: {
   quad: ScreenQuad
@@ -503,6 +526,15 @@ function Floating({
    * instead: in from the side it belongs to, or up from under the hinge.
    */
   from?: { x: number; y: number; z?: number }
+  /**
+   * The horizontal span the card must stay inside, in artwork pixels.
+   *
+   * `stage` alone is not enough in portrait: the artwork is 676 wide but only a centred window
+   * of it is ever on screen, so clamping to the artwork lets a card settle in the part that is
+   * cropped away. Passing the window makes "no clipping" a property of the layout rather than
+   * something to be checked by eye after each tweak.
+   */
+  bounds?: { min: number; max: number }
   children: React.ReactNode
 }) {
   const [x, y] = atUV(quad, u, v)
@@ -530,10 +562,19 @@ function Floating({
   // Alignment is done in pixels, not percentages. This wrapper has no size of its own - the card
   // inside it is absolutely positioned, so the wrapper shrinks to nothing - and a percentage
   // translate would resolve against that zero and move nothing at all.
-  const drawn = measured || width * scale
+  // `measured` is a screen-pixel width, which is the right unit only when the quad is also in
+  // screen pixels - true for the projected WebGL path, false for the flat composition, whose
+  // quad and stage are artwork pixels. On that path it is also always zero, because the ref
+  // wraps an absolutely positioned child and the wrapper collapses to nothing. So where bounds
+  // are given the estimate is what the clamp uses, and `width` has to be the card's true drawn
+  // width rather than a guess at it - the portrait values below were measured, not chosen.
+  const drawn = bounds ? width * scale : (measured || width * scale)
   const margin = 6
   let px = x - (align === "centre" ? drawn / 2 : align === "end" ? drawn : 0)
-  if (stage > 0) {
+  if (bounds) {
+    if (px + drawn > bounds.max) px = bounds.max - drawn
+    if (px < bounds.min) px = bounds.min
+  } else if (stage > 0) {
     // Once the camera is turned, the screen's centre is not the stage's centre, so on a narrow
     // viewport a card anchored near the display's right edge runs past the stage and is cut off
     // by the page. Clamping from the card's own width avoids having to measure the DOM.
