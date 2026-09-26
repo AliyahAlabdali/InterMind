@@ -16,9 +16,10 @@ import type {
  *
  * Credentials never touch this file. The browser is given a short-lived authorization token
  * minted by our own backend (`GET /interviews/{id}/speech-token`), which is the documented
- * browser-SDK path - `SpeechConfig.fromAuthorizationToken`. The Azure resource key stays
- * server-side. A token lasts ~10 minutes and one is fetched per recording session, which is far
- * shorter than a single answer, so no refresh logic is needed inside a session.
+ * browser-SDK path. The Azure resource key stays server-side - in production no key exists at
+ * all, because the backend authenticates to Azure with its managed identity. A token lasts ~10
+ * minutes and one is fetched per recording session, which is far shorter than a single answer,
+ * so no refresh logic is needed inside a session.
  */
 
 /** Candidate-facing wording only. Azure's own reasons/codes never reach the interview UI. */
@@ -125,7 +126,23 @@ export const azureSpeechInput: SpeechInputProvider = {
       SpeechRecognizer,
     } = await import("microsoft-cognitiveservices-speech-sdk")
 
-    const speechConfig = SpeechConfig.fromAuthorizationToken(credentials.token, credentials.region)
+    // Where to connect is the backend's decision, not this file's, and the two credential
+    // shapes are not interchangeable: an Entra (managed-identity) token is only accepted at the
+    // resource's own custom-domain host, while a key-issued token is regional. So `host` wins
+    // when present, and `fromAuthorizationToken` - which targets the regional endpoint - is the
+    // fallback for the key path used in local development.
+    let speechConfig
+    if (credentials.host) {
+      speechConfig = SpeechConfig.fromHost(new URL(`wss://${credentials.host}`))
+      speechConfig.authorizationToken = credentials.token
+    } else if (credentials.region) {
+      speechConfig = SpeechConfig.fromAuthorizationToken(credentials.token, credentials.region)
+    } else {
+      // A backend that returned neither is misconfigured; there is nothing to connect to and no
+      // retry would help, so this is surfaced the same way an unreachable service would be.
+      speechLog("react", "azure token response named neither host nor region")
+      throw ERRORS.unavailable
+    }
     speechConfig.speechRecognitionLanguage = credentials.language
     // Diagnostics only. Detailed adds per-result confidence and an N-best list to the SDK's own
     // result object; `result.text` - the only thing this provider reads - is unchanged, so the

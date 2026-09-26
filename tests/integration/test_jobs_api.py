@@ -5,7 +5,11 @@ from app.core.exceptions import ConfigurationError
 async def test_health(client):
     resp = await client.get("/health")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
+    # `storage` reports which repositories are live, so a deployment that silently fell back to
+    # in-memory can be spotted from outside. The suite runs without a database, hence in-memory.
+    # See tests/unit/test_database_requirement.py for the guard that makes that fatal in
+    # production, and for the assertion that this field leaks no connection detail.
+    assert resp.json() == {"status": "ok", "storage": "in-memory"}
 
 
 async def test_create_then_get_job(client):

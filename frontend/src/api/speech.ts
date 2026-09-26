@@ -1,10 +1,15 @@
 import { apiGet } from "./client"
 
 /** What the backend returns for a speech session. Never contains an Azure key - see
- * `app.services.speech_token`. */
+ * `app.services.speech_token`.
+ *
+ * `host` and `region` are two different ways of naming where to connect, and exactly one is
+ * populated. A managed-identity (Entra) token is only accepted at the Speech resource's
+ * custom-domain `host`; a key-issued token is regional. Prefer `host` - see `azureSpeech.ts`. */
 export interface SpeechTokenResponse {
   token: string
-  region: string
+  region?: string | null
+  host?: string | null
   language: string
   expires_in_seconds: number
 }

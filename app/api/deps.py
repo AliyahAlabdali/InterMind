@@ -30,7 +30,7 @@ from app.services.jd_analysis import JDAnalysisService
 from app.services.question_generation import QuestionGenerationService
 from app.services.report_generation import ReportGenerationService
 from app.services.report_narrative import ReportNarrativeService
-from app.services.speech_token import SpeechTokenService
+from app.services.speech_token import EntraTokenProvider, SpeechTokenService
 
 
 def get_job_repository(request: Request) -> JobRepository:
@@ -57,11 +57,22 @@ def get_activity_repository(request: Request) -> ActivityRepository:
     return request.app.state.activity_repository
 
 
+def get_speech_credential_provider(request: Request) -> EntraTokenProvider:
+    """Return the process-lifetime Entra credential holder created in `create_app`.
+
+    Must be the shared instance: the point of :class:`EntraTokenProvider` is that
+    ``azure-identity`` caches the access token inside the credential, and a per-request provider
+    would throw that cache away and hit IMDS on every microphone press.
+    """
+    return request.app.state.speech_credential_provider
+
+
 def get_speech_token_service(
     settings: Settings = Depends(get_settings),
+    entra: EntraTokenProvider = Depends(get_speech_credential_provider),
 ) -> SpeechTokenService:
-    """Stateless, so a fresh instance per request is fine - it holds only settings."""
-    return SpeechTokenService(settings)
+    """Stateless apart from the shared credential holder, so per-request construction is fine."""
+    return SpeechTokenService(settings, entra=entra)
 
 
 def get_interview_lock_registry(request: Request) -> InterviewLockRegistry:

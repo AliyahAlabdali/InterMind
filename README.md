@@ -187,13 +187,16 @@ credentials. For real models set `LLM_PROVIDER=openai` and `OPENAI_API_KEY`. `.e
 and nothing with a `VITE_` prefix may hold a secret, because that prefix compiles the value into the
 public JavaScript bundle.
 
-**The O\*NET knowledge base is not in the repository.** `data/raw/` and `data/processed/` are
-git-ignored, so interview planning reports the knowledge base as missing until you place the O\*NET
-31.0 text database under `data/raw/onet/db_31_0_text/` and run
+**The O\*NET knowledge base ships with the repository.** `data/processed/onet/onet_kb.jsonl` is
+the one derived artifact that is tracked, because it is the only file the application reads and no
+deployment can rebuild it — see `data/README.md`. To regenerate it, place the O\*NET 31.0 text
+database under `data/raw/onet/db_31_0_text/` (git-ignored) and run
 `notebooks/ONET_knowledge_base_pipeline.ipynb` end to end.
 
 To run against PostgreSQL, set `DATABASE_URL` and apply the schema with `alembic upgrade head`.
-Without it the application runs on in-memory repositories and warns at startup.
+Without it the application runs on in-memory repositories and warns at startup. Deployments set
+`REQUIRE_DATABASE=true` so that warning becomes a refusal to start instead; `GET /health` reports
+which storage is live.
 
 Then two terminals. The API serves on `http://127.0.0.1:8000` with interactive documentation at
 `/docs`, and the web application on `http://localhost:5173`, proxying `/api` to the backend so the
@@ -255,4 +258,5 @@ Built by **Aliyah Alabdali**.
 
 [GitHub](https://github.com/AliyahAlabdali) · [LinkedIn](https://www.linkedin.com/in/aliyah-alabdali-5ba599274/) · [Portfolio](https://aliyahalabdali.github.io)
 
-<sub>O\*NET data is published by the U.S. Department of Labor. The hero laptop model is by <a href="https://sketchfab.com/3d-models/realistic-3d-laptop-model-high-quality-design-920fe8eceaf748a5b9ddd53385519322">Taohid Animation</a>, used under CC BY 4.0.</sub>
+<sub>O\*NET data is published by the U.S. Department of Labor and is redistributed here under
+their terms of use; `data/processed/onet/onet_kb.jsonl` is derived from O\*NET 31.0. The hero laptop model is by <a href="https://sketchfab.com/3d-models/realistic-3d-laptop-model-high-quality-design-920fe8eceaf748a5b9ddd53385519322">Taohid Animation</a>, used under CC BY 4.0.</sub>

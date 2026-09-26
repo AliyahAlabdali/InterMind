@@ -29,16 +29,30 @@ let addedPhrases: string[] = []
 /** Set to make the SDK refuse to build a phrase list, as an older SDK or a locale might. */
 let phraseListThrows = false
 /** The config object the provider configured, so its settings can be asserted on. */
-let lastSpeechConfig: { speechRecognitionLanguage: string; outputFormat?: unknown } | null = null
+let lastSpeechConfig: {
+  speechRecognitionLanguage: string
+  authorizationToken?: string
+  outputFormat?: unknown
+} | null = null
 
-const fromAuthorizationToken = vi.fn(() => {
-  lastSpeechConfig = { speechRecognitionLanguage: "", close: vi.fn() } as typeof lastSpeechConfig
+function newConfig() {
+  lastSpeechConfig = {
+    speechRecognitionLanguage: "",
+    authorizationToken: "",
+    close: vi.fn(),
+  } as typeof lastSpeechConfig
   return lastSpeechConfig
-})
+}
+
+const fromAuthorizationToken = vi.fn(() => newConfig())
+/** The managed-identity path: an Entra token is only accepted at the resource's custom domain,
+ * so the provider must build the config from a host rather than a region. */
+const fromHost = vi.fn(() => newConfig())
 
 vi.mock("microsoft-cognitiveservices-speech-sdk", () => ({
   SpeechConfig: {
     fromAuthorizationToken: (...args: unknown[]) => fromAuthorizationToken(...(args as [])),
+    fromHost: (...args: unknown[]) => fromHost(...(args as [])),
   },
   AudioConfig: {
     fromDefaultMicrophoneInput: () => {
@@ -111,6 +125,86 @@ describe("azureSpeechInput", () => {
 
     expect(getSpeechToken).toHaveBeenCalledWith("interview-1", "candidate-token")
     expect(fromAuthorizationToken).toHaveBeenCalledWith("short-lived-token", "westeurope")
+  })
+
+  describe("connection target", () => {
+    /**
+     * The backend decides where the browser connects, because the two credentials are not
+     * interchangeable at the network level: a managed-identity (Entra) token is only accepted at
+     * the Speech resource's custom-domain host, while a key-issued token is regional. Sending an
+     * Entra token to the regional endpoint fails to connect, so which factory is used is a
+     * correctness property, not a style choice.
+     */
+    it("connects to the custom domain when the backend names a host", async () => {
+      getSpeechToken.mockResolvedValue({
+        token: "aad#/subscriptions/0000/resourceGroups/rg/providers/x#entra-token",
+        region: null,
+        host: "intermind-speech-aliyah.cognitiveservices.azure.com",
+        language: "en-US",
+        expires_in_seconds: 540,
+      })
+
+      await azureSpeechInput.start(handlers(), CONTEXT)
+
+      expect(fromHost).toHaveBeenCalledTimes(1)
+      const [hostUrl] = fromHost.mock.calls[0] as unknown as [URL]
+      expect(hostUrl.toString()).toBe(
+        "wss://intermind-speech-aliyah.cognitiveservices.azure.com/",
+      )
+      // fromHost takes no token, so the authorization token has to be set on the config.
+      expect(lastSpeechConfig?.authorizationToken).toBe(
+        "aad#/subscriptions/0000/resourceGroups/rg/providers/x#entra-token",
+      )
+      expect(fromAuthorizationToken).not.toHaveBeenCalled()
+    })
+
+    it("prefers the host over a region when the backend sends both", async () => {
+      getSpeechToken.mockResolvedValue({
+        token: "aad#resource#entra-token",
+        region: "eastus",
+        host: "intermind-speech-aliyah.cognitiveservices.azure.com",
+        language: "en-US",
+        expires_in_seconds: 540,
+      })
+
+      await azureSpeechInput.start(handlers(), CONTEXT)
+
+      expect(fromHost).toHaveBeenCalledTimes(1)
+      expect(fromAuthorizationToken).not.toHaveBeenCalled()
+    })
+
+    it("falls back to the region for the key-based local-development path", async () => {
+      // Exactly what the backend returns with AZURE_SPEECH_KEY set and no resource id.
+      getSpeechToken.mockResolvedValue({
+        token: "short-lived-token",
+        region: "westeurope",
+        host: null,
+        language: "en-US",
+        expires_in_seconds: 540,
+      })
+
+      await azureSpeechInput.start(handlers(), CONTEXT)
+
+      expect(fromAuthorizationToken).toHaveBeenCalledWith("short-lived-token", "westeurope")
+      expect(fromHost).not.toHaveBeenCalled()
+    })
+
+    it("fails cleanly when the backend names neither, leaving typing available", async () => {
+      getSpeechToken.mockResolvedValue({
+        token: "a-token-with-nowhere-to-go",
+        region: null,
+        host: null,
+        language: "en-US",
+        expires_in_seconds: 540,
+      })
+
+      await expect(azureSpeechInput.start(handlers(), CONTEXT)).rejects.toMatchObject({
+        fatal: true,
+        message: expect.stringContaining("continue by typing"),
+      })
+      expect(fromHost).not.toHaveBeenCalled()
+      expect(fromAuthorizationToken).not.toHaveBeenCalled()
+    })
   })
 
   it("resolves only once recognition has actually started", async () => {

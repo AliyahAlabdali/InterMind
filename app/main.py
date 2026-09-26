@@ -20,6 +20,7 @@ from app.api.routes import (
     speech,
 )
 from app.core.config import get_settings
+from app.core.exceptions import ConfigurationError
 from app.core.logging import configure_logging
 from app.db.engine import create_engine, create_session_factory
 from app.observability.trace import TraceRecorder
@@ -41,6 +42,7 @@ from app.repositories.sql import (
     SqlJobRepository,
     SqlRecruiterRepository,
 )
+from app.services.speech_token import EntraTokenProvider
 
 
 def create_app() -> FastAPI:
@@ -54,6 +56,10 @@ def create_app() -> FastAPI:
         engine = getattr(application.state, "db_engine", None)
         if engine is not None:
             await engine.dispose()
+        # Same for the Azure credential, which holds its own HTTP session once it has been used.
+        credentials = getattr(application.state, "speech_credential_provider", None)
+        if credentials is not None:
+            await credentials.aclose()
 
     app = FastAPI(title="Autonomous AI Interviewer", version="0.1.0", lifespan=lifespan)
 
@@ -69,6 +75,11 @@ def create_app() -> FastAPI:
     )
 
     app.state.trace_recorder = TraceRecorder()
+    # Constructed eagerly but lazy inside: it imports azure-identity and contacts Azure only on
+    # the first managed-identity token request, so deployments using a key or no speech at all
+    # pay nothing for it. Created here rather than on first use so every request shares one
+    # credential - and therefore one token cache - with no races.
+    app.state.speech_credential_provider = EntraTokenProvider()
     # Recruiter browser sessions. In-memory by design for this milestone: a restart signs every
     # recruiter out, but their *account* and everything they own is in PostgreSQL and survives.
     # See docs/recruiter-auth.md.
@@ -83,6 +94,16 @@ def create_app() -> FastAPI:
     # implementations are used, which is what the test suite runs on and what a contributor
     # gets with no database - correct for development, never correct for a deployment, so it
     # says so at startup.
+    if not settings.database_url and settings.require_database:
+        # Deliberately fatal. REQUIRE_DATABASE is how a deployment says "persistence is not
+        # optional here", so the only safe response is to refuse to serve rather than come up on
+        # storage that silently discards everything. The message names the setting, never a
+        # value - there is no URL to quote, and there must never be one in a log.
+        raise ConfigurationError(
+            "REQUIRE_DATABASE is set but DATABASE_URL is empty. Refusing to start on in-memory "
+            "storage; see docs/deployment.md."
+        )
+
     if settings.database_url:
         engine = create_engine(settings.database_url, echo=settings.database_echo)
         sessions = create_session_factory(engine)
@@ -102,6 +123,9 @@ def create_app() -> FastAPI:
         )
         app.state.db_engine = None
         _wire_in_memory(app)
+    # Recorded so /health can state which storage is live without anyone needing log access, and
+    # without exposing the URL. See app.api.routes.health.
+    app.state.storage_backend = "postgresql" if settings.database_url else "in-memory"
 
     register_exception_handlers(app)
     app.include_router(health.router)

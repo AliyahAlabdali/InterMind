@@ -1,0 +1,51 @@
+# Production dependencies for the InterMind backend.
+#
+# Why this file exists alongside pyproject.toml
+# ---------------------------------------------
+# `pyproject.toml` declares *minimum bounds* - it describes what the project is compatible with.
+# This file declares *exact versions* - it describes what production actually runs. Azure App
+# Service needs it for a second reason: its build system (Oryx) looks for `requirements.txt`
+# first and only then falls back to pyproject.toml, which it hands to Poetry. This project uses
+# setuptools with a PEP 621 `[project]` table and has no `[tool.poetry]` section, so the Poetry
+# path would fail and the build would install nothing - the app would then die on startup with
+# ModuleNotFoundError. Keeping this file at the repository root avoids that entirely.
+#
+# Only direct dependencies are pinned. Transitive versions are left to pip so security patches
+# below this layer are picked up on redeploy without an edit here.
+#
+# To refresh after changing pyproject.toml:
+#     pip install -e ".[dev]" && pip freeze
+# then update the pins below to the resolved versions of these packages only.
+
+# --- Web framework and server -----------------------------------------------------------
+fastapi==0.141.1
+# [standard] pulls uvloop and httptools, which is what makes the single production worker fast
+# enough to matter. The startup command runs this directly; gunicorn is deliberately not used,
+# because the app must run as exactly one process (see docs/deployment.md).
+uvicorn[standard]==0.52.4
+pydantic==2.13.5
+pydantic-settings==2.15.0
+
+# --- AI and orchestration ---------------------------------------------------------------
+openai==3.6.0
+langgraph==1.2.11
+
+# --- Knowledge base ----------------------------------------------------------------------
+# TF-IDF and cosine similarity for matching a job specification to an O*NET occupation.
+scikit-learn==1.9.1
+
+# --- HTTP client ---------------------------------------------------------------------------
+# Used at runtime by the Azure Speech token service (key-based path).
+httpx==0.28.1
+
+# --- Persistence ---------------------------------------------------------------------------
+sqlalchemy[asyncio]==2.0.54
+asyncpg==0.31.0
+alembic==1.20.0
+
+# --- Azure -----------------------------------------------------------------------------------
+# Required, not optional: production authenticates to Azure AI Speech with the App Service
+# managed identity and stores no Speech key. Without this package the only production credential
+# path raises at request time. The synchronous credential is the one used (see
+# app.services.speech_token.EntraTokenProvider), so azure-core's aiohttp extra is not needed.
+azure-identity==1.25.3

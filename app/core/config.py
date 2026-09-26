@@ -52,6 +52,15 @@ class Settings(BaseSettings):
     database_url: str | None = None
     # Echo SQL to the log. Development only - statements can contain candidate answers.
     database_echo: bool = False
+    # Refuse to start without a database. The in-memory fallback is right for a fresh clone and
+    # for the test suite, and catastrophic in production: the app would come up looking healthy,
+    # serve real candidates, and lose every account, interview and report on the next restart -
+    # and App Service restarts containers routinely. A warning in the log is not enough, because
+    # nothing fails until the data is already gone.
+    #
+    # Opt-in rather than opt-out so local development and tests keep working untouched. Set
+    # REQUIRE_DATABASE=true in every real deployment; see docs/deployment.md.
+    require_database: bool = False
 
     # --- Recruiter sessions -----------------------------------------------------------------
     # There is no configured recruiter account and no credential in configuration. Recruiters
@@ -75,19 +84,55 @@ class Settings(BaseSettings):
     # "disabled" turns voice input off entirely and leaves typing as the only input.
     speech_provider: Literal["azure", "browser", "disabled"] = "browser"
 
+    # Which credential the backend uses to mint browser tokens (see app.services.speech_token):
+    #   managed_identity - Entra ID via the App Service managed identity. No secret exists.
+    #   key              - the Speech resource key. Local development only.
+    #   auto             - managed identity when AZURE_SPEECH_RESOURCE_ID is set, else the key.
+    # `auto` is what makes one codebase serve both environments: production sets the resource id
+    # and no key, local development sets a key and no resource id. Pin it to `managed_identity`
+    # in Azure if you want a stray key setting to be an error rather than a silent downgrade to
+    # secret-based auth.
+    azure_speech_auth: Literal["auto", "managed_identity", "key"] = "auto"
+
     # Azure AI Speech. The key is backend-only and is NEVER returned to a client - the browser
     # receives a short-lived authorization token minted from it (see
     # app.services.speech_token). Leave the key unset in Azure and rely on managed identity.
+    # Region is required for key auth (it selects the regional token endpoint the browser then
+    # talks to) and unused by managed identity, which is addressed by custom domain instead.
     azure_speech_region: str | None = None
     azure_speech_key: str | None = None
     # Required for managed-identity auth: the Speech resource's full ARM resource id. The
     # browser SDK has no TokenCredential overload, so an Entra token is passed to it in the
     # `aad#{resource_id}#{token}` authorization-token form.
     azure_speech_resource_id: str | None = None
-    # Optional custom subdomain host (e.g. "my-speech.cognitiveservices.azure.com"). Required
-    # when the resource uses a custom domain, which managed identity itself requires.
+    # Custom subdomain host, e.g. "my-speech.cognitiveservices.azure.com". **Required for
+    # managed identity**: Entra tokens are only accepted at a resource's custom-domain endpoint,
+    # never at the regional one, so this is what the browser is told to connect to. Optional for
+    # key auth, where it overrides the regional token-issuing endpoint.
     azure_speech_host: str | None = None
     azure_speech_language: str = "en-US"
+
+    @property
+    def azure_speech_host_name(self) -> str | None:
+        """`azure_speech_host` as a bare hostname, however the operator wrote it.
+
+        Azure's portal shows the custom domain as a full URL, so a pasted value can arrive as
+        "https://x.cognitiveservices.azure.com/". Both consumers need a bare host - one builds an
+        https URL from it, the other a wss one - so the scheme and any trailing path are stripped
+        here rather than being guarded for twice.
+        """
+        host = (self.azure_speech_host or "").strip()
+        if not host:
+            return None
+        host = host.split("://", 1)[-1]
+        return host.split("/", 1)[0].rstrip(".") or None
+
+    @property
+    def azure_speech_auth_mode(self) -> Literal["managed_identity", "key"]:
+        """Resolve `azure_speech_auth`, collapsing `auto` to a concrete credential."""
+        if self.azure_speech_auth != "auto":
+            return self.azure_speech_auth
+        return "managed_identity" if self.azure_speech_resource_id else "key"
 
 
 @lru_cache
