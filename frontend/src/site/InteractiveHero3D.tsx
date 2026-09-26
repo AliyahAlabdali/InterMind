@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion"
+import { useMediaQuery } from "../hooks/useMediaQuery"
 import { useDesktopMotion } from "./journey/useDesktopMotion"
 import { loadLaptopAssets } from "./journey/laptopAssets"
 import { INTRO_STEP, type IntroPhase } from "./journey/useLandingIntro"
@@ -60,6 +61,26 @@ const RESOLVE_MS = 380
  */
 const CARD_ORIGIN_PULL = 0.62
 const CARD_ORIGIN_MAX = 118
+
+/**
+ * Portrait framing for the flat composition.
+ *
+ * `PORTRAIT_CROP` is how much of the 676-wide artwork a phone is shown. Scaling to the full
+ * width fitted the whole desk on screen at half size; scaling to this narrower window fills the
+ * stage with the machine instead and lets the parent crop the edges, which is the difference
+ * between a picture of a laptop and a laptop.
+ *
+ * The window is deliberately only a little wider than the display panel itself (which spans
+ * roughly x 192..537 of the artwork). That leaves a margin of about 60px of artwork either side
+ * - enough for the cards to hang off the device's edges without being cropped, and not so much
+ * that the machine shrinks back into the middle of the stage.
+ *
+ * `PORTRAIT_LIFT` then slides the artwork up so the display - the part that carries the meaning,
+ * because the live interface is drawn on it - clears the top of the stage rather than sitting in
+ * the middle of it behind the fold.
+ */
+const PORTRAIT_CROP = 424
+const PORTRAIT_LIFT = -106
 
 const SKY = "#bfcde0"
 const INDIGO = "#3b3355"
@@ -135,6 +156,9 @@ function atUV(quad: ScreenQuad, u: number, v: number): [number, number] {
 export function InteractiveHero3D({ className = "", phase = "settled" }: { className?: string; phase?: IntroPhase }) {
   const reducedMotion = usePrefersReducedMotion()
   const enabled = useDesktopMotion()
+  // Matches the 639px breakpoint landing.css uses for the portrait hero, so the framing below
+  // and the stage height it is framed into can never disagree about which layout is on screen.
+  const portrait = useMediaQuery("(max-width: 639px)")
   const step = INTRO_STEP[phase]
 
   // The opening's beats, as the things on screen rather than as phase names. The screen lights
@@ -293,12 +317,44 @@ export function InteractiveHero3D({ className = "", phase = "settled" }: { class
           It still plays the opening's beats, because the story is the interview waking up and
           being read, and none of that depends on the machine being a real model. */}
       {!visible && <div className="laptop-fallback absolute inset-0 overflow-hidden">
-        <div className="absolute left-1/2 top-1/2" style={{ width: 676, height: 600, transform: `translate(-50%, -50%) scale(${Math.min(stageW / 676, 1)})` }}>
+        {/* Landscape art, composed twice. Uniformly scaling the 676-wide artwork to a phone put
+            it at half size in the middle of the stage, which is what made the machine read as a
+            small picture sitting under the copy rather than as the product.
+
+            Portrait instead crops rather than shrinks - the same artwork is scaled to a narrower
+            window and anchored to the top of the stage, so the screen and the cards rise into
+            the first viewport while the empty desk below falls off the fold. The overflow-hidden
+            parent does the cropping; nothing is redrawn and no second asset is loaded. */}
+        <div
+          className={portrait ? "absolute left-1/2 top-0" : "absolute left-1/2 top-1/2"}
+          style={{
+            width: 676, height: 600,
+            transform: portrait
+              ? `translate(-50%, ${PORTRAIT_LIFT}px) scale(${Math.min(stageW / PORTRAIT_CROP, 1)})`
+              : `translate(-50%, -50%) scale(${Math.min(stageW / 676, 1)})`,
+            transformOrigin: portrait ? "50% 0" : undefined,
+          }}
+        >
           <img src="/models/laptop-image.png" alt="" width="676" height="600" className="absolute inset-0" />
           <div className="hero-screen absolute left-0 top-0" data-lit={lit ? "true" : undefined} style={{ width: SCREEN_W, height: SCREEN_H, transformOrigin: "0 0", transform: quadTransform(SCREEN_W, SCREEN_H, fallbackQuad) }}><Screen /></div>
-          <Floating quad={fallbackQuad} stage={676} width={292} u={.5} v={-.3} align="centre" depth={0} emerged={heard} delay={0}><WaveformPill /></Floating>
-          <Floating quad={fallbackQuad} stage={676} width={228} u={-.8} v={-.46} depth={0} emerged={assessed} delay={0}><TranscriptPanel /></Floating>
-          <Floating quad={fallbackQuad} stage={676} width={188} u={1.8} v={-.52} align="end" depth={0} emerged={assessed} delay={stagger ? 420 : 0}><RadialPanel /></Floating>
+          {/* Portrait brings the cards inside the display's own footprint. The desktop values put
+              them well outside it - `u` of -0.8 and 1.8 are off either side of the screen - which
+              is right on a stage wider than the artwork and wrong here, where the crop window is
+              narrower than the artwork and anything outside `u` 0..1 lands in the cropped-away
+              margin. That is what produced the clipped card fragments along the top edge.
+
+              So on a phone they straddle the machine's edges rather than sitting squarely on it:
+              the transcript hangs off the left bezel, the competency dial off the right, and the
+              live channel floats below the display across the hinge. Each one overlaps the
+              device enough to be attached to it and breaks its outline enough to read as a
+              signal coming off it rather than a panel pasted onto it.
+
+              They are also drawn a little smaller than the desktop cards. On a stage this size
+              the machine has to stay the subject; a card that competes with it for width stops
+              being an annotation. */}
+          <Floating quad={fallbackQuad} stage={676} width={portrait ? 222 : 292} u={.5} v={portrait ? 1.24 : -.3} align="centre" depth={0} emerged={heard} delay={0}><WaveformPill /></Floating>
+          <Floating quad={fallbackQuad} stage={676} width={portrait ? 196 : 228} u={portrait ? -.05 : -.8} v={portrait ? .68 : -.46} depth={0} emerged={assessed} delay={0}><TranscriptPanel /></Floating>
+          <Floating quad={fallbackQuad} stage={676} width={portrait ? 140 : 188} u={portrait ? .9 : 1.8} v={portrait ? .14 : -.52} align="end" depth={0} emerged={assessed} delay={stagger ? 420 : 0}><RadialPanel /></Floating>
         </div>
       </div>}
       {enabled && <canvas

@@ -7,10 +7,29 @@
   .landing-restored .hero-visual { height: 530px; }
   .landing-restored .hero-copy .type-hero { font-size: clamp(3rem, 4.6vw, 4rem); }
 }
+/* --- Portrait hero -----------------------------------------------------------------------
+   The machine has to be part of the first screen, not a reward for scrolling past three
+   buttons. Measured at 375x812 before this block, the visual started 647px down: the whole of
+   it sat below an iPhone's usable height once Safari's chrome is accounted for, so the first
+   thing a phone visitor saw of an interview product was a wall of text and a button stack.
+
+   Two things buy that space back. The three actions stop being three full-width slabs - the
+   primary keeps its weight, the two secondaries share a row, which is 64px - and the rhythm
+   above them tightens slightly. Nothing is removed: all three actions are still there, still
+   48px tall, still in the same order. */
 @media (max-width: 639px) {
-  .landing-restored .hero-visual { height: 350px; }
-  .landing-restored .hero-actions { width: 100%; }
-  .landing-restored .hero-actions > * { width: 100%; }
+  .landing-restored .landing-hero { padding-top: 76px; }
+  .landing-restored .hero-copy .type-hero { margin-top: 22px; }
+  .landing-restored .hero-copy > p { margin-top: 18px; }
+  .landing-restored .hero-actions { width: 100%; margin-top: 26px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  /* The primary spans the row; the two secondaries sit beside each other beneath it. */
+  .landing-restored .hero-actions > *:first-child { grid-column: 1 / -1; }
+  .landing-restored .hero-actions > * { width: 100%; padding-left: 14px; padding-right: 14px; white-space: nowrap; }
+  /* The hero grid's 40px row gap is spacing between two columns that only exist side by side
+     above `lg`. Stacked, it reads as a hole between the actions and the machine they belong to,
+     so portrait closes it up - the composition is part of the same block of content, not the
+     next section. */
+  .landing-restored .landing-hero > div { gap: 16px; }
 }
 .landing-instrument canvas { opacity: 0; }
 .landing-instrument[data-ready] canvas { opacity: 1; }
@@ -20,10 +39,23 @@
 .landing-restored .laptop-fallback * { animation-play-state: paused !important; }
 @media (prefers-reduced-motion: reduce) {
   .landing-restored *, .landing-restored *::before, .landing-restored *::after { animation: none !important; transition: none !important; }
+  /* The opening is drawn by keyframes, so the blanket rule above used to leave `.opening-brand`
+     sitting at its `opacity: 0` start state behind an opaque panel: reduced motion produced a
+     black rectangle with the wordmark invisible inside it, which is worse than either the full
+     opening or none at all. Reduced motion means "do not move things", not "show nothing", so
+     the brand is painted at rest instead - same composition, no travel. */
+  .landing-restored .opening-brand { opacity: 1; transform: none; }
 }
 @media (max-width: 1023px) {
   .landing-restored .hero-visual { height: min(480px, 85vw); }
   .landing-restored .hero-stage { transform: none !important; }
+}
+/* Portrait gets a taller stage than `85vw` allowed, because the composition is now anchored to
+   the top of it rather than centred: the extra height runs downward, off the fold, while the
+   screen and the transcript card move up into view. Declared after the block above so it wins
+   on source order - the two have identical specificity. */
+@media (max-width: 639px) {
+  .landing-restored .hero-visual { height: 384px; }
 }
 /* --- The opening -------------------------------------------------------------------------
    A finite product opening, just under six seconds long, that hands the visitor the Hero and
@@ -121,3 +153,35 @@
   .hero-stage .hero-screen > *, .hero-stage .screen-listen, .hero-stage .hero-panel-content { opacity: 1; transform: none; }
 }
 .landing-restored .laptop-fallback .hud-arc { animation: none; stroke-dasharray: var(--arc-length); stroke-dashoffset: var(--arc-offset); }
+
+/* --- Portrait process strip ----------------------------------------------------------------
+   The strip is a marquee: two copies of the sequence in a `max-content` track, translated by
+   -50% forever, inside `overflow: hidden`. On a phone that track measures 3519px against a
+   375px window, so at any instant seven of the eight terms are outside the box - and under
+   `prefers-reduced-motion` the animation stops dead at offset zero, leaving "Read the role →
+   Plan the inter" cut at the edge with no way to reach the rest. Reduce Motion is common on
+   iOS, so that frozen, truncated state was the likely one.
+
+   Touch has a better answer than motion: let it be scrolled. The same markup becomes a
+   horizontal scroller with momentum and proximity snapping, the duplicate run is dropped
+   because there is no loop to hide a seam in any more, and the edge mask becomes a one-sided
+   hint that there is more to the right. Nothing is clipped that cannot be reached by a thumb,
+   and the behaviour is identical whether or not reduced motion is on. */
+@media (max-width: 1023px) {
+  .landing-restored .process-band .marquee-mask {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    /* Left edge square so the first term starts at the page margin like every other line of
+       text on the page; right edge faded, which is the affordance. */
+    mask-image: linear-gradient(to right, #000 0, #000 86%, transparent);
+    padding-inline: 20px;
+  }
+  .landing-restored .process-band .marquee-mask::-webkit-scrollbar { display: none; }
+  .landing-restored .process-band .marquee-track { animation: none; }
+  /* The second run exists only to make the loop seamless. There is no loop now. */
+  .landing-restored .process-band .marquee-track > [aria-hidden="true"] { display: none; }
+  .landing-restored .process-band .marquee-track span > span:first-child { scroll-snap-align: center; }
+}

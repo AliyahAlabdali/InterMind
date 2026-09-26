@@ -137,6 +137,50 @@ export function ProcessStage() {
             </div>
           )}
 
+          {/* The portrait counterpart to the desktop dock: one visual for the whole section that
+              changes as the steps go past, rather than a copy of it after every step.
+
+              What was here before was an <img> inside each of the six blocks. Six separate
+              renders of the same orb, each 112px and left-aligned in a full-width column, read
+              as a decorative bullet repeated six times - and being inline, each one pushed the
+              next step further down instead of staying with the reader.
+
+              Sticking it to the top of the viewport makes it the same idea as the desktop dock,
+              in the axis a phone actually has: the visual holds still, the steps move through
+              it, and the pose and the label under it change with `travel.progress` - the value
+              the desktop column is already driven by, so there is no second source of truth. */}
+          {!isDesktop && (
+            <div
+              // Clears the fixed nav by reading the height the nav itself publishes (SiteNav),
+              // rather than repeating a number that was only ever right by coincidence. The
+              // fallback covers the first paint, before the observer has measured.
+              style={{ top: "var(--landing-nav-h, 77px)" }}
+              className="process-dock-mobile sticky z-10 -mx-5 mb-4 bg-canvas/90 px-5 pb-3 pt-4 backdrop-blur-md sm:-mx-8 sm:px-8"
+            >
+              <div className="relative mx-auto flex h-[116px] w-full items-center justify-center">
+                {STEPS.map((pose, index) => (
+                  <img
+                    key={pose.state}
+                    src={`/models/pose-${pose.state}.webp`}
+                    alt=""
+                    aria-hidden="true"
+                    width="120"
+                    height="120"
+                    // The first is eager because it is on screen the moment the section is; the
+                    // rest arrive while the visitor is reading step one.
+                    loading={index === 0 ? "eager" : "lazy"}
+                    className="absolute h-[108px] w-[108px] transition-opacity duration-500"
+                    style={{ opacity: index === active ? 1 : 0 }}
+                  />
+                ))}
+              </div>
+              <div className="mt-1 flex w-full items-baseline justify-center gap-3 border-t border-hair pt-3">
+                <span className="type-meta text-fg-muted">{ordinal}</span>
+                <p className="type-sub text-fg">{step.label}</p>
+              </div>
+            </div>
+          )}
+
           <div>
             {STEPS.map((item, index) => {
               const isActive = index === active
@@ -150,7 +194,6 @@ export function ProcessStage() {
                   }}
                   className="process-step flex flex-col justify-center py-10 lg:min-h-[80vh] lg:py-10"
                 >
-                  {!isDesktop && <img src={`/models/pose-${item.state}.webp`} alt="" aria-hidden="true" loading="lazy" width="120" height="120" className="mb-4 h-28 w-28 self-start" />}
                   <div className="flex items-center gap-4">
                     <span
                       className={`type-meta shrink-0 transition-colors duration-500 ${

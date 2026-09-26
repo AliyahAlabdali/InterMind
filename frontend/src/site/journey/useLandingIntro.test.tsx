@@ -44,17 +44,46 @@ describe("Finite landing opening", () => {
     expect(view.result.current.phase).toBe("settled")
   })
 
-  it("skips rotation and card flight for reduced motion", async () => {
+  it("skips rotation and card flight for reduced motion, but holds long enough to be read", async () => {
     const { useLandingIntro } = await setup(true), view = renderHook(useLandingIntro)
+    // Was 320ms, which is under the time it takes to focus on a word: the opening registered as
+    // a black flash rather than as a quiet version of itself. Reduced motion means no travel,
+    // not no opening.
     act(() => vi.advanceTimersByTime(320))
+    expect(view.result.current.phase).toBe("brand")
+    act(() => vi.advanceTimersByTime(800))
     expect(view.result.current.phase).toBe("settled")
   })
 
-  it("gives a phone the name and the page, not the desktop choreography", async () => {
+  it("gives a phone the same beats as the desktop, at about half the running time", async () => {
     const { useLandingIntro } = await setup(false, false), view = renderHook(useLandingIntro)
-    act(() => vi.advanceTimersByTime(1500))
-    expect(view.result.current.phase).toBe("dock")
-    act(() => vi.advanceTimersByTime(600))
+    const at = (ms: number, phase: string) => { act(() => vi.advanceTimersByTime(ms)); expect(view.result.current.phase).toBe(phase) }
+    // A phone used to get two beats - a wordmark and then the page - on the reasoning that with
+    // no 3D machine there was no choreography. The flat composition plays the same story, so it
+    // gets the same beats, shortened.
+    at(520, "reveal"); at(500, "wake"); at(460, "listen"); at(420, "analyze"); at(500, "dock"); at(620, "settled")
+  })
+
+  it("is not ended by a viewport resize", async () => {
+    // The bug this pins: `resize` used to dismiss the opening, and iOS Safari fires it by itself
+    // while the address bar settles during load. On a phone the opening ended before its first
+    // frame, every time, with no user action at all.
+    const { useLandingIntro } = await setup(false, false), view = renderHook(useLandingIntro)
+    act(() => window.dispatchEvent(new Event("resize")))
+    expect(view.result.current.phase).not.toBe("settled")
+  })
+
+  it("is not ended by the few pixels a collapsing browser chrome scrolls the page", async () => {
+    const { useLandingIntro } = await setup(false, false), view = renderHook(useLandingIntro)
+    Object.defineProperty(window, "scrollY", { configurable: true, value: 12 })
+    act(() => window.dispatchEvent(new Event("scroll")))
+    expect(view.result.current.phase).not.toBe("settled")
+  })
+
+  it("is ended by a scroll that actually travels", async () => {
+    const { useLandingIntro } = await setup(false, false), view = renderHook(useLandingIntro)
+    Object.defineProperty(window, "scrollY", { configurable: true, value: 260 })
+    act(() => window.dispatchEvent(new Event("scroll")))
     expect(view.result.current.phase).toBe("settled")
   })
 
