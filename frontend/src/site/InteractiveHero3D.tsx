@@ -385,11 +385,13 @@ export function InteractiveHero3D({ className = "", phase = "settled", reveal = 
               actually available, not the same numbers. `bounds` then guarantees the result:
               a card can never settle in the cropped margin, at any viewport width.
 
-              The channel sits closer to the display than the side cards so the three do not
-              collide horizontally, which is what desktop achieves with width it does not have
-              here. Entrance directions are unchanged - left, right, and up - only the
-              destinations moved. */}
-          <Floating quad={fallbackQuad} stage={676} bounds={portrait ? PORTRAIT_WINDOW : undefined} width={portrait ? 292 : 292} u={.5} v={portrait ? -.2 : -.3} align="centre" depth={0}
+              The channel sits *below* both side cards rather than between them. At a narrow
+              width there is not enough room for three cards across one band, so holding it at
+              desktop's height left it sandwiched behind the other two and effectively invisible;
+              dropping it onto the upper part of the display clears them outright and keeps it
+              centred, which is the relationship that mattered. Entrance directions are unchanged
+              - left, right, and up - only the destinations moved. */}
+          <Floating quad={fallbackQuad} stage={676} bounds={portrait ? PORTRAIT_WINDOW : undefined} width={portrait ? 292 : 292} u={.5} v={portrait ? .24 : -.3} align="centre" depth={0}
             emerged={portrait ? assessed : heard}
             delay={portrait ? 120 : 0}
             from={portrait ? { x: 0, y: 74, z: -40 } : undefined}><WaveformPill /></Floating>

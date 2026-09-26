@@ -70,12 +70,25 @@
   .landing-restored .hero-visual { height: min(480px, 85vw); }
   .landing-restored .hero-stage { transform: none !important; }
 }
-/* Portrait gets a taller stage than `85vw` allowed, because the composition is now anchored to
-   the top of it rather than centred: the extra height runs downward, off the fold, while the
-   screen and the transcript card move up into view. Declared after the block above so it wins
-   on source order - the two have identical specificity. */
+/* Portrait sizes the stage to the artwork rather than to a round number.
+   
+   A fixed 384px cut the laptop off just below the keyboard - the chassis reached 431px at 375
+   wide - and any single fixed value is wrong at some width anyway, because the artwork is scaled
+   to fill the stage and therefore gets taller as the viewport widens. So the height is derived
+   from the same geometry the composition uses:
+
+     stage width   = 100vw - 40px            (the hero's own px-5 gutters)
+     artwork scale = stage width / 452       (PORTRAIT_CROP, InteractiveHero3D.tsx)
+     artwork foot  = 600px * scale - 14px    (artwork height, then PORTRAIT_LIFT)
+
+   plus 20px so the base does not sit flush against the strip. That keeps the whole chassis on
+   screen with the same deliberate gap at every width.
+
+   The three constants are duplicated from InteractiveHero3D.tsx because CSS cannot read them.
+   If PORTRAIT_CROP or PORTRAIT_LIFT changes there, this has to change with it - the symptom of
+   forgetting is the laptop's feet being cut off again. */
 @media (max-width: 639px) {
-  .landing-restored .hero-visual { height: 384px; }
+  .landing-restored .hero-visual { height: calc((100vw - 40px) * 600 / 452 - 14px + 20px); }
 }
 /* --- The opening -------------------------------------------------------------------------
    A finite product opening, just under six seconds long, that hands the visitor the Hero and
