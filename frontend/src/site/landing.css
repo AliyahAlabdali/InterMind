@@ -7,10 +7,29 @@
   .landing-restored .hero-visual { height: 530px; }
   .landing-restored .hero-copy .type-hero { font-size: clamp(3rem, 4.6vw, 4rem); }
 }
+/* --- Portrait hero -----------------------------------------------------------------------
+   The machine has to be part of the first screen, not a reward for scrolling past three
+   buttons. Measured at 375x812 before this block, the visual started 647px down: the whole of
+   it sat below an iPhone's usable height once Safari's chrome is accounted for, so the first
+   thing a phone visitor saw of an interview product was a wall of text and a button stack.
+
+   Two things buy that space back. The three actions stop being three full-width slabs - the
+   primary keeps its weight, the two secondaries share a row, which is 64px - and the rhythm
+   above them tightens slightly. Nothing is removed: all three actions are still there, still
+   48px tall, still in the same order. */
 @media (max-width: 639px) {
-  .landing-restored .hero-visual { height: 350px; }
-  .landing-restored .hero-actions { width: 100%; }
-  .landing-restored .hero-actions > * { width: 100%; }
+  .landing-restored .landing-hero { padding-top: 76px; }
+  .landing-restored .hero-copy .type-hero { margin-top: 22px; }
+  .landing-restored .hero-copy > p { margin-top: 18px; }
+  .landing-restored .hero-actions { width: 100%; margin-top: 26px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  /* The primary spans the row; the two secondaries sit beside each other beneath it. */
+  .landing-restored .hero-actions > *:first-child { grid-column: 1 / -1; }
+  .landing-restored .hero-actions > * { width: 100%; padding-left: 14px; padding-right: 14px; white-space: nowrap; }
+  /* The hero grid's 40px row gap is spacing between two columns that only exist side by side
+     above `lg`. Stacked, it reads as a hole between the actions and the machine they belong to,
+     so portrait closes it up - the composition is part of the same block of content, not the
+     next section. */
+  .landing-restored .landing-hero > div { gap: 16px; }
 }
 .landing-instrument canvas { opacity: 0; }
 .landing-instrument[data-ready] canvas { opacity: 1; }
@@ -18,12 +37,58 @@
 .landing-restored .process-step { scroll-margin-top: 96px; }
 .landing-restored .hero-stage[data-paused] *,
 .landing-restored .laptop-fallback * { animation-play-state: paused !important; }
+
+/* ...except while a phone is actually playing its Hero reveal.
+   The rule above exists because the flat composition is normally a *still* - on desktop it is
+   the placeholder shown until WebGL is ready, and on a phone it is the resting Hero, neither of
+   which should have loops running in them. But during the portrait opening the composition is
+   the thing being watched, and a listening interface with a frozen waveform is what made the
+   entrance read as a screenshot of the product rather than the product.
+
+   So it runs only for the span of the reveal, and only in portrait. Nothing new is authored
+   here: this un-pauses the loops the composition already has. Once the reveal reaches `settled`
+   the selector stops matching and the rule above takes over again unchanged, so the resting Hero
+   is exactly what it was - which is also why nothing is left running in the background.
+
+   Keyed on `data-reveal` rather than `data-intro` because the machine is no longer in the
+   splash: there is nothing to bring to life until the Hero's own entrance starts. Reduced
+   motion never sets the attribute at all, and that block clears `animation-name` outright
+   anyway, so play-state has nothing left to act on. */
+@media (max-width: 639px) {
+  .landing-restored[data-reveal]:not([data-reveal="settled"]) .laptop-fallback * { animation-play-state: running !important; }
+}
 @media (prefers-reduced-motion: reduce) {
   .landing-restored *, .landing-restored *::before, .landing-restored *::after { animation: none !important; transition: none !important; }
+  /* The opening is drawn by keyframes, so the blanket rule above used to leave `.opening-brand`
+     sitting at its `opacity: 0` start state behind an opaque panel: reduced motion produced a
+     black rectangle with the wordmark invisible inside it, which is worse than either the full
+     opening or none at all. Reduced motion means "do not move things", not "show nothing", so
+     the brand is painted at rest instead - same composition, no travel. */
+  .landing-restored .opening-brand { opacity: 1; transform: none; }
 }
 @media (max-width: 1023px) {
   .landing-restored .hero-visual { height: min(480px, 85vw); }
   .landing-restored .hero-stage { transform: none !important; }
+}
+/* Portrait sizes the stage to the artwork rather than to a round number.
+   
+   A fixed 384px cut the laptop off just below the keyboard - the chassis reached 431px at 375
+   wide - and any single fixed value is wrong at some width anyway, because the artwork is scaled
+   to fill the stage and therefore gets taller as the viewport widens. So the height is derived
+   from the same geometry the composition uses:
+
+     stage width   = 100vw - 40px            (the hero's own px-5 gutters)
+     artwork scale = stage width / 452       (PORTRAIT_CROP, InteractiveHero3D.tsx)
+     artwork foot  = 600px * scale - 14px    (artwork height, then PORTRAIT_LIFT)
+
+   plus 20px so the base does not sit flush against the strip. That keeps the whole chassis on
+   screen with the same deliberate gap at every width.
+
+   The three constants are duplicated from InteractiveHero3D.tsx because CSS cannot read them.
+   If PORTRAIT_CROP or PORTRAIT_LIFT changes there, this has to change with it - the symptom of
+   forgetting is the laptop's feet being cut off again. */
+@media (max-width: 639px) {
+  .landing-restored .hero-visual { height: calc((100vw - 40px) * 600 / 452 - 14px + 20px); }
 }
 /* --- The opening -------------------------------------------------------------------------
    A finite product opening, just under six seconds long, that hands the visitor the Hero and
@@ -112,12 +177,112 @@
 .landing-restored .hero-stage:is([data-stage="brand"],[data-stage="reveal"],[data-stage="wake"],[data-stage="listen"]) .hud-arc { animation-play-state: paused !important; }
 
 /* --- Where the opening does not go ---------------------------------------------------------
-   Reduced motion and small viewports get the name and then the page. There is no turn to watch
-   and no card flight to follow, so every element rests at the pose it would have settled at. */
-@media (max-width: 1023px), (prefers-reduced-motion: reduce) {
+   Reduced motion, and the tablet range that gets neither the 3D machine nor a portrait
+   composition, rest every element at the pose it would have settled at.
+
+   This block used to start at `max-width: 1023px`, which swept phones in with it: it set
+   `.hero-visual { transform: none }` and `.hero-panel-content { opacity: 1; transform: none }`,
+   so on a phone the composition never travelled and all three cards were already at rest in the
+   first frame. The opening's phases were running the whole time - the wordmark faded on cue -
+   but every visual consequence of them was cancelled here, which is exactly why the result read
+   as a still image with a wordmark over it rather than as an entrance. Portrait now has a
+   composition worth moving, so it is carved out below and choreographed further down.
+
+   The copy stays pinned on every small viewport regardless: it is the page's actual content,
+   and there is nothing to be gained by withholding it behind an animation on a phone. */
+@media (min-width: 640px) and (max-width: 1023px), (prefers-reduced-motion: reduce) {
   .landing-restored:not([data-intro="settled"]) .hero-visual { transform: none; }
-  .landing-restored :is(.hero-visual, .hero-copy) { z-index: auto; }
-  .landing-restored .hero-copy > * { opacity: 1 !important; transform: none !important; }
   .hero-stage .hero-screen > *, .hero-stage .screen-listen, .hero-stage .hero-panel-content { opacity: 1; transform: none; }
 }
+@media (max-width: 1023px) {
+  .landing-restored .hero-copy > * { opacity: 1 !important; transform: none !important; }
+}
+/* Both stay flattened on every small viewport. The splash is an opaque panel at z-index 45, so
+   leaving the composition at 46 lifts it *over* the branding - which is exactly what put a
+   laptop in the middle of a phone's splash screen, mostly below the fold, only for it to arrive
+   again when the Hero took over. On a phone the machine belongs to the Hero and nowhere else,
+   so during the opening it sits behind the panel and is simply not seen. */
+@media (max-width: 1023px) {
+  .landing-restored :is(.hero-visual, .hero-copy) { z-index: auto; }
+}
+
+/* --- The portrait Hero reveal ---------------------------------------------------------------
+   The product revealing itself, in the place it lives, as soon as the branding hands over. This
+   is keyed on `data-reveal` - the Hero's own state machine (`useHeroReveal`) - and never on the
+   splash's phases, which is the whole point: the two entrances no longer share a clock, so the
+   splash could be cut to a wordmark without taking the machine's entrance with it.
+
+   It is driven by the attribute rather than by scroll or an IntersectionObserver, so it begins
+   on arrival. Nothing here waits for the visitor to do anything.
+
+   The `settled` stage deliberately has no rule of its own: it falls through to the Hero's
+   resting geometry, so the sequence ends pixel-identical to the composition with no entrance at
+   all. Transform and opacity only - no layout is read and nothing is measured per frame. */
+@media (max-width: 639px) {
+  .landing-restored[data-reveal] .hero-visual {
+    transition: transform 760ms var(--ease-settle), opacity 460ms ease;
+    will-change: transform, opacity;
+  }
+  /* Below the frame: the machine has not arrived yet. */
+  .landing-restored[data-reveal="hidden"] .hero-visual {
+    opacity: 0;
+    transform: translate3d(0, 104px, 0) scale(.93);
+  }
+  /* Rising, and lighting on the way up. This is the movement the visitor has to see, so it is
+     the longest single step in the sequence. */
+  .landing-restored[data-reveal="machine"] .hero-visual {
+    opacity: 1;
+    transform: translate3d(0, 30px, 0) scale(.984);
+  }
+  /* Substantially in place, holding still while the cards fly onto it. */
+  .landing-restored:is([data-reveal="panels"], [data-reveal="channel"]) .hero-visual {
+    opacity: 1;
+    transform: translate3d(0, 8px, 0) scale(.997);
+  }
+  .landing-restored[data-reveal] .hero-panel-content { will-change: transform, opacity; }
+  /* The reveal is finite. Once it is over, nothing is left promoted to its own layer. */
+  .landing-restored[data-reveal="settled"] .hero-visual,
+  .landing-restored[data-reveal="settled"] .hero-panel-content { will-change: auto; }
+}
 .landing-restored .laptop-fallback .hud-arc { animation: none; stroke-dasharray: var(--arc-length); stroke-dashoffset: var(--arc-offset); }
+
+/* --- Portrait process strip ----------------------------------------------------------------
+   The strip is a marquee: two copies of the sequence in a `max-content` track, translated by
+   -50% forever inside `overflow: hidden`, which is what makes the loop seamless.
+
+   Portrait briefly turned it into a manual scroller instead - `animation: none`, the duplicate
+   run hidden, `overflow-x: auto`. That fixed the real bug it was aimed at (under reduced motion
+   the track froze at offset zero with seven of eight terms cut off and no way to reach them) but
+   it fixed it for everyone, so on a phone the strip simply sat still unless it was swiped. A
+   marquee that has to be dragged is not a marquee.
+
+   So the motion is the default again at every width, and the scroller is kept for exactly the
+   case that needed it: reduced motion, where the animation is off and the content would
+   otherwise be unreachable. Automatic everywhere, manual where automatic is not allowed.
+
+   `overflow: hidden` on the mask is what contains the 3519px track, so this cannot put a
+   horizontal scrollbar on the page. */
+@media (prefers-reduced-motion: reduce) {
+  .landing-restored .process-band .marquee-mask {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    /* Left edge square so the first term starts at the page margin like every other line of
+       text on the page; right edge faded, which is the affordance. */
+    mask-image: linear-gradient(to right, #000 0, #000 86%, transparent);
+    padding-inline: 20px;
+  }
+  .landing-restored .process-band .marquee-mask::-webkit-scrollbar { display: none; }
+  /* The second run exists only to hide the loop's seam. With the animation off there is no
+     loop, and a duplicate would just be the same eight terms again at the end of the scroll. */
+  .landing-restored .process-band .marquee-track > [aria-hidden="true"] { display: none; }
+  .landing-restored .process-band .marquee-track span > span:first-child { scroll-snap-align: center; }
+}
+
+/* No portrait-specific duration. `Marquee` sets `--marquee-duration` as an inline style, so a
+   stylesheet rule here is simply ignored unless it shouts `!important` - and at 72s for a
+   1760px half-track the strip already drifts at about 24px a second, which is the "slow" this
+   was reaching for. Left as one speed at every width rather than as a rule that looks like it
+   does something. */

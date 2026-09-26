@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion"
+import { useMediaQuery } from "../hooks/useMediaQuery"
 import { useDesktopMotion } from "./journey/useDesktopMotion"
 import { loadLaptopAssets } from "./journey/laptopAssets"
 import { INTRO_STEP, type IntroPhase } from "./journey/useLandingIntro"
+import type { RevealStage } from "./journey/useHeroReveal"
 import type { LaptopSceneHandle, ScreenQuad } from "./laptopScene"
 
 /**
@@ -60,6 +62,35 @@ const RESOLVE_MS = 380
  */
 const CARD_ORIGIN_PULL = 0.62
 const CARD_ORIGIN_MAX = 118
+
+/**
+ * Portrait framing for the flat composition.
+ *
+ * `PORTRAIT_CROP` is how much of the 676-wide artwork a phone is shown. Scaling to the full
+ * width fitted the whole desk on screen at half size; scaling to this narrower window fills the
+ * stage with the machine instead and lets the parent crop the edges, which is the difference
+ * between a picture of a laptop and a laptop.
+ *
+ * The window is deliberately only a little wider than the display panel itself (which spans
+ * roughly x 192..537 of the artwork). That leaves a margin of about 60px of artwork either side
+ * - enough for the cards to hang off the device's edges without being cropped, and not so much
+ * that the machine shrinks back into the middle of the stage.
+ *
+ * `PORTRAIT_LIFT` then slides the artwork up. It used to lift far enough to put the display hard
+ * against the top of the stage, which read well on its own but cropped away the entire band
+ * *above* the display - the band desktop hangs all three cards in. That is why portrait ended up
+ * with a different composition rather than a narrower one. The lift is now just enough to crop
+ * the empty desk below while leaving that band intact, so the cards can sit where they sit
+ * everywhere else.
+ */
+const PORTRAIT_CROP = 452
+const PORTRAIT_LIFT = -14
+
+/**
+ * The slice of artwork a phone actually sees, as artwork pixels, and the margin cards keep
+ * inside it. Derived rather than written down twice, so the crop and the clamp cannot drift.
+ */
+const PORTRAIT_WINDOW = { min: (676 - PORTRAIT_CROP) / 2 + 10, max: (676 + PORTRAIT_CROP) / 2 - 10 }
 
 const SKY = "#bfcde0"
 const INDIGO = "#3b3355"
@@ -132,17 +163,27 @@ function atUV(quad: ScreenQuad, u: number, v: number): [number, number] {
   return [topX + (botX - topX) * v, topY + (botY - topY) * v]
 }
 
-export function InteractiveHero3D({ className = "", phase = "settled" }: { className?: string; phase?: IntroPhase }) {
+export function InteractiveHero3D({ className = "", phase = "settled", reveal = null }: { className?: string; phase?: IntroPhase; reveal?: RevealStage | null }) {
   const reducedMotion = usePrefersReducedMotion()
   const enabled = useDesktopMotion()
+  // Matches the 639px breakpoint landing.css uses for the portrait hero, so the framing below
+  // and the stage height it is framed into can never disagree about which layout is on screen.
+  const portrait = useMediaQuery("(max-width: 639px)")
   const step = INTRO_STEP[phase]
 
   // The opening's beats, as the things on screen rather than as phase names. The screen lights
   // while the machine is still finishing its turn; the voice channel, then what was said, then
   // what it showed, arrive one after another, so the visitor reads a sequence and not a state.
-  const lit = step >= INTRO_STEP.wake
-  const heard = step >= INTRO_STEP.listen
-  const assessed = step >= INTRO_STEP.analyze
+  //
+  // Portrait reads them off the Hero's own reveal instead of the branding opening, because on a
+  // phone the machine is not in the opening at all - the splash is a wordmark and nothing else.
+  // Mapping the reveal's stages onto the same three booleans keeps every consumer below this
+  // line unchanged, so the two entrances share their staging vocabulary without sharing a clock.
+  // `reveal` is null on desktop and under reduced motion, which falls through to the phase.
+  const revealStep = reveal === null ? null : { hidden: 0, machine: 1, panels: 2, channel: 3, settled: 4 }[reveal]
+  const lit = revealStep === null ? step >= INTRO_STEP.wake : revealStep >= 1
+  const heard = revealStep === null ? step >= INTRO_STEP.listen : revealStep >= 2
+  const assessed = revealStep === null ? step >= INTRO_STEP.analyze : revealStep >= 3
   // Once the composition is on its way to the hero the stagger has done its job, so anything
   // still outstanding - after a skip, most of all - lands together rather than in slow motion.
   const stagger = step < INTRO_STEP.dock
@@ -293,12 +334,75 @@ export function InteractiveHero3D({ className = "", phase = "settled" }: { class
           It still plays the opening's beats, because the story is the interview waking up and
           being read, and none of that depends on the machine being a real model. */}
       {!visible && <div className="laptop-fallback absolute inset-0 overflow-hidden">
-        <div className="absolute left-1/2 top-1/2" style={{ width: 676, height: 600, transform: `translate(-50%, -50%) scale(${Math.min(stageW / 676, 1)})` }}>
+        {/* Landscape art, composed twice. Uniformly scaling the 676-wide artwork to a phone put
+            it at half size in the middle of the stage, which is what made the machine read as a
+            small picture sitting under the copy rather than as the product.
+
+            Portrait instead crops rather than shrinks - the same artwork is scaled to a narrower
+            window and anchored to the top of the stage, so the screen and the cards rise into
+            the first viewport while the empty desk below falls off the fold. The overflow-hidden
+            parent does the cropping; nothing is redrawn and no second asset is loaded. */}
+        <div
+          className={portrait ? "absolute left-1/2 top-0" : "absolute left-1/2 top-1/2"}
+          style={{
+            width: 676, height: 600,
+            transform: portrait
+              ? `translate(-50%, ${PORTRAIT_LIFT}px) scale(${Math.min(stageW / PORTRAIT_CROP, 1)})`
+              : `translate(-50%, -50%) scale(${Math.min(stageW / 676, 1)})`,
+            transformOrigin: portrait ? "50% 0" : undefined,
+          }}
+        >
           <img src="/models/laptop-image.png" alt="" width="676" height="600" className="absolute inset-0" />
           <div className="hero-screen absolute left-0 top-0" data-lit={lit ? "true" : undefined} style={{ width: SCREEN_W, height: SCREEN_H, transformOrigin: "0 0", transform: quadTransform(SCREEN_W, SCREEN_H, fallbackQuad) }}><Screen /></div>
-          <Floating quad={fallbackQuad} stage={676} width={292} u={.5} v={-.3} align="centre" depth={0} emerged={heard} delay={0}><WaveformPill /></Floating>
-          <Floating quad={fallbackQuad} stage={676} width={228} u={-.8} v={-.46} depth={0} emerged={assessed} delay={0}><TranscriptPanel /></Floating>
-          <Floating quad={fallbackQuad} stage={676} width={188} u={1.8} v={-.52} align="end" depth={0} emerged={assessed} delay={stagger ? 420 : 0}><RadialPanel /></Floating>
+          {/* Portrait brings the cards inside the display's own footprint. The desktop values put
+              them well outside it - `u` of -0.8 and 1.8 are off either side of the screen - which
+              is right on a stage wider than the artwork and wrong here, where the crop window is
+              narrower than the artwork and anything outside `u` 0..1 lands in the cropped-away
+              margin. That is what produced the clipped card fragments along the top edge.
+
+              So on a phone they straddle the machine's edges rather than sitting squarely on it:
+              the transcript hangs off the left bezel, the competency dial off the right, and the
+              live channel floats below the display across the hinge. Each one overlaps the
+              device enough to be attached to it and breaks its outline enough to read as a
+              signal coming off it rather than a panel pasted onto it.
+
+              They are also drawn a little smaller than the desktop cards. On a stage this size
+              the machine has to stay the subject; a card that competes with it for width stops
+              being an annotation. */}
+          {/* Entrance, portrait only. Each card arrives from the side it lives on - transcript
+              from the left, competency from the right, the live channel up from under the hinge
+              a beat later - instead of converging from the middle of the display, which on a
+              stage this size is a move of a few pixels and reads as no move at all.
+
+              The arrival order is also portrait's own: both side cards at `listen`, staggered,
+              and the channel at `analyze`. Desktop keeps the order it had. */}
+          {/* Portrait keeps desktop's arrangement, not a different one: transcript upper-left,
+              competency upper-right, the live channel centred between them and slightly lower,
+              all of them in the band above the display.
+
+              The `u` values are pulled in from desktop's -0.8 and 1.8 because those sit outside
+              a window this narrow - they are the same relationship measured against the width
+              actually available, not the same numbers. `bounds` then guarantees the result:
+              a card can never settle in the cropped margin, at any viewport width.
+
+              The channel sits *below* both side cards rather than between them. At a narrow
+              width there is not enough room for three cards across one band, so holding it at
+              desktop's height left it sandwiched behind the other two and effectively invisible;
+              dropping it onto the upper part of the display clears them outright and keeps it
+              centred, which is the relationship that mattered. Entrance directions are unchanged
+              - left, right, and up - only the destinations moved. */}
+          <Floating quad={fallbackQuad} stage={676} bounds={portrait ? PORTRAIT_WINDOW : undefined} width={portrait ? 292 : 292} u={.5} v={portrait ? .24 : -.3} align="centre" depth={0}
+            emerged={portrait ? assessed : heard}
+            delay={portrait ? 120 : 0}
+            from={portrait ? { x: 0, y: 74, z: -40 } : undefined}><WaveformPill /></Floating>
+          <Floating quad={fallbackQuad} stage={676} bounds={portrait ? PORTRAIT_WINDOW : undefined} width={portrait ? 224 : 228} u={portrait ? -.16 : -.8} v={portrait ? -.5 : -.46} depth={0}
+            emerged={portrait ? heard : assessed}
+            delay={0}
+            from={portrait ? { x: -128, y: 14, z: -30 } : undefined}><TranscriptPanel /></Floating>
+          <Floating quad={fallbackQuad} stage={676} bounds={portrait ? PORTRAIT_WINDOW : undefined} width={portrait ? 185 : 188} u={portrait ? 1.16 : 1.8} v={portrait ? -.54 : -.52} align="end" depth={0}
+            emerged={portrait ? heard : assessed}
+            delay={portrait ? 190 : (stagger ? 420 : 0)}
+            from={portrait ? { x: 128, y: 8, z: -30 } : undefined}><RadialPanel /></Floating>
         </div>
       </div>}
       {enabled && <canvas
@@ -395,6 +499,8 @@ function Floating({
   depth,
   emerged,
   delay,
+  from,
+  bounds,
   children,
 }: {
   quad: ScreenQuad
@@ -412,6 +518,25 @@ function Floating({
   emerged: boolean
   /** Where this card falls in the arrival stagger, in milliseconds. */
   delay: number
+  /**
+   * An explicit entrance origin, in stage pixels, instead of the computed one.
+   *
+   * The default origin is "pulled back toward the middle of the display", which reads correctly
+   * on a wide stage where the cards sit outside the machine and converge onto it. In portrait
+   * they sit *on* the machine, so converging from its centre is a move of a few pixels - which
+   * is exactly why the opening looked like a still image on a phone. Portrait passes a direction
+   * instead: in from the side it belongs to, or up from under the hinge.
+   */
+  from?: { x: number; y: number; z?: number }
+  /**
+   * The horizontal span the card must stay inside, in artwork pixels.
+   *
+   * `stage` alone is not enough in portrait: the artwork is 676 wide but only a centred window
+   * of it is ever on screen, so clamping to the artwork lets a card settle in the part that is
+   * cropped away. Passing the window makes "no clipping" a property of the layout rather than
+   * something to be checked by eye after each tweak.
+   */
+  bounds?: { min: number; max: number }
   children: React.ReactNode
 }) {
   const [x, y] = atUV(quad, u, v)
@@ -439,10 +564,19 @@ function Floating({
   // Alignment is done in pixels, not percentages. This wrapper has no size of its own - the card
   // inside it is absolutely positioned, so the wrapper shrinks to nothing - and a percentage
   // translate would resolve against that zero and move nothing at all.
-  const drawn = measured || width * scale
+  // `measured` is a screen-pixel width, which is the right unit only when the quad is also in
+  // screen pixels - true for the projected WebGL path, false for the flat composition, whose
+  // quad and stage are artwork pixels. On that path it is also always zero, because the ref
+  // wraps an absolutely positioned child and the wrapper collapses to nothing. So where bounds
+  // are given the estimate is what the clamp uses, and `width` has to be the card's true drawn
+  // width rather than a guess at it - the portrait values below were measured, not chosen.
+  const drawn = bounds ? width * scale : (measured || width * scale)
   const margin = 6
   let px = x - (align === "centre" ? drawn / 2 : align === "end" ? drawn : 0)
-  if (stage > 0) {
+  if (bounds) {
+    if (px + drawn > bounds.max) px = bounds.max - drawn
+    if (px < bounds.min) px = bounds.min
+  } else if (stage > 0) {
     // Once the camera is turned, the screen's centre is not the stage's centre, so on a narrow
     // viewport a card anchored near the display's right edge runs past the stage and is cut off
     // by the page. Clamping from the card's own width avoids having to measure the DOM.
@@ -457,6 +591,9 @@ function Floating({
   const [cx, cy] = atUV(quad, 0.5, 0.5)
   const pull = (delta: number) =>
     `${(Math.max(-CARD_ORIGIN_MAX, Math.min(CARD_ORIGIN_MAX, delta * CARD_ORIGIN_PULL)) / scale).toFixed(1)}px`
+  // An explicit origin is still divided by `scale` for the same reason the computed one is: the
+  // offset is applied inside a wrapper the scale has already been spent on.
+  const offset = (value: number) => `${(value / scale).toFixed(1)}px`
 
   return (
     <div
@@ -479,9 +616,9 @@ function Floating({
         data-emerged={emerged ? "true" : undefined}
         style={{
           transformStyle: "preserve-3d",
-          "--from-x": pull(cx - px - drawn / 2),
-          "--from-y": pull(cy - y),
-          "--from-z": `${(-Math.max(70, depth * 0.8)).toFixed(0)}px`,
+          "--from-x": from ? offset(from.x) : pull(cx - px - drawn / 2),
+          "--from-y": from ? offset(from.y) : pull(cy - y),
+          "--from-z": `${(-Math.max(70, from ? -(from.z ?? 0) : depth * 0.8)).toFixed(0)}px`,
           "--emerge-delay": `${delay}ms`,
         } as React.CSSProperties}
       >

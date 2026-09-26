@@ -2,7 +2,10 @@ import { useLayoutEffect } from "react"
 import { Link } from "react-router-dom"
 import { ArrowDown, ArrowRight } from "lucide-react"
 import { IntroSplash } from "../site/IntroSplash"
-import { useLandingIntro } from "../site/journey/useLandingIntro"
+import { useLandingIntro, INTRO_STEP } from "../site/journey/useLandingIntro"
+import { useHeroReveal } from "../site/journey/useHeroReveal"
+import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion"
+import { useMediaQuery } from "../hooks/useMediaQuery"
 import { SiteNav } from "../site/SiteNav"
 import { NightAtmosphere } from "../components/ui/NightAtmosphere"
 import { Marquee } from "../site/Marquee"
@@ -20,11 +23,25 @@ const secondary = "inline-flex min-h-[48px] items-center justify-center gap-2 ro
 export function WelcomePage() {
   useDocumentTitle("InterMind")
   const intro = useLandingIntro()
+  // The portrait Hero performs its own entrance once the branding opening hands over. It is a
+  // separate machine on purpose - see `useHeroReveal` - so the splash stays wordmark-only and
+  // the product reveals itself where it actually lives.
+  //
+  // `dock` rather than `settled` is the hand-off, and `step` rather than the phase name is what
+  // is compared, so that skipping the intro still starts the reveal: `finish()` jumps straight
+  // to `settled`, which is past `dock`, and the visitor gets the short Hero entrance instead of
+  // being dropped onto a composition that is already over.
+  const reducedMotion = usePrefersReducedMotion()
+  const portrait = useMediaQuery("(max-width: 639px)")
+  const reveal = useHeroReveal({
+    active: intro.step >= INTRO_STEP.dock,
+    enabled: portrait && !reducedMotion,
+  })
   useLayoutEffect(() => {
     if (!window.location.hash || window.scrollY !== 0) return
     try { document.getElementById(decodeURIComponent(window.location.hash.slice(1)))?.scrollIntoView({ block: "start", behavior: "instant" }) } catch { /* Malformed hashes leave normal navigation available. */ }
   }, [])
-  return <div className="night-room landing-restored relative min-h-screen" data-intro={intro.phase}>
+  return <div className="night-room landing-restored relative min-h-screen" data-intro={intro.phase} data-reveal={reveal ?? undefined}>
     <IntroSplash phase={intro.phase} onSkip={intro.finish} />
     <NightAtmosphere />
     <ScrollMeter />
@@ -44,7 +61,7 @@ export function WelcomePage() {
             </div>
           </div>
           <div className="hero-visual relative flex h-[540px] w-full items-center justify-center lg:h-[600px]">
-            <InteractiveHero3D phase={intro.phase} className="h-full w-full" />
+            <InteractiveHero3D phase={intro.phase} reveal={reveal} className="h-full w-full" />
           </div>
         </div>
       </section>

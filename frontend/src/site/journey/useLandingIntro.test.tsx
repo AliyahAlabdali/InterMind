@@ -44,17 +44,61 @@ describe("Finite landing opening", () => {
     expect(view.result.current.phase).toBe("settled")
   })
 
-  it("skips rotation and card flight for reduced motion", async () => {
+  it("skips rotation and card flight for reduced motion, but holds long enough to be read", async () => {
     const { useLandingIntro } = await setup(true), view = renderHook(useLandingIntro)
+    // Was 320ms, which is under the time it takes to focus on a word: the opening registered as
+    // a black flash rather than as a quiet version of itself. Reduced motion means no travel,
+    // not no opening.
     act(() => vi.advanceTimersByTime(320))
+    expect(view.result.current.phase).toBe("brand")
+    act(() => vi.advanceTimersByTime(800))
     expect(view.result.current.phase).toBe("settled")
   })
 
-  it("gives a phone the name and the page, not the desktop choreography", async () => {
+  it("gives a phone branding only, and briefly", async () => {
     const { useLandingIntro } = await setup(false, false), view = renderHook(useLandingIntro)
-    act(() => vi.advanceTimersByTime(1500))
-    expect(view.result.current.phase).toBe("dock")
-    act(() => vi.advanceTimersByTime(600))
+    const at = (ms: number, phase: string) => { act(() => vi.advanceTimersByTime(ms)); expect(view.result.current.phase).toBe(phase) }
+    // The machine's entrance belongs to the Hero now (see useHeroReveal), so the splash is a
+    // wordmark and nothing else. Staging the composition in here put it mostly below a phone's
+    // fold and then played it again when the Hero took over.
+    at(1180, "dock"); at(640, "settled")
+  })
+
+  it("hands over at `dock`, which is what the Hero reveal waits for", async () => {
+    const { useLandingIntro, INTRO_STEP } = await setup(false, false), view = renderHook(useLandingIntro)
+    expect(view.result.current.step).toBeLessThan(INTRO_STEP.dock)
+    act(() => vi.advanceTimersByTime(1180))
+    expect(view.result.current.step).toBeGreaterThanOrEqual(INTRO_STEP.dock)
+  })
+
+  it("puts a skip past the hand-off, so the Hero still gets to reveal itself", async () => {
+    // `finish()` jumps to `settled`, which is past `dock`. That is what stops a skip from
+    // dropping the visitor onto a composition that has already finished arriving.
+    const { useLandingIntro, INTRO_STEP } = await setup(false, false), view = renderHook(useLandingIntro)
+    act(() => window.dispatchEvent(new Event("touchstart")))
+    expect(view.result.current.step).toBeGreaterThanOrEqual(INTRO_STEP.dock)
+  })
+
+  it("is not ended by a viewport resize", async () => {
+    // The bug this pins: `resize` used to dismiss the opening, and iOS Safari fires it by itself
+    // while the address bar settles during load. On a phone the opening ended before its first
+    // frame, every time, with no user action at all.
+    const { useLandingIntro } = await setup(false, false), view = renderHook(useLandingIntro)
+    act(() => window.dispatchEvent(new Event("resize")))
+    expect(view.result.current.phase).not.toBe("settled")
+  })
+
+  it("is not ended by the few pixels a collapsing browser chrome scrolls the page", async () => {
+    const { useLandingIntro } = await setup(false, false), view = renderHook(useLandingIntro)
+    Object.defineProperty(window, "scrollY", { configurable: true, value: 12 })
+    act(() => window.dispatchEvent(new Event("scroll")))
+    expect(view.result.current.phase).not.toBe("settled")
+  })
+
+  it("is ended by a scroll that actually travels", async () => {
+    const { useLandingIntro } = await setup(false, false), view = renderHook(useLandingIntro)
+    Object.defineProperty(window, "scrollY", { configurable: true, value: 260 })
+    act(() => window.dispatchEvent(new Event("scroll")))
     expect(view.result.current.phase).toBe("settled")
   })
 

@@ -1,5 +1,5 @@
-import type { ReactNode } from "react"
-import { Link, NavLink } from "react-router-dom"
+import { useLayoutEffect, type ReactNode } from "react"
+import { Link, NavLink, useLocation, useNavigationType } from "react-router-dom"
 import { ArrowLeft, ArrowUpRight } from "lucide-react"
 import { Logo } from "../../brand/Logo"
 import { NightAtmosphere } from "../../components/ui/NightAtmosphere"
@@ -30,6 +30,23 @@ const MAINTAINER: Array<{ label: string; href: string; name: string }> = [
 /** The project's own repository, which is not the maintainer's profile. */
 const REPOSITORY = "https://github.com/AliyahAlabdali/InterMind"
 
+/**
+ * React Router keeps the document's scroll offset when changing pages. Reset before paint
+ * for PUSH/REPLACE arrivals in this shared shell, covering sidebar, footer and body links.
+ * Leave POP alone, including the initial render on a direct load or refresh, so native
+ * Back/Forward and refresh restoration can keep their positions without global overrides.
+ */
+function useLegalScrollReset() {
+  const { pathname } = useLocation()
+  const navigationType = useNavigationType()
+
+  useLayoutEffect(() => {
+    if (navigationType === "POP") return
+
+    window.scrollTo(0, 0)
+  }, [pathname, navigationType])
+}
+
 export function LegalSection({ title, children }: { title: string; children: ReactNode }) {
   return <section className="legal-section"><h2>{title}</h2><div>{children}</div></section>
 }
@@ -46,6 +63,7 @@ export function LegalLink({ to, children }: { to: string; children: ReactNode })
 
 export function LegalPage({ title, intro, children }: { title: string; intro: string; children: ReactNode }) {
   useDocumentTitle(title)
+  useLegalScrollReset()
   return <div className="night-room legal-page relative min-h-screen">
     <NightAtmosphere />
     <a href="#main" className="legal-skip">Skip to content</a>

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Link } from "react-router-dom"
 import { ArrowUpRight, Menu, X } from "lucide-react"
 import { Logo } from "../brand/Logo"
@@ -12,9 +12,39 @@ const SECTIONS = [
 export function SiteNav() {
   const [open, setOpen] = useState(false)
   const toggle = useRef<HTMLButtonElement>(null)
+  const header = useRef<HTMLElement>(null)
+
+  // Publishes the bar's measured height as `--landing-nav-h`.
+  //
+  // The nav is `fixed`, so it is out of flow and nothing below it can know how tall it is -
+  // yet anything that sticks to the top of the viewport has to clear it or slide underneath.
+  // That offset was written as a literal `77px`, which was correct only for as long as nobody
+  // changed the logo, the padding or the type. Measuring it means the two can never disagree,
+  // including at whatever width a future breakpoint makes the bar taller.
+  //
+  // Set on the document element rather than the header so any descendant of any page can read
+  // it, and re-measured on resize because the bar wraps differently at different widths.
+  useEffect(() => {
+    const node = header.current
+    if (!node) return
+    const publish = () => document.documentElement.style.setProperty("--landing-nav-h", `${Math.round(node.getBoundingClientRect().height)}px`)
+    publish()
+    // A resize listener rather than a ResizeObserver: the bar's contents are fixed, so the only
+    // thing that changes its height is the width it has to lay out in. Re-measured once the web
+    // fonts land as well, because the logo and the links are set in them and swapping from the
+    // fallback moves the baseline - the same reason ProcessStage listens for `loadingdone`.
+    const fonts = () => publish()
+    window.addEventListener("resize", publish)
+    document.fonts?.addEventListener("loadingdone", fonts)
+    return () => {
+      window.removeEventListener("resize", publish)
+      document.fonts?.removeEventListener("loadingdone", fonts)
+      document.documentElement.style.removeProperty("--landing-nav-h")
+    }
+  }, [])
 
   return (
-    <header onKeyDown={event => { if (event.key === "Escape" && open) { setOpen(false); toggle.current?.focus() } }} className="landing-nav fixed inset-x-0 top-0 z-40 border-b border-hair bg-canvas/85 backdrop-blur-md">
+    <header ref={header} onKeyDown={event => { if (event.key === "Escape" && open) { setOpen(false); toggle.current?.focus() } }} className="landing-nav fixed inset-x-0 top-0 z-40 border-b border-hair bg-canvas/85 backdrop-blur-md">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-5 py-4 sm:px-8">
         <Link to="/" aria-label="InterMind" className="inline-flex min-h-[44px] items-center">
           <Logo size={26} animated tone="onDark" />
