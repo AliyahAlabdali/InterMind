@@ -37,6 +37,27 @@
 .landing-restored .process-step { scroll-margin-top: 96px; }
 .landing-restored .hero-stage[data-paused] *,
 .landing-restored .laptop-fallback * { animation-play-state: paused !important; }
+
+/* ...except while a phone is actually playing its opening.
+   The rule above exists because the flat composition is normally a *still* - on desktop it is
+   the placeholder shown until WebGL is ready, and on a phone it is the resting Hero, neither of
+   which should have loops running in them. But during the portrait opening the composition is
+   the thing being watched, and a listening interface with a frozen waveform is what made the
+   entrance read as a screenshot of the product rather than the product.
+
+   So it runs only for the span of the opening, and only in portrait. Nothing new is authored
+   here: this un-pauses the loops the composition already has. At `settled` the selector stops
+   matching and the rule above takes over again unchanged, so the resting Hero is exactly what
+   it was - which is also why nothing is left running in the background afterwards.
+
+   Deliberately placed *before* the `data-stage` rules further down: those pause everything
+   through `reveal` and hold the competency arc until `listen`, and they still win on source
+   order. The result is that internal motion starts when the machine has arrived, not while it
+   is still climbing into frame. Reduced motion is unaffected - that block clears
+   `animation-name` outright, so play-state has nothing left to act on. */
+@media (max-width: 639px) {
+  .landing-restored:not([data-intro="settled"]) .laptop-fallback * { animation-play-state: running !important; }
+}
 @media (prefers-reduced-motion: reduce) {
   .landing-restored *, .landing-restored *::before, .landing-restored *::after { animation: none !important; transition: none !important; }
   /* The opening is drawn by keyframes, so the blanket rule above used to leave `.opening-brand`
@@ -144,13 +165,76 @@
 .landing-restored .hero-stage:is([data-stage="brand"],[data-stage="reveal"],[data-stage="wake"],[data-stage="listen"]) .hud-arc { animation-play-state: paused !important; }
 
 /* --- Where the opening does not go ---------------------------------------------------------
-   Reduced motion and small viewports get the name and then the page. There is no turn to watch
-   and no card flight to follow, so every element rests at the pose it would have settled at. */
-@media (max-width: 1023px), (prefers-reduced-motion: reduce) {
+   Reduced motion, and the tablet range that gets neither the 3D machine nor a portrait
+   composition, rest every element at the pose it would have settled at.
+
+   This block used to start at `max-width: 1023px`, which swept phones in with it: it set
+   `.hero-visual { transform: none }` and `.hero-panel-content { opacity: 1; transform: none }`,
+   so on a phone the composition never travelled and all three cards were already at rest in the
+   first frame. The opening's phases were running the whole time - the wordmark faded on cue -
+   but every visual consequence of them was cancelled here, which is exactly why the result read
+   as a still image with a wordmark over it rather than as an entrance. Portrait now has a
+   composition worth moving, so it is carved out below and choreographed further down.
+
+   The copy stays pinned on every small viewport regardless: it is the page's actual content,
+   and there is nothing to be gained by withholding it behind an animation on a phone. */
+@media (min-width: 640px) and (max-width: 1023px), (prefers-reduced-motion: reduce) {
   .landing-restored:not([data-intro="settled"]) .hero-visual { transform: none; }
-  .landing-restored :is(.hero-visual, .hero-copy) { z-index: auto; }
-  .landing-restored .hero-copy > * { opacity: 1 !important; transform: none !important; }
   .hero-stage .hero-screen > *, .hero-stage .screen-listen, .hero-stage .hero-panel-content { opacity: 1; transform: none; }
+}
+@media (max-width: 1023px) {
+  .landing-restored .hero-copy > * { opacity: 1 !important; transform: none !important; }
+}
+/* The tablet range keeps both flattened, as before. Portrait must not flatten the composition:
+   the splash is an opaque panel at z-index 45, so dropping the machine to `auto` puts it behind
+   that panel for the whole opening - it would rise on cue and be invisible while doing it. Only
+   the copy is flattened on a phone, which is what keeps the wordmark readable over it. */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .landing-restored :is(.hero-visual, .hero-copy) { z-index: auto; }
+}
+@media (max-width: 639px) {
+  .landing-restored .hero-copy { z-index: auto; }
+}
+
+/* --- The portrait opening ------------------------------------------------------------------
+   A phone's entrance, in the axis a phone has. The machine is not turned - there is no model to
+   turn - so the choreography is vertical: it rises into the frame from below the fold line,
+   settling as the wordmark clears, and the cards fly in afterwards from the edges they occupy.
+
+   Every beat here changes a transform. The previous portrait path held one transform across
+   `brand` through `analyze` and moved only at `dock`, so even with the suppression above lifted
+   there would have been a single move at the end and nothing before it.
+
+   Transform and opacity only, on one element plus three cards: no layout is read, nothing is
+   measured per frame, and the whole sequence is compositor work. */
+@media (max-width: 639px) {
+  .landing-restored:not([data-intro="settled"]) .hero-visual {
+    transition: transform 720ms var(--ease-settle), opacity 420ms ease;
+    will-change: transform, opacity;
+  }
+  /* Below the frame, small and dark: the machine has not arrived yet. */
+  .landing-restored[data-intro="brand"] .hero-visual {
+    opacity: 0;
+    transform: translate3d(0, 78px, 0) scale(.90);
+  }
+  /* Rising, as the wordmark starts to lift. */
+  .landing-restored[data-intro="reveal"] .hero-visual {
+    opacity: 1;
+    transform: translate3d(0, 40px, 0) scale(.945);
+  }
+  /* The screen lights while it is still climbing. */
+  .landing-restored[data-intro="wake"] .hero-visual {
+    opacity: 1;
+    transform: translate3d(0, 20px, 0) scale(.975);
+  }
+  /* Almost home, and now holding still while the cards arrive onto it. */
+  .landing-restored:is([data-intro="listen"], [data-intro="analyze"]) .hero-visual {
+    opacity: 1;
+    transform: translate3d(0, 7px, 0) scale(.995);
+  }
+  /* `dock` and `settled` inherit the resting transform, so the last beat is the composition
+     closing the final few pixels rather than a cut. The Hero's own geometry is untouched. */
+  .landing-restored .hero-panel-content { will-change: transform, opacity; }
 }
 .landing-restored .laptop-fallback .hud-arc { animation: none; stroke-dasharray: var(--arc-length); stroke-dashoffset: var(--arc-offset); }
 

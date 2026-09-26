@@ -352,9 +352,25 @@ export function InteractiveHero3D({ className = "", phase = "settled" }: { class
               They are also drawn a little smaller than the desktop cards. On a stage this size
               the machine has to stay the subject; a card that competes with it for width stops
               being an annotation. */}
-          <Floating quad={fallbackQuad} stage={676} width={portrait ? 222 : 292} u={.5} v={portrait ? 1.24 : -.3} align="centre" depth={0} emerged={heard} delay={0}><WaveformPill /></Floating>
-          <Floating quad={fallbackQuad} stage={676} width={portrait ? 196 : 228} u={portrait ? -.05 : -.8} v={portrait ? .68 : -.46} depth={0} emerged={assessed} delay={0}><TranscriptPanel /></Floating>
-          <Floating quad={fallbackQuad} stage={676} width={portrait ? 140 : 188} u={portrait ? .9 : 1.8} v={portrait ? .14 : -.52} align="end" depth={0} emerged={assessed} delay={stagger ? 420 : 0}><RadialPanel /></Floating>
+          {/* Entrance, portrait only. Each card arrives from the side it lives on - transcript
+              from the left, competency from the right, the live channel up from under the hinge
+              a beat later - instead of converging from the middle of the display, which on a
+              stage this size is a move of a few pixels and reads as no move at all.
+
+              The arrival order is also portrait's own: both side cards at `listen`, staggered,
+              and the channel at `analyze`. Desktop keeps the order it had. */}
+          <Floating quad={fallbackQuad} stage={676} width={portrait ? 222 : 292} u={.5} v={portrait ? 1.24 : -.3} align="centre" depth={0}
+            emerged={portrait ? assessed : heard}
+            delay={portrait ? 120 : 0}
+            from={portrait ? { x: 0, y: 86, z: -40 } : undefined}><WaveformPill /></Floating>
+          <Floating quad={fallbackQuad} stage={676} width={portrait ? 196 : 228} u={portrait ? -.05 : -.8} v={portrait ? .68 : -.46} depth={0}
+            emerged={portrait ? heard : assessed}
+            delay={0}
+            from={portrait ? { x: -132, y: 18, z: -30 } : undefined}><TranscriptPanel /></Floating>
+          <Floating quad={fallbackQuad} stage={676} width={portrait ? 140 : 188} u={portrait ? .9 : 1.8} v={portrait ? .14 : -.52} align="end" depth={0}
+            emerged={portrait ? heard : assessed}
+            delay={portrait ? 190 : (stagger ? 420 : 0)}
+            from={portrait ? { x: 132, y: 10, z: -30 } : undefined}><RadialPanel /></Floating>
         </div>
       </div>}
       {enabled && <canvas
@@ -451,6 +467,7 @@ function Floating({
   depth,
   emerged,
   delay,
+  from,
   children,
 }: {
   quad: ScreenQuad
@@ -468,6 +485,16 @@ function Floating({
   emerged: boolean
   /** Where this card falls in the arrival stagger, in milliseconds. */
   delay: number
+  /**
+   * An explicit entrance origin, in stage pixels, instead of the computed one.
+   *
+   * The default origin is "pulled back toward the middle of the display", which reads correctly
+   * on a wide stage where the cards sit outside the machine and converge onto it. In portrait
+   * they sit *on* the machine, so converging from its centre is a move of a few pixels - which
+   * is exactly why the opening looked like a still image on a phone. Portrait passes a direction
+   * instead: in from the side it belongs to, or up from under the hinge.
+   */
+  from?: { x: number; y: number; z?: number }
   children: React.ReactNode
 }) {
   const [x, y] = atUV(quad, u, v)
@@ -513,6 +540,9 @@ function Floating({
   const [cx, cy] = atUV(quad, 0.5, 0.5)
   const pull = (delta: number) =>
     `${(Math.max(-CARD_ORIGIN_MAX, Math.min(CARD_ORIGIN_MAX, delta * CARD_ORIGIN_PULL)) / scale).toFixed(1)}px`
+  // An explicit origin is still divided by `scale` for the same reason the computed one is: the
+  // offset is applied inside a wrapper the scale has already been spent on.
+  const offset = (value: number) => `${(value / scale).toFixed(1)}px`
 
   return (
     <div
@@ -535,9 +565,9 @@ function Floating({
         data-emerged={emerged ? "true" : undefined}
         style={{
           transformStyle: "preserve-3d",
-          "--from-x": pull(cx - px - drawn / 2),
-          "--from-y": pull(cy - y),
-          "--from-z": `${(-Math.max(70, depth * 0.8)).toFixed(0)}px`,
+          "--from-x": from ? offset(from.x) : pull(cx - px - drawn / 2),
+          "--from-y": from ? offset(from.y) : pull(cy - y),
+          "--from-z": `${(-Math.max(70, from ? -(from.z ?? 0) : depth * 0.8)).toFixed(0)}px`,
           "--emerge-delay": `${delay}ms`,
         } as React.CSSProperties}
       >
