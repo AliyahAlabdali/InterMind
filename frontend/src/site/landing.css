@@ -38,25 +38,24 @@
 .landing-restored .hero-stage[data-paused] *,
 .landing-restored .laptop-fallback * { animation-play-state: paused !important; }
 
-/* ...except while a phone is actually playing its opening.
+/* ...except while a phone is actually playing its Hero reveal.
    The rule above exists because the flat composition is normally a *still* - on desktop it is
    the placeholder shown until WebGL is ready, and on a phone it is the resting Hero, neither of
    which should have loops running in them. But during the portrait opening the composition is
    the thing being watched, and a listening interface with a frozen waveform is what made the
    entrance read as a screenshot of the product rather than the product.
 
-   So it runs only for the span of the opening, and only in portrait. Nothing new is authored
-   here: this un-pauses the loops the composition already has. At `settled` the selector stops
-   matching and the rule above takes over again unchanged, so the resting Hero is exactly what
-   it was - which is also why nothing is left running in the background afterwards.
+   So it runs only for the span of the reveal, and only in portrait. Nothing new is authored
+   here: this un-pauses the loops the composition already has. Once the reveal reaches `settled`
+   the selector stops matching and the rule above takes over again unchanged, so the resting Hero
+   is exactly what it was - which is also why nothing is left running in the background.
 
-   Deliberately placed *before* the `data-stage` rules further down: those pause everything
-   through `reveal` and hold the competency arc until `listen`, and they still win on source
-   order. The result is that internal motion starts when the machine has arrived, not while it
-   is still climbing into frame. Reduced motion is unaffected - that block clears
-   `animation-name` outright, so play-state has nothing left to act on. */
+   Keyed on `data-reveal` rather than `data-intro` because the machine is no longer in the
+   splash: there is nothing to bring to life until the Hero's own entrance starts. Reduced
+   motion never sets the attribute at all, and that block clears `animation-name` outright
+   anyway, so play-state has nothing left to act on. */
 @media (max-width: 639px) {
-  .landing-restored:not([data-intro="settled"]) .laptop-fallback * { animation-play-state: running !important; }
+  .landing-restored[data-reveal]:not([data-reveal="settled"]) .laptop-fallback * { animation-play-state: running !important; }
 }
 @media (prefers-reduced-motion: reduce) {
   .landing-restored *, .landing-restored *::before, .landing-restored *::after { animation: none !important; transition: none !important; }
@@ -185,56 +184,52 @@
 @media (max-width: 1023px) {
   .landing-restored .hero-copy > * { opacity: 1 !important; transform: none !important; }
 }
-/* The tablet range keeps both flattened, as before. Portrait must not flatten the composition:
-   the splash is an opaque panel at z-index 45, so dropping the machine to `auto` puts it behind
-   that panel for the whole opening - it would rise on cue and be invisible while doing it. Only
-   the copy is flattened on a phone, which is what keeps the wordmark readable over it. */
-@media (min-width: 640px) and (max-width: 1023px) {
+/* Both stay flattened on every small viewport. The splash is an opaque panel at z-index 45, so
+   leaving the composition at 46 lifts it *over* the branding - which is exactly what put a
+   laptop in the middle of a phone's splash screen, mostly below the fold, only for it to arrive
+   again when the Hero took over. On a phone the machine belongs to the Hero and nowhere else,
+   so during the opening it sits behind the panel and is simply not seen. */
+@media (max-width: 1023px) {
   .landing-restored :is(.hero-visual, .hero-copy) { z-index: auto; }
 }
+
+/* --- The portrait Hero reveal ---------------------------------------------------------------
+   The product revealing itself, in the place it lives, as soon as the branding hands over. This
+   is keyed on `data-reveal` - the Hero's own state machine (`useHeroReveal`) - and never on the
+   splash's phases, which is the whole point: the two entrances no longer share a clock, so the
+   splash could be cut to a wordmark without taking the machine's entrance with it.
+
+   It is driven by the attribute rather than by scroll or an IntersectionObserver, so it begins
+   on arrival. Nothing here waits for the visitor to do anything.
+
+   The `settled` stage deliberately has no rule of its own: it falls through to the Hero's
+   resting geometry, so the sequence ends pixel-identical to the composition with no entrance at
+   all. Transform and opacity only - no layout is read and nothing is measured per frame. */
 @media (max-width: 639px) {
-  .landing-restored .hero-copy { z-index: auto; }
-}
-
-/* --- The portrait opening ------------------------------------------------------------------
-   A phone's entrance, in the axis a phone has. The machine is not turned - there is no model to
-   turn - so the choreography is vertical: it rises into the frame from below the fold line,
-   settling as the wordmark clears, and the cards fly in afterwards from the edges they occupy.
-
-   Every beat here changes a transform. The previous portrait path held one transform across
-   `brand` through `analyze` and moved only at `dock`, so even with the suppression above lifted
-   there would have been a single move at the end and nothing before it.
-
-   Transform and opacity only, on one element plus three cards: no layout is read, nothing is
-   measured per frame, and the whole sequence is compositor work. */
-@media (max-width: 639px) {
-  .landing-restored:not([data-intro="settled"]) .hero-visual {
-    transition: transform 720ms var(--ease-settle), opacity 420ms ease;
+  .landing-restored[data-reveal] .hero-visual {
+    transition: transform 760ms var(--ease-settle), opacity 460ms ease;
     will-change: transform, opacity;
   }
-  /* Below the frame, small and dark: the machine has not arrived yet. */
-  .landing-restored[data-intro="brand"] .hero-visual {
+  /* Below the frame: the machine has not arrived yet. */
+  .landing-restored[data-reveal="hidden"] .hero-visual {
     opacity: 0;
-    transform: translate3d(0, 78px, 0) scale(.90);
+    transform: translate3d(0, 104px, 0) scale(.93);
   }
-  /* Rising, as the wordmark starts to lift. */
-  .landing-restored[data-intro="reveal"] .hero-visual {
+  /* Rising, and lighting on the way up. This is the movement the visitor has to see, so it is
+     the longest single step in the sequence. */
+  .landing-restored[data-reveal="machine"] .hero-visual {
     opacity: 1;
-    transform: translate3d(0, 40px, 0) scale(.945);
+    transform: translate3d(0, 30px, 0) scale(.984);
   }
-  /* The screen lights while it is still climbing. */
-  .landing-restored[data-intro="wake"] .hero-visual {
+  /* Substantially in place, holding still while the cards fly onto it. */
+  .landing-restored:is([data-reveal="panels"], [data-reveal="channel"]) .hero-visual {
     opacity: 1;
-    transform: translate3d(0, 20px, 0) scale(.975);
+    transform: translate3d(0, 8px, 0) scale(.997);
   }
-  /* Almost home, and now holding still while the cards arrive onto it. */
-  .landing-restored:is([data-intro="listen"], [data-intro="analyze"]) .hero-visual {
-    opacity: 1;
-    transform: translate3d(0, 7px, 0) scale(.995);
-  }
-  /* `dock` and `settled` inherit the resting transform, so the last beat is the composition
-     closing the final few pixels rather than a cut. The Hero's own geometry is untouched. */
-  .landing-restored .hero-panel-content { will-change: transform, opacity; }
+  .landing-restored[data-reveal] .hero-panel-content { will-change: transform, opacity; }
+  /* The reveal is finite. Once it is over, nothing is left promoted to its own layer. */
+  .landing-restored[data-reveal="settled"] .hero-visual,
+  .landing-restored[data-reveal="settled"] .hero-panel-content { will-change: auto; }
 }
 .landing-restored .laptop-fallback .hud-arc { animation: none; stroke-dasharray: var(--arc-length); stroke-dashoffset: var(--arc-offset); }
 

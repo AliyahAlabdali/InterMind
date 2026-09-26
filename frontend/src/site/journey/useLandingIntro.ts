@@ -28,20 +28,19 @@ const DESKTOP: ReadonlyArray<readonly [number, IntroPhase]> = [
 ]
 
 /**
- * Phones and small windows, which get the flat composition rather than the 3D machine.
+ * Phones: branding only, and briefly.
  *
- * This used to be `[[1500, "dock"], [2100, "settled"]]` - two beats, on the reasoning that with
- * no machine turning there was no choreography to pace. That was wrong in practice: it left a
- * phone staring at an opaque panel for a second and a half with only a wordmark on it, which
- * reads as a loading screen rather than as an opening.
+ * This timeline once tried to stage the machine inside the opening, giving a phone the desktop's
+ * six beats at half length. On a real device that was the wrong idea rather than the wrong
+ * timing - the composition sat mostly below the fold while the wordmark held, then arrived a
+ * second time when the Hero took over, so the visitor watched the same thing happen twice.
  *
- * The flat composition plays the same beats the model does - the screen lighting, the answer
- * being heard, the analysis arriving - so there is something to watch here after all. The phases
- * are the desktop ones at roughly half the running time, because a phone visitor is closer to
- * the screen, has less of it, and is far more likely to be mid-task.
+ * The machine's entrance now belongs to the Hero (see `useHeroReveal`), which is where it
+ * actually lives. What is left here is what a splash should be: the name, the line, and then out
+ * of the way. `dock` starts the hand-off; the Hero reveal picks it up from there.
  */
 const MOBILE: ReadonlyArray<readonly [number, IntroPhase]> = [
-  [520, "reveal"], [1020, "wake"], [1480, "listen"], [1900, "analyze"], [2400, "dock"], [3020, "settled"],
+  [1180, "dock"], [1820, "settled"],
 ]
 
 /** How far the page must actually travel before a scroll counts as "get on with it". */

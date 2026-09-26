@@ -4,6 +4,7 @@ import { useMediaQuery } from "../hooks/useMediaQuery"
 import { useDesktopMotion } from "./journey/useDesktopMotion"
 import { loadLaptopAssets } from "./journey/laptopAssets"
 import { INTRO_STEP, type IntroPhase } from "./journey/useLandingIntro"
+import type { RevealStage } from "./journey/useHeroReveal"
 import type { LaptopSceneHandle, ScreenQuad } from "./laptopScene"
 
 /**
@@ -153,7 +154,7 @@ function atUV(quad: ScreenQuad, u: number, v: number): [number, number] {
   return [topX + (botX - topX) * v, topY + (botY - topY) * v]
 }
 
-export function InteractiveHero3D({ className = "", phase = "settled" }: { className?: string; phase?: IntroPhase }) {
+export function InteractiveHero3D({ className = "", phase = "settled", reveal = null }: { className?: string; phase?: IntroPhase; reveal?: RevealStage | null }) {
   const reducedMotion = usePrefersReducedMotion()
   const enabled = useDesktopMotion()
   // Matches the 639px breakpoint landing.css uses for the portrait hero, so the framing below
@@ -164,9 +165,16 @@ export function InteractiveHero3D({ className = "", phase = "settled" }: { class
   // The opening's beats, as the things on screen rather than as phase names. The screen lights
   // while the machine is still finishing its turn; the voice channel, then what was said, then
   // what it showed, arrive one after another, so the visitor reads a sequence and not a state.
-  const lit = step >= INTRO_STEP.wake
-  const heard = step >= INTRO_STEP.listen
-  const assessed = step >= INTRO_STEP.analyze
+  //
+  // Portrait reads them off the Hero's own reveal instead of the branding opening, because on a
+  // phone the machine is not in the opening at all - the splash is a wordmark and nothing else.
+  // Mapping the reveal's stages onto the same three booleans keeps every consumer below this
+  // line unchanged, so the two entrances share their staging vocabulary without sharing a clock.
+  // `reveal` is null on desktop and under reduced motion, which falls through to the phase.
+  const revealStep = reveal === null ? null : { hidden: 0, machine: 1, panels: 2, channel: 3, settled: 4 }[reveal]
+  const lit = revealStep === null ? step >= INTRO_STEP.wake : revealStep >= 1
+  const heard = revealStep === null ? step >= INTRO_STEP.listen : revealStep >= 2
+  const assessed = revealStep === null ? step >= INTRO_STEP.analyze : revealStep >= 3
   // Once the composition is on its way to the hero the stagger has done its job, so anything
   // still outstanding - after a skip, most of all - lands together rather than in slow motion.
   const stagger = step < INTRO_STEP.dock

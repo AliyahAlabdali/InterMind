@@ -55,13 +55,28 @@ describe("Finite landing opening", () => {
     expect(view.result.current.phase).toBe("settled")
   })
 
-  it("gives a phone the same beats as the desktop, at about half the running time", async () => {
+  it("gives a phone branding only, and briefly", async () => {
     const { useLandingIntro } = await setup(false, false), view = renderHook(useLandingIntro)
     const at = (ms: number, phase: string) => { act(() => vi.advanceTimersByTime(ms)); expect(view.result.current.phase).toBe(phase) }
-    // A phone used to get two beats - a wordmark and then the page - on the reasoning that with
-    // no 3D machine there was no choreography. The flat composition plays the same story, so it
-    // gets the same beats, shortened.
-    at(520, "reveal"); at(500, "wake"); at(460, "listen"); at(420, "analyze"); at(500, "dock"); at(620, "settled")
+    // The machine's entrance belongs to the Hero now (see useHeroReveal), so the splash is a
+    // wordmark and nothing else. Staging the composition in here put it mostly below a phone's
+    // fold and then played it again when the Hero took over.
+    at(1180, "dock"); at(640, "settled")
+  })
+
+  it("hands over at `dock`, which is what the Hero reveal waits for", async () => {
+    const { useLandingIntro, INTRO_STEP } = await setup(false, false), view = renderHook(useLandingIntro)
+    expect(view.result.current.step).toBeLessThan(INTRO_STEP.dock)
+    act(() => vi.advanceTimersByTime(1180))
+    expect(view.result.current.step).toBeGreaterThanOrEqual(INTRO_STEP.dock)
+  })
+
+  it("puts a skip past the hand-off, so the Hero still gets to reveal itself", async () => {
+    // `finish()` jumps to `settled`, which is past `dock`. That is what stops a skip from
+    // dropping the visitor onto a composition that has already finished arriving.
+    const { useLandingIntro, INTRO_STEP } = await setup(false, false), view = renderHook(useLandingIntro)
+    act(() => window.dispatchEvent(new Event("touchstart")))
+    expect(view.result.current.step).toBeGreaterThanOrEqual(INTRO_STEP.dock)
   })
 
   it("is not ended by a viewport resize", async () => {
