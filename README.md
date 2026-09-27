@@ -10,6 +10,8 @@
 
 Adaptive interviews. Evidence-based hiring insight.
 
+**[Live Demo → intermind-ai.vercel.app](https://intermind-ai.vercel.app)**
+
 <p>
   <img alt="Python 3.11+" src="https://img.shields.io/badge/Python-3.11%2B-6F7FA3?style=flat-square&labelColor=3B3355">
   <img alt="FastAPI 0.141" src="https://img.shields.io/badge/FastAPI-0.141-6F7FA3?style=flat-square&labelColor=3B3355">
@@ -24,126 +26,147 @@ Adaptive interviews. Evidence-based hiring insight.
 
 ## What InterMind is
 
-Most interview tooling generates a list of questions and then plays it back in order. InterMind does
-not have a list.
+InterMind turns a job description into an adaptive technical interview and an evidence-based
+report. The job description defines **coverage targets**: competencies, technologies and tasks to
+assess. Filtered occupational context from O\*NET helps inform the interview without adding extra
+requirements.
 
-It reads a job description into a structured role specification, grounds that role in occupational
-data from O\*NET, and derives **coverage targets**: the competencies, technologies and tasks worth
-assessing for it. The interview then runs as a stateful loop. Each time a question is needed,
-InterMind chooses the next target from what has already been established, phrases a question for it
-in the moment, evaluates the answer into structured evidence, and decides whether that settled the
-target or needs one more push.
+The targets exist before the conversation; question wording, target order and follow-up behavior
+adapt at runtime. After each answer, InterMind records structured evidence and decides whether to
+explore a gap or move to another target. Recruiters can trace the resulting assessments back to
+what the candidate said.
 
-How many questions a candidate answers is an outcome of the conversation, not a property of the
-plan, and every score in the report points back to something the candidate said.
+The application is deployed with a **Vercel frontend, Azure App Service backend and PostgreSQL
+persistence**.
+
+<details>
+<summary>Production landing page on mobile</summary>
+
+<p align="center">
+  <img src="docs/assets/intermind-landing-mobile.png" alt="The settled mobile InterMind Hero, with the complete laptop and transcript, live waveform and competency cards." width="360">
+</p>
+
+</details>
 
 ![Creating a new interview in the recruiter workspace. The stepper reads "Describe the role, Check what was read, Build the interview", and the page lists what InterMind read out of the job description: the role, its seniority, a short summary, required and preferred skill chips, and competencies.](docs/assets/intermind-new-interview.png)
 
 An interview starts from a job description and nothing else. Step two is the recruiter reading back
 what InterMind understood, before anything is built on top of it.
 
-## Why it is different
+## Features
 
-- **Questions are generated during the interview, not before it.** The plan supplies targets; the
-  phrasing happens at the moment of asking, with the interview's own history in context.
-- **Target selection is deterministic and testable.** Which target comes next is a pure function of
-  interview state and a category budget policy, not an LLM guess and not a static index.
-- **Follow-ups are re-derived from structured evidence.** The evaluator returns an evidence type and
-  a decision; the routing policy recomputes the call from that evidence rather than trusting the
-  model's one-shot classification, which was observed under-calling follow-ups while simultaneously
-  recording the gap.
-- **Evidence volunteered about other targets is not lost.** Demonstrate Java while answering a Python
-  question and the Java target resolves through a pure, LLM-free rule instead of being asked again.
-- **Scores are deterministic; only the prose is generated.** Aggregation and the recommendation are
-  pure functions of the recorded interview. The LLM writes the narrative and has no field through
-  which it can change a number.
-- **Multi-recruiter from the database up.** Recruiters register their own accounts, and ownership is
-  enforced on every query rather than assumed.
+- **Recruiter accounts and isolated workspaces.** Sign up, sign in and manage owned jobs,
+  interviews and reports through session-based access control.
+- **JD analysis and review.** Inspect the extracted role, seniority and requirements before
+  building an interview coverage plan.
+- **Candidate invitations and sessions.** Share a per-interview access link; candidates enter a
+  guided interview, answer questions and see their coverage progress.
+- **Runtime question generation.** Questions use the role, current target and conversation history.
+  A deterministic selection policy chooses targets from the current coverage state.
+- **Targeted follow-ups and cross-target evidence.** Routing rules use structured evaluations to
+  decide when to probe further. Model-extracted evidence about another target can resolve it under
+  deterministic rules, avoiding a redundant question.
+- **Optional speech input.** Azure transcription is available alongside typed answers; typing
+  remains available when speech is disabled or unavailable.
+- **Evidence-based reports.** Per-answer evaluations feed deterministic report aggregation, with
+  supporting evidence, requirement assessments and a generated narrative.
+- **Persistent application records.** PostgreSQL stores recruiter accounts, jobs, plans, candidate
+  and interview records, generated reports and activity entries. In-memory repositories support
+  credential-free local development; live interview graph state remains in memory.
 
 ## How the adaptive interview works
 
 ```mermaid
-%%{init: {"theme":"base","themeVariables":{"primaryColor":"#ECEFF6","primaryTextColor":"#000505","primaryBorderColor":"#3B3355","lineColor":"#6F7FA3","edgeLabelBackground":"#ECEFF6","tertiaryTextColor":"#000505","tertiaryColor":"#F6F8FB"}}}%%
-flowchart LR
-    JD["Job description"] --> PLAN["Role analysis and<br/>coverage targets<br/>from O#42;NET"]
-    PLAN --> SEL{"Select next<br/>target"}
-    SEL -->|"target found"| ASK["Ask"]
-    ASK --> EVAL["Evaluate evidence"]
-    EVAL -->|"gap recorded"| FU["Follow up"]
+%%{init: {"theme":"base","flowchart":{"rankSpacing":28,"nodeSpacing":36},"themeVariables":{"primaryColor":"#ECEFF6","primaryTextColor":"#000505","primaryBorderColor":"#3B3355","lineColor":"#6F7FA3","edgeLabelBackground":"#ECEFF6","tertiaryTextColor":"#000505","tertiaryColor":"#F6F8FB"}}}%%
+flowchart TD
+    JD(["Job description"]) --> ROLE["Understand the role"]
+    ROLE --> PLAN["Build coverage targets"]
+    PLAN --> ASK["Ask a question"]
+    ASK --> EVAL["Evaluate the answer"]
+    EVAL --> DECIDE{"What<br/>next?"}
+    DECIDE -->|"Explore a gap"| FU["Ask a targeted<br/>follow-up"]
     FU --> EVAL
-    EVAL -->|"target settled"| SEL
-    SEL -->|"nothing left"| REP["Report"]
+    DECIDE -->|"Interview complete"| REP(["Generate an<br/>evidence-based report"])
+    DECIDE -->|"Ready to move on"| NEXT["Choose the next target<br/>using evidence so far"]
+    NEXT --> ASK
 
     linkStyle default stroke:#6F7FA3,color:black;
     classDef accent fill:#3B3355,stroke:#3B3355,stroke-width:1px,color:#FEFCFD;
     classDef step fill:#ECEFF6,stroke:#3B3355,stroke-width:1px,color:#000505;
     classDef gate fill:#FEFCFD,stroke:#3B3355,stroke-width:1px,color:#000505;
-    class JD,REP accent;
-    class PLAN,ASK,EVAL,FU step;
-    class SEL gate;
+    class JD,REP,NEXT accent;
+    class ROLE,PLAN,ASK,EVAL,FU step;
+    class DECIDE gate;
 ```
 
 The loop is a LangGraph state machine compiled in `app/agents/interview_graph.py`, suspended on a
-human-in-the-loop `interrupt` at every question so it waits for a real answer rather than simulating
-one. Category budgets default to four competency questions, four technology questions and two task
-questions, and each target may be followed up once.
+human-in-the-loop `interrupt` at each question to wait for the candidate's answer. Selection applies
+coverage priorities and budget rules; each target allows at most one follow-up.
 
 ![The candidate's interview room, part way through a session. The header reads "Senior Backend Engineer" and "6 of 11 areas explored"; the question is labelled "Following up on your answer" and asks for a specific Kubernetes deployment example.](docs/assets/intermind-interview.png)
 
-The label above the question is the routing decision made visible: the candidate had just given a
-broad answer about Kubernetes, so the graph followed up on that same target instead of moving on.
-The counter tracks targets covered, not a fixed question list.
+The follow-up label makes the routing decision visible. The counter tracks coverage targets rather
+than a fixed sequence of questions.
 
 ## Evidence-based evaluation
 
-Each answer is evaluated into a score, an evidence type, strengths, weaknesses, supporting
-quotations and any evidence about other targets. Scoring then aggregates those records
-deterministically into competency assessments, an overall score and a recommendation. An LLM writes
-the narrative around them, with a template fallback if generation fails.
+The evaluation model produces each answer's score, evidence type, strengths, weaknesses, supporting
+evidence and evidence about other targets. Recorded evaluations are then **aggregated
+deterministically** into requirement assessments, an overall score and a recommendation. The report
+model writes the narrative around those results, with a template fallback on model-generation
+failure; its output cannot alter the calculated scores or recommendation.
 
 ![The Evidence section of an interview report, listing each requirement the interview reached with its category and evidence strength, above a legend distinguishing demonstrated, partly shown, claimed, explicitly lacked and nothing established.](docs/assets/intermind-report.png)
 
-Every row is a requirement the interview actually reached, and the legend is the distinction the
-scoring is built on: a candidate saying they lack something is not the same as the interview never
-establishing it, and neither is treated as a failed requirement.
+**Unassessed requirements are excluded from aggregation.** An explicit statement that the candidate
+lacks experience is different: it is recorded evidence and may receive a low score that affects
+the result. The report distinguishes demonstrated ability, partial evidence, claims, explicit lack
+and requirements for which nothing was established.
 
 ## Architecture
 
 ```mermaid
-%%{init: {"theme":"base","themeVariables":{"primaryColor":"#ECEFF6","primaryTextColor":"#000505","primaryBorderColor":"#3B3355","lineColor":"#6F7FA3","edgeLabelBackground":"#ECEFF6","tertiaryTextColor":"#000505","tertiaryColor":"#F6F8FB"}}}%%
-flowchart LR
-    WEB["React<br/>recruiter workspace<br/>candidate interview"] --> API["FastAPI<br/>sessions, jobs, plans,<br/>interviews, reports"]
-    API --> ENG["Interview engine<br/>JD analysis, planning,<br/>LangGraph runtime, scoring"]
-    ENG --> KB[("O#42;NET 31.0<br/>TF-IDF matching")]
-    API --> DB[("PostgreSQL<br/>Alembic schema")]
-    ENG -.-> OAI["OpenAI API"]
-    API -.->|"short-lived token"| AZ["Azure AI Speech"]
+%%{init: {"theme":"base","flowchart":{"rankSpacing":36,"nodeSpacing":36,"wrappingWidth":300},"themeVariables":{"primaryColor":"#ECEFF6","primaryTextColor":"#000505","primaryBorderColor":"#3B3355","lineColor":"#6F7FA3","edgeLabelBackground":"#ECEFF6","tertiaryTextColor":"#000505","tertiaryColor":"#F6F8FB"}}}%%
+flowchart TD
+    WEB["Frontend<br/>React / Vercel"] ==>|"/api"| API["Backend<br/>FastAPI / Azure App Service"]
+    API ==> CORE["InterMind Core<br/><br/>JD analysis & JD-defined coverage planning<br/>Adaptive interview / LangGraph<br/>Evaluation & report scoring"]
+    API -->|"Persistence"| DB[("PostgreSQL<br/>Alembic-managed schema")]
+    CORE -.->|"Model-backed steps"| OAI["OpenAI API"]
+    CORE -.->|"Filtered context lookup"| KB["O#42;NET 31.0 / TF-IDF<br/>No extra requirements"]
+    API -.->|"Returns short-lived Speech authorization"| WEB
+    WEB -->|"Audio directly"| AZ["Azure AI Speech<br/>Optional transcription"]
 
     linkStyle default stroke:#6F7FA3,color:black;
     classDef accent fill:#3B3355,stroke:#3B3355,stroke-width:1px,color:#FEFCFD;
     classDef step fill:#ECEFF6,stroke:#3B3355,stroke-width:1px,color:#000505;
     classDef store fill:#FEFCFD,stroke:#3B3355,stroke-width:1px,color:#000505;
     classDef ext fill:#EDF1F7,stroke:#6F7FA3,stroke-width:1px,color:#000505;
-    class API accent;
-    class WEB,ENG step;
-    class KB,DB store;
-    class OAI,AZ ext;
+    class CORE accent;
+    class WEB,API step;
+    class DB store;
+    class KB,OAI,AZ ext;
 ```
 
 Storage is chosen at startup: with `DATABASE_URL` set the SQL repositories are wired, and without it
 the in-memory implementations are used and the application logs a warning. Alembic owns the schema
-and the application never creates tables. Voice input is optional throughout and typing never
-depends on any speech configuration: the Azure key stays server-side, and the browser receives only
-a short-lived authorization token issued through the candidate access boundary.
+and the application never creates tables. Production routes `/api` through Vercel to the backend;
+the SPA fallback supports frontend routes. `GET /health` (`/api/health` through the frontend) reports
+liveness and the storage mode selected at startup. **It does not test live database connectivity.**
 
 **Access model.** Recruiters sign in to an opaque server-side session carried in an
-`HttpOnly; SameSite=Strict` cookie, with passwords stored only as `scrypt` hashes; every
-recruiter-scoped query takes its owner from the resolved session, never from the request.
-Candidates hold a per-interview opaque token that satisfies only their own interview. Jobs, plans,
-interviews and reports are owner-scoped, and another tenant's resource is reported exactly like an
-unknown one. A candidate may read the plan for the job they are interviewing for and receives only
-the role name and bare target list their screen needs. See
+`HttpOnly; SameSite=Strict` cookie, with passwords stored as `scrypt` hashes. Accounts are unique by
+normalized email address. Recruiter workspace access is isolated by ownership; a reduced public job
+endpoint is intentionally available without recruiter authentication. Candidates use an opaque
+per-interview token and receive only the plan fields needed for their interview. See
 [docs/recruiter-auth.md](docs/recruiter-auth.md).
+
+**Azure Speech.** Transcription is optional. Set backend `SPEECH_PROVIDER=azure` and frontend
+`VITE_SPEECH_PROVIDER=azure` together. Production uses managed identity / Entra authorization
+(`AZURE_SPEECH_AUTH=managed_identity`), with the Speech resource identifier and custom-domain host
+configured on the backend. The browser uses the custom-domain WebSocket endpoint and a short-lived
+authorization token obtained through the interview-scoped backend endpoint; audio goes directly to
+Azure Speech. Local key-based authorization is also supported with `AZURE_SPEECH_AUTH=key`,
+`AZURE_SPEECH_KEY` and `AZURE_SPEECH_REGION` set only on the backend. Typed input remains available.
 
 ## Tech stack
 
@@ -154,102 +177,101 @@ the role name and bare target list their screen needs. See
 | AI and orchestration | LangGraph 1.2, OpenAI SDK 3.6, versioned Markdown prompts, structured Pydantic outputs |
 | Knowledge | O\*NET 31.0 covering 1,016 occupations, scikit-learn 1.9 for TF-IDF and cosine similarity |
 | Persistence | PostgreSQL via SQLAlchemy 2.0 async ORM, asyncpg 0.31, Alembic 1.20 |
-| Speech | Azure AI Speech, Web Speech API for offline development |
+| Speech | Azure AI Speech; optional browser Web Speech API; typed input |
 | Quality | pytest 9.1, Vitest 5.0, Ruff 0.16, oxlint 1.82 |
 
-Backend versions are those resolved in this checkout and `pyproject.toml` declares minimum bounds;
-frontend versions are pinned in `frontend/package-lock.json`.
+Backend deployment versions are pinned in `requirements.txt`; `pyproject.toml` declares minimum
+bounds. Frontend resolved versions are recorded in `frontend/package-lock.json`.
 
 ## Getting started
 
-Python 3.11 or newer, and Node.js 22.12 or newer (the floor Vitest 5 requires). PostgreSQL is
-optional locally.
+Use **Python 3.11+** and a Node.js version matching **`^22.12.0 || ^24.0.0 || >=26.0.0`**, the
+range required by the locked Vitest version and compatible with the frontend toolchain. PostgreSQL
+is optional locally. The commands below use a POSIX shell; PowerShell equivalents are noted.
+
+Clone the repository, then install the backend from the **repository root**:
 
 ```bash
 git clone https://github.com/AliyahAlabdali/InterMind.git
 cd InterMind
 
 python -m venv .venv
-source .venv/bin/activate      # Windows: .venv\Scripts\activate
+source .venv/bin/activate      # PowerShell: .\.venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
-
-cd frontend && npm install && cd ..
 ```
 
 ```bash
-cp .env.example .env                        # Windows: copy .env.example .env
-cp frontend/.env.example frontend/.env      # Windows: copy frontend\.env.example frontend\.env
+cp .env.example .env          # PowerShell: Copy-Item .env.example .env
 ```
 
-The defaults run entirely offline: `LLM_PROVIDER=fake` uses a deterministic in-process client and
-`SPEECH_PROVIDER=browser` avoids any Azure dependency, so a fresh checkout starts with no
-credentials. For real models set `LLM_PROVIDER=openai` and `OPENAI_API_KEY`. `.env` is git-ignored,
-and nothing with a `VITE_` prefix may hold a secret, because that prefix compiles the value into the
-public JavaScript bundle.
+Install the frontend and copy its configuration from **`frontend/`**:
+
+```bash
+cd frontend
+npm ci
+cp .env.example .env          # PowerShell: Copy-Item .env.example .env
+```
+
+`LLM_PROVIDER=fake` enables **credential-free local development** with an in-process model
+substitute. The example Speech settings use `browser`; browser recognition support varies and may
+require network access. For typed-only development, set backend `SPEECH_PROVIDER=disabled` and
+frontend `VITE_SPEECH_PROVIDER=disabled`. This is not a guarantee that the whole application runs
+offline.
+
+For real model calls, set backend `LLM_PROVIDER=openai` and `OPENAI_API_KEY`. `.env` files are
+git-ignored. Never put a secret in a `VITE_` variable: those values enter the public browser bundle.
 
 **The O\*NET knowledge base ships with the repository.** `data/processed/onet/onet_kb.jsonl` is
-the one derived artifact that is tracked, because it is the only file the application reads and no
-deployment can rebuild it — see `data/README.md`. To regenerate it, place the O\*NET 31.0 text
+the tracked artifact consumed by the application; deployments use it without rebuilding it. See
+[data/README.md](data/README.md). To regenerate it, place the O\*NET 31.0 text
 database under `data/raw/onet/db_31_0_text/` (git-ignored) and run
 `notebooks/ONET_knowledge_base_pipeline.ipynb` end to end.
 
-To run against PostgreSQL, set `DATABASE_URL` and apply the schema with `alembic upgrade head`.
-Without it the application runs on in-memory repositories and warns at startup. Deployments set
-`REQUIRE_DATABASE=true` so that warning becomes a refusal to start instead; `GET /health` reports
-which storage is live.
+For PostgreSQL, set backend `DATABASE_URL`, then run `alembic upgrade head` from the **repository
+root**, with the Python environment active. Without a database URL, local development uses
+in-memory repositories and logs a warning. Set `REQUIRE_DATABASE=true` in deployments to refuse
+startup when the URL is missing; this does not replace a database connectivity check.
 
 Then two terminals. The API serves on `http://127.0.0.1:8000` with interactive documentation at
 `/docs`, and the web application on `http://localhost:5173`, proxying `/api` to the backend so the
 browser stays same-origin with its API.
 
-```bash
-uvicorn app.main:app --reload
-```
-
-```bash
-cd frontend && npm run dev
-```
+| Terminal | Working directory | Command |
+| :--- | :--- | :--- |
+| Backend, Python environment active | Repository root | `uvicorn app.main:app --reload` |
+| Frontend | `frontend/` | `npm run dev` |
 
 ## Verification
 
-| Suite | Command | Result |
-| :--- | :--- | :--- |
-| Backend | `pytest -q` | 544 passed, across 40 files (25 unit, 15 integration) |
-| Backend lint | `ruff check .` | all checks passed |
-| Frontend | `npm run test` | 158 passed, across 19 files |
-| Frontend types | `npm run typecheck` | clean |
-| Frontend lint | `npm run lint` | 0 errors, 1 pre-existing warning |
-| Frontend build | `npm run build` | succeeds |
+Run the checks from their indicated directories; test totals are intentionally not pinned here.
 
-Every test runs against the in-memory repositories and the deterministic fake LLM client, including
-the API integration tests, which covers the domain models, services, interview graph, scoring,
-access control and tenant isolation end to end through the real ASGI app. It does not exercise the
-SQL repositories, the Alembic migration, a live OpenAI model or a live Azure Speech resource; the
-speech token endpoint is tested against a mocked HTTP transport.
+| Check | Working directory | Command |
+| :--- | :--- | :--- |
+| Backend tests | Repository root | `pytest -q` |
+| Backend lint | Repository root | `ruff check .` |
+| Frontend tests | `frontend/` | `npm test` |
+| Frontend types | `frontend/` | `npm run typecheck` |
+| Frontend lint | `frontend/` | `npm run lint` |
+| Frontend build | `frontend/` | `npm run build` |
+
+Backend API tests use in-memory repositories and a fake LLM. Coverage includes the interview graph,
+scoring, access control and tenant isolation. Frontend tests cover UI flows, Speech integration
+behavior and legal-route scrolling. These suites do not establish live PostgreSQL, model-provider
+or Azure Speech availability; provider interactions are mocked.
 
 ## Current limitations
 
-- **Single backend process.** Recruiter sessions are held in memory, so two workers would sign
-  recruiters out at random. Accounts and data are in PostgreSQL and unaffected. Scaling out needs a
-  shared session store first.
-- **In-flight interviews do not survive a restart.** LangGraph checkpoints to an in-memory saver, so
-  a part-finished interview would have to be reissued. Completed interviews are unaffected: their
-  reports are stored, and are served from persistence rather than from the graph.
-- **The SQL persistence path has no automated test coverage.** It is verified by review and manual
-  use.
-- **No login rate limiting.** `scrypt` makes each attempt cost real CPU, which is a brake rather than
-  brute-force protection.
-- **No email verification, password reset, teams, roles or audit trail,** and one account per person.
-- **Occupation matching is a TF-IDF baseline.** Adequate for common software roles, weaker on
-  ambiguous ones.
-- **Not deployed.** The repository holds the deployment architecture and configuration, not running
-  infrastructure: there is no Dockerfile, no CI workflow and no provisioned environment. The intended
-  topology is the frontend on Vercel with the backend and database on Azure.
+InterMind currently focuses on the core autonomous interview workflow. A few areas could be strengthened further:
+
+- **Session recovery:** Active interview progress and recruiter sessions are kept in memory. If the backend restarts, users may need to sign in again and an active interview would need to be restarted.
+- **Report saving:** Generated reports are stored in PostgreSQL and remain available after restarts. Reports are currently created when interview results are first accessed, rather than immediately when the interview ends.
+- **Account features:** Recruiters have separate, protected workspaces. Features such as password recovery, email verification, shared team workspaces, and login rate limiting are not currently included.
+- **Database testing:** The automated test suite covers the application extensively, but PostgreSQL repositories and migrations are not yet tested against a live PostgreSQL instance.
 
 ## Documentation
 
-- [docs/deployment.md](docs/deployment.md) for the step-by-step deployment guide, written against the
-  architecture as built.
+- [docs/deployment.md](docs/deployment.md) for deployment setup background. The deployed topology is
+  summarized above; use the current configuration files and environment examples alongside it.
 - [docs/recruiter-auth.md](docs/recruiter-auth.md) for the authentication, session and CSRF model.
 
 ## Author
