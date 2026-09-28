@@ -79,7 +79,7 @@ export function CandidateLandingPage() {
   if (!interview.data) return null
 
   const isResuming = interview.data.history.length > 0
-  const role = job.data?.job_spec.role_title
+  const role = job.data?.role_title
 
   return (
     <motion.div

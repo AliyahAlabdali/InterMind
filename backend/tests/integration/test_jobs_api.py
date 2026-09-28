@@ -22,14 +22,20 @@ async def test_create_then_get_job(client):
 
     got = await client.get(f"/jobs/{body['id']}")
     assert got.status_code == 200
-    # The public read is a narrower shape than the recruiter's own: same job, but without the
-    # raw job-description text, which no candidate screen renders and which used to be readable
-    # by anyone holding a job id.
+    # The public read is a far narrower shape than the recruiter's own: the same job, named,
+    # and nothing else. Not the raw job-description text and not the analysed spec - neither is
+    # rendered by the candidate screen, and both used to be readable by anyone holding a job id.
     public = got.json()
     assert public["id"] == body["id"]
-    assert public["job_spec"] == body["job_spec"]
+    assert public["role_title"] == body["job_spec"]["role_title"]
     assert "job_description" not in public
     assert "recruiter_id" not in public
+    assert "job_spec" not in public
+
+    # The owner still gets everything, through the owner-scoped route.
+    detail = await client.get(f"/jobs/{body['id']}/detail")
+    assert detail.status_code == 200
+    assert detail.json() == body
 
 
 async def test_get_unknown_job_returns_404(client):

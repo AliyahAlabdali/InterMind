@@ -6,6 +6,11 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.core.limits import (
+    MAX_ANSWER_CHARS,
+    MAX_IDENTITY_CHARS,
+    MAX_JOB_DESCRIPTION_CHARS,
+)
 from app.domain.interview import InterviewState, InterviewStatus
 from app.domain.interview_plan import InterviewPlan
 from app.domain.job import JobSpec
@@ -14,7 +19,19 @@ from app.repositories.ports import StoredJob
 
 
 class AnalyzeJobRequest(BaseModel):
-    job_description: str = Field(min_length=1, description="Raw job description text.")
+    """A job description to analyse.
+
+    ``max_length`` is enforced by pydantic during request validation, so an oversized body is
+    rejected before the handler runs and therefore before the LLM call it would otherwise pay
+    for. See :data:`app.core.limits.MAX_JOB_DESCRIPTION_CHARS` for the bound and why it is set
+    where it is.
+    """
+
+    job_description: str = Field(
+        min_length=1,
+        max_length=MAX_JOB_DESCRIPTION_CHARS,
+        description="Raw job description text.",
+    )
 
 
 class JobResponse(BaseModel):
@@ -35,25 +52,34 @@ class JobResponse(BaseModel):
 
 
 class PublicJobResponse(BaseModel):
-    """A job as an unauthenticated candidate sees it.
+    """A job as an **unauthenticated** caller sees it: the role's name, and nothing else.
 
-    ``GET /jobs/{job_id}`` is deliberately public so a candidate's interview screen can name the
-    role they are interviewing for. It used to return the whole job, including
-    ``job_description`` - the recruiter's full raw job-description text, readable by anyone who
-    knew a job id, and not rendered anywhere in the product. With one recruiter that was
-    careless; with many it is one tenant's content on an open endpoint.
+    ``GET /jobs/{job_id}`` is public so a candidate's interview screen can name the role they
+    are about to interview for, before any interview - and therefore any token - exists. Being
+    public, its shape is the whole of its security: anyone who knows or guesses a job id reads
+    exactly this.
 
-    So the public shape carries only what the candidate screen actually reads: the role, from
-    ``job_spec``. The recruiter's own ``GET /jobs`` is unchanged and still returns everything.
+    It used to return the full analysed :class:`~app.domain.job.JobSpec`. The class docstring
+    said it carried "only the role", but the field was ``job_spec: JobSpec``, so in fact every
+    required and preferred skill, every competency, the seniority, the summary and every
+    responsibility the recruiter's JD contained were readable by anyone with a job id. That is
+    one tenant's hiring criteria on an open endpoint, and none of it was rendered by the
+    candidate screen, which reads the role title alone.
+
+    So the shape is now the role title itself rather than a nested model that might regrow
+    fields: there is no object here for a future field to be added to by accident. Recruiters
+    who need the whole job use ``GET /jobs/{job_id}/detail`` or ``GET /jobs``, both
+    owner-scoped - see ``app.api.routes.jobs``.
     """
 
     id: str
-    job_spec: JobSpec
-    created_at: datetime
+    role_title: str
 
     @classmethod
     def from_stored(cls, stored: StoredJob) -> PublicJobResponse:
-        return cls.model_validate(stored.model_dump())
+        # Read field by field, never by model_dump of the whole job: a spread would carry
+        # whatever StoredJob grows next into a public response.
+        return cls(id=stored.id, role_title=stored.job_spec.role_title)
 
 
 class CandidateCoverageTarget(BaseModel):
@@ -100,16 +126,22 @@ class StartInterviewRequest(BaseModel):
     candidate_name: str = Field(
         default="Candidate",
         min_length=1,
+        max_length=MAX_IDENTITY_CHARS,
         description="The invited candidate's name, set by the recruiter.",
     )
     candidate_email: str = Field(
         default="",
+        max_length=MAX_IDENTITY_CHARS,
         description="The invited candidate's email, set by the recruiter.",
     )
 
 
 class SubmitAnswerRequest(BaseModel):
-    answer: str = Field(min_length=1, description="The candidate's answer to the current question.")
+    answer: str = Field(
+        min_length=1,
+        max_length=MAX_ANSWER_CHARS,
+        description="The candidate's answer to the current question.",
+    )
 
     @field_validator("answer")
     @classmethod

@@ -3,7 +3,7 @@ import type { FormEvent } from "react"
 import { Link, useParams } from "react-router-dom"
 import { AnimatePresence, motion } from "motion/react"
 import { ArrowLeft, Check, Plus } from "lucide-react"
-import { getJob } from "../../api/jobs"
+import { getJobDetail } from "../../api/jobs"
 import { createInterviewPlan, getInterviewPlan } from "../../api/interviewPlans"
 import { listJobInterviews, startInterview } from "../../api/interviews"
 import { ApiError } from "../../api/client"
@@ -35,7 +35,7 @@ export function InterviewDetailPage() {
   useDocumentTitle("Role")
   const { jobId } = useParams<{ jobId: string }>()
 
-  const jobFetcher = useCallback(() => getJob(jobId!), [jobId])
+  const jobFetcher = useCallback(() => getJobDetail(jobId!), [jobId])
   const job = useAsyncData(jobFetcher, [jobId])
 
   const planFetcher = useCallback(() => getInterviewPlan(jobId!), [jobId])

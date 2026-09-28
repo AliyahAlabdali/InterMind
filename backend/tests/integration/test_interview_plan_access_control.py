@@ -254,16 +254,20 @@ async def test_the_reduced_job_endpoint_stays_public(tenants, anonymous):
     response = await anonymous.get(f"/jobs/{a.job_id}")
 
     assert response.status_code == 200
-    assert response.json()["job_spec"]["role_title"]
+    assert response.json()["role_title"]
 
 
-async def test_the_public_job_endpoint_withholds_the_job_description(tenants, anonymous):
+async def test_the_public_job_endpoint_withholds_everything_but_the_role_title(
+    tenants, anonymous
+):
     """The raw job-description text is the recruiter's own content and is not rendered anywhere
-    in the product. It must not come back on an endpoint that needs no credential."""
+    in the product. Neither is the analysed spec - the candidate screen reads the role title
+    alone. Neither may come back on an endpoint that needs no credential."""
     a, _ = tenants
 
     body = (await anonymous.get(f"/jobs/{a.job_id}")).json()
 
-    assert set(body) == {"id", "job_spec", "created_at"}
+    assert set(body) == {"id", "role_title"}
     assert "job_description" not in body
     assert "recruiter_id" not in body
+    assert "job_spec" not in body

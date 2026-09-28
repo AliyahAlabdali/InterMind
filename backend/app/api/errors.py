@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.core.exceptions import (
@@ -24,11 +25,52 @@ from app.core.exceptions import (
     RecruiterEmailTaken,
     SpeechServiceUnavailable,
 )
+from app.core.rate_limit import RateLimitExceeded
 
 logger = logging.getLogger(__name__)
 
 
 def register_exception_handlers(app: FastAPI) -> None:
+    @app.exception_handler(RequestValidationError)
+    async def _handle_request_validation_error(
+        _: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        """422 that never echoes the submitted value back.
+
+        FastAPI's default handler returns ``exc.errors()`` verbatim, and pydantic v2 puts the
+        rejected value in each error's ``input`` key. On ``/auth/recruiter/signup`` and
+        ``/auth/recruiter/login`` that meant a password which failed validation - too long, or
+        the wrong JSON type - came straight back in the response body, and from there into
+        browser devtools, proxy logs and error trackers. The same was true of every other field
+        on every other endpoint, so this is fixed once here at the root rather than per field:
+        a per-field opt-out would have to be remembered by whoever adds the next secret.
+
+        ``type``, ``loc`` and ``msg`` are kept, which is what makes a validation error useful
+        (which field, and what is wrong with it) and what the frontend already reads - see
+        ``parseErrorDetail`` in ``frontend/src/api/client.ts``. ``input`` and ``ctx`` are
+        dropped: ``input`` is the submitted value itself, and ``ctx`` carries validator
+        arguments that for some constraint types include it.
+
+        Nothing is logged here. A validation failure is routine, and the only thing that would
+        distinguish one log line from the next is the value that must not be recorded.
+        """
+        sanitized = [
+            {"type": error.get("type"), "loc": error.get("loc"), "msg": error.get("msg")}
+            for error in exc.errors()
+        ]
+        return JSONResponse(status_code=422, content={"detail": sanitized})
+
+    @app.exception_handler(RateLimitExceeded)
+    async def _handle_rate_limit_exceeded(_: Request, exc: RateLimitExceeded) -> JSONResponse:
+        # 429 with Retry-After, and one message for every budget: naming which limit was hit,
+        # or which identity it was counted against, would describe the deployment's shape and
+        # (on the auth endpoints) could distinguish a per-account bucket from a global one.
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too many requests. Please try again later."},
+            headers={"Retry-After": str(exc.retry_after)},
+        )
+
     @app.exception_handler(JobNotFound)
     async def _handle_job_not_found(_: Request, exc: JobNotFound) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detail": str(exc)})

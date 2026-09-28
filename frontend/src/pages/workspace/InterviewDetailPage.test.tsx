@@ -16,7 +16,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("../../api/jobs", () => ({
-  getJob: vi.fn(),
+  getJobDetail: vi.fn(),
 }))
 vi.mock("../../api/interviewPlans", () => ({
   getInterviewPlan: vi.fn(),
@@ -29,7 +29,7 @@ vi.mock("../../api/interviews", () => ({
 
 import { getInterviewPlan } from "../../api/interviewPlans"
 import { listJobInterviews } from "../../api/interviews"
-import { getJob } from "../../api/jobs"
+import { getJobDetail } from "../../api/jobs"
 import { InterviewDetailPage } from "./InterviewDetailPage"
 
 const JOB = {
@@ -94,7 +94,7 @@ function renderPage() {
 
 describe("InterviewDetailPage coverage cleanup", () => {
   beforeEach(() => {
-    vi.mocked(getJob).mockResolvedValue(JOB as never)
+    vi.mocked(getJobDetail).mockResolvedValue(JOB as never)
     vi.mocked(getInterviewPlan).mockResolvedValue(PLAN as never)
     vi.mocked(listJobInterviews).mockResolvedValue([] as never)
   })

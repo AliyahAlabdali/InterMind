@@ -19,8 +19,9 @@ list their screen needs - never the plan itself. See
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 
+from app.api.abuse import limit_plan_generation
 from app.api.auth import PlanAudience, current_recruiter_id, require_interview_plan_access
 from app.api.deps import (
     get_interview_plan_repository,
@@ -39,6 +40,7 @@ router = APIRouter(tags=["interview-plans"])
 @router.post("/jobs/{job_id}/interview-plan", response_model=InterviewPlan)
 async def create_interview_plan(
     job_id: str,
+    request: Request,
     response: Response,
     recruiter_id: str = Depends(current_recruiter_id),
     job_repo: JobRepository = Depends(get_job_repository),
@@ -67,6 +69,11 @@ async def create_interview_plan(
     else:
         response.status_code = status.HTTP_200_OK
         return existing_plan
+
+    # Charged only on the path that actually generates a plan: the idempotent early return
+    # above is a cheap repository read, and budgeting it would make a recruiter refreshing a
+    # built interview look like abuse.
+    limit_plan_generation(request, recruiter_id)
 
     plan = await planner.plan(job_id, stored_job.job_spec)
     response.status_code = status.HTTP_201_CREATED

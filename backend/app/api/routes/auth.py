@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Cookie, Depends, Response, status
+from fastapi import APIRouter, Cookie, Depends, Request, Response, status
 from pydantic import BaseModel, Field
 
+from app.api.abuse import limit_login, limit_signup
 from app.api.deps import get_recruiter_repository, get_recruiter_session_store
 from app.api.recruiter_session import RecruiterSessionStore
 from app.core.config import Settings, get_settings
@@ -133,6 +134,7 @@ def _looks_like_email(value: str) -> bool:
 )
 async def recruiter_signup(
     payload: RecruiterSignupRequest,
+    request: Request,
     response: Response,
     settings: Settings = Depends(get_settings),
     recruiters: RecruiterRepository = Depends(get_recruiter_repository),
@@ -146,6 +148,10 @@ async def recruiter_signup(
     The account is **not** marked verified, because nothing has verified it - there is no email
     delivery in this product. See docs/recruiter-auth.md.
     """
+    # Before the scrypt hash and before the write. Keyed by source address with a global
+    # ceiling (see app.api.abuse), because there is no account to key on yet.
+    limit_signup(request)
+
     email = normalize_email(payload.email)
     if not _looks_like_email(email):
         raise InvalidSignup("Please enter a valid email address.")
@@ -167,6 +173,7 @@ async def recruiter_signup(
 @router.post("/auth/recruiter/login", response_model=RecruiterSessionResponse)
 async def recruiter_login(
     payload: RecruiterLoginRequest,
+    request: Request,
     response: Response,
     settings: Settings = Depends(get_settings),
     recruiters: RecruiterRepository = Depends(get_recruiter_repository),
@@ -179,6 +186,12 @@ async def recruiter_login(
     verification runs when the email is unknown, so an unregistered address is not measurably
     faster to reject than a wrong password.
     """
+    # Charged before the lookup and keyed only by source address - never by the submitted
+    # email. A per-email budget would trip only for addresses that exist, turning the limiter
+    # into the account-existence oracle this endpoint's uniform response exists to prevent.
+    # Every attempt is counted, successful or not, so a wrong password is not free to retry.
+    limit_login(request)
+
     recruiter = await recruiters.get_by_email(payload.email)
 
     # Verified unconditionally. Returning early on an unknown email would skip the ~0.5s scrypt

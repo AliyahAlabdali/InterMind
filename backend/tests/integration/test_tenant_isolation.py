@@ -279,4 +279,5 @@ async def test_the_public_job_endpoint_exposes_no_recruiter_private_content(app,
     body = public.json()
     assert "job_description" not in body  # the recruiter's raw JD text
     assert "recruiter_id" not in body
-    assert set(body) == {"id", "job_spec", "created_at"}
+    assert "job_spec" not in body  # the analysed skills/competencies/responsibilities
+    assert set(body) == {"id", "role_title"}

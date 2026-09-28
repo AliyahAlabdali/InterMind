@@ -32,3 +32,14 @@ export interface Job {
   job_spec: JobSpec
   created_at: string
 }
+
+/**
+ * What `GET /jobs/{id}` returns to an unauthenticated caller: the role's name, and nothing
+ * else. Deliberately not a subset of `Job` - the backend returns a flat `role_title` rather
+ * than a nested `job_spec`, so that a public response has no object for a future field to be
+ * added to by accident. See `PublicJobResponse` in `backend/app/api/schemas.py`.
+ */
+export interface PublicJob {
+  id: string
+  role_title: string
+}

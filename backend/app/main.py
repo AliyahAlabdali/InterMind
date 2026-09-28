@@ -22,6 +22,7 @@ from app.api.routes import (
 from app.core.config import get_settings
 from app.core.exceptions import ConfigurationError
 from app.core.logging import configure_logging
+from app.core.rate_limit import RateLimiter
 from app.db.engine import create_engine, create_session_factory
 from app.observability.trace import TraceRecorder
 from app.repositories.in_memory import (
@@ -75,6 +76,12 @@ def create_app() -> FastAPI:
     )
 
     app.state.trace_recorder = TraceRecorder()
+    # Abuse/cost admission control (see app.core.rate_limit and app.api.abuse). One instance
+    # for the application, because its counters *are* the budget: a per-request limiter would
+    # start empty every time and enforce nothing. Process-local and therefore reset by a
+    # restart - which is acceptable only because this backend is already single-process by
+    # design (see the recruiter session store below, and docs/public-launch-security.md).
+    app.state.rate_limiter = RateLimiter()
     # Constructed eagerly but lazy inside: it imports azure-identity and contacts Azure only on
     # the first managed-identity token request, so deployments using a key or no speech at all
     # pay nothing for it. Created here rather than on first use so every request shares one

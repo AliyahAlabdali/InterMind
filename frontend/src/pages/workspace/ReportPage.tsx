@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom"
 import { motion } from "motion/react"
 import { ArrowLeft } from "lucide-react"
 import { getInterviewReport, listJobInterviews } from "../../api/interviews"
-import { getJob } from "../../api/jobs"
+import { getJobDetail } from "../../api/jobs"
 import { getInterviewPlan } from "../../api/interviewPlans"
 import { useAsyncData } from "../../hooks/useAsyncData"
 import { Spinner } from "../../components/ui/Spinner"
@@ -43,7 +43,7 @@ export function ReportPage() {
   const report = useAsyncData(reportFetcher, [interviewId])
 
   const jobId = report.data?.job_id
-  const jobFetcher = useCallback(() => getJob(jobId!), [jobId])
+  const jobFetcher = useCallback(() => getJobDetail(jobId!), [jobId])
   const job = useAsyncData(jobFetcher, [jobId], Boolean(jobId))
 
   const planFetcher = useCallback(() => getInterviewPlan(jobId!), [jobId])

@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 
+from app.api.abuse import limit_answer, limit_invite, limit_report
 from app.api.auth import current_recruiter_id, require_candidate_access
 from app.api.deps import (
     get_activity_repository,
@@ -34,6 +35,7 @@ from app.core.exceptions import (
     InterviewReportNotFound,
     InterviewStateUnavailable,
 )
+from app.core.rate_limit import RateLimitExceeded
 from app.domain.activity import ActivityEvent, ActivityType
 from app.domain.candidate import Candidate
 from app.domain.interview import InterviewState, InterviewStatus
@@ -189,6 +191,7 @@ async def _get_or_generate_report(
 )
 async def start_interview(
     payload: StartInterviewRequest,
+    request: Request,
     recruiter_id: str = Depends(current_recruiter_id),
     job_repo: JobRepository = Depends(get_job_repository),
     service: InterviewSessionService = Depends(get_interview_session_service),
@@ -207,6 +210,8 @@ async def start_interview(
     candidate data would land in their workspace.
     """
     await job_repo.get_for_recruiter(payload.job_id, recruiter_id)
+    # After ownership, so a caller cannot spend another recruiter's budget by guessing job ids.
+    limit_invite(request, recruiter_id)
     interview_id, state = await service.start(
         payload.job_id, payload.candidate_name, payload.candidate_email
     )
@@ -236,6 +241,7 @@ async def start_interview(
 async def submit_answer(
     interview_id: str,
     payload: SubmitAnswerRequest,
+    request: Request,
     service: InterviewSessionService = Depends(get_interview_session_service),
     session_repo: InterviewSessionRepository = Depends(get_interview_session_repository),
     candidate_repo: CandidateRepository = Depends(get_candidate_repository),
@@ -248,6 +254,13 @@ async def submit_answer(
     next question, ask a follow-up, or finish. Requires this interview's own access token (or
     a recruiter credential) - see ``app.api.auth``.
     """
+    # ``require_candidate_access`` has already proved the caller holds *this* interview's token
+    # (or is the owning recruiter), so the budget is keyed by interview id: one candidate's pace
+    # never constrains another's, and a stranger cannot spend a real candidate's allowance.
+    # Charged before ``submit_answer``, which is what runs evaluation and question generation.
+    # The answer itself is already size-bounded by SubmitAnswerRequest.
+    limit_answer(request, interview_id)
+
     state = await service.submit_answer(interview_id, payload.answer)
     candidate = await _get_candidate_for_session(session_repo, candidate_repo, interview_id)
     await _record_answer_activity(
@@ -285,6 +298,7 @@ async def get_interview(
 )
 async def get_interview_report(
     interview_id: str,
+    request: Request,
     recruiter_id: str = Depends(current_recruiter_id),
     session_repo: InterviewSessionRepository = Depends(get_interview_session_repository),
     session_service: InterviewSessionService = Depends(get_interview_session_service),
@@ -323,6 +337,10 @@ async def get_interview_report(
     if state.status != InterviewStatus.COMPLETED:
         raise InterviewNotCompleted(interview_id)
 
+    # Only the cache-miss path is budgeted. A stored report is returned above without ever
+    # reaching here, so re-reading a report a recruiter already generated is never limited.
+    limit_report(request, recruiter_id)
+
     return await _get_or_generate_report(
         interview_id=interview_id,
         session_service=session_service,
@@ -338,6 +356,7 @@ async def get_interview_report(
 )
 async def list_job_interviews(
     job_id: str,
+    request: Request,
     recruiter_id: str = Depends(current_recruiter_id),
     job_repo: JobRepository = Depends(get_job_repository),
     session_repo: InterviewSessionRepository = Depends(get_interview_session_repository),
@@ -398,15 +417,34 @@ async def list_job_interviews(
             overall_score = stored_report.overall_score
             recommendation = stored_report.recommendation
         elif status == InterviewStatus.COMPLETED:
-            report = await _get_or_generate_report(
-                interview_id=session.id,
-                session_service=session_service,
-                plan_repo=plan_repo,
-                report_repo=report_repo,
-                report_service=report_service,
-            )
-            overall_score = report.overall_score
-            recommendation = report.recommendation
+            # This is the other path that can generate a report, and therefore spend an LLM
+            # call - once per completed interview that has no stored report yet. It is budgeted
+            # against the same per-recruiter allowance as GET /interviews/{id}/report, because
+            # it is the same work.
+            #
+            # An exhausted budget degrades the row rather than failing the request, which is
+            # the treatment this endpoint already gives a session whose state is unavailable:
+            # the recruiter still sees who was invited and what their status is, with the score
+            # arriving on a later load. Returning 429 for the whole listing would let one job
+            # with many freshly completed interviews take down the candidate table.
+            try:
+                limit_report(request, recruiter_id)
+            except RateLimitExceeded:
+                logger.info(
+                    "report_generation_budget_exhausted interview_id=%s - listing without a "
+                    "score",
+                    session.id,
+                )
+            else:
+                report = await _get_or_generate_report(
+                    interview_id=session.id,
+                    session_service=session_service,
+                    plan_repo=plan_repo,
+                    report_repo=report_repo,
+                    report_service=report_service,
+                )
+                overall_score = report.overall_score
+                recommendation = report.recommendation
 
         summaries.append(
             CandidateSessionSummary(
