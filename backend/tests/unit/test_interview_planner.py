@@ -299,6 +299,18 @@ async def test_no_occupation_match_raises_when_kb_cannot_rank(
 # --- O*NET context for question generation (never a plan requirement) ----------------------
 
 
+def _task_relevance(planner, job_spec, occupation):
+    """Task relevance for ``occupation``, as ``plan()`` computes it before grounding.
+
+    ``_build_onet_context`` takes this as a parameter so a plan does not score the same tasks
+    twice - once for the grounding gate, once to choose which tasks to include.
+    """
+    return {
+        task: planner.knowledge_base.relevance_to_jobspec(job_spec, task)
+        for task in occupation.core_tasks
+    }
+
+
 async def test_reliable_match_makes_onet_context_available(planner, software_job_spec):
     """A confident match still contributes *context* for question phrasing - the JD-only
     rule for plan.competencies/technologies/tasks must not make O*NET pointless. The context
@@ -309,32 +321,47 @@ async def test_reliable_match_makes_onet_context_available(planner, software_job
     assert "Software Developers" in plan.onet_context
     assert "Git" in plan.onet_context  # occupation-specific, not JD-required - genuine signal
 
-    context = planner._build_onet_context(software_job_spec, _occupation(planner), True, True)
+    occupation = _occupation(planner)
+    context = planner._build_onet_context(
+        software_job_spec, occupation, True, True,
+        _task_relevance(planner, software_job_spec, occupation),
+    )
     assert context == plan.onet_context
 
 
 async def test_onet_context_never_repeats_an_existing_jobspec_item(planner, software_job_spec):
     """"Python" is already a JD requirement - it must not also show up as "new" O*NET context
     (that would look like O*NET independently corroborating a requirement it didn't source)."""
-    context = planner._build_onet_context(software_job_spec, _occupation(planner), True, True)
+    occupation = _occupation(planner)
+    context = planner._build_onet_context(
+        software_job_spec, occupation, True, True,
+        _task_relevance(planner, software_job_spec, occupation),
+    )
     assert "- Python" not in context
 
 
 async def test_weak_ambiguous_match_produces_no_onet_context(
     planner, software_job_spec, monkeypatch
 ):
-    """Regression test for the reported bug: a job description that only weakly/ambiguously
-    matches an O*NET occupation (here simulated with two near-tied low scores, mirroring the
-    real "Senior Backend Software Engineer" -> "Forest Fire Inspectors" 0.1346 vs "Validation
-    Engineers" 0.1309 case) must not surface that occupation's content as context, and - as
+    """Regression test for the reported bug: a job description whose top O*NET match is an
+    unrelated occupation (mirroring the real "Senior Backend Software Engineer" -> "Forest
+    Fire Inspectors" case) must not surface that occupation's content as context, and - as
     always now - the plan itself is JD-only regardless.
+
+    Grounding is decided by whether the occupation's *duties* resemble this job, not by how
+    close the runner-up scored. A near-tie is not evidence of a bad match: measured over 308
+    realistic JobSpec variants, the score ratio ranked wrong answers *above* right ones for
+    this failure class (a wrong "Cloud Architect" match averaged 1.0833 while a correct
+    "Network Engineer" match averaged 1.0474). So this fixes the top match to the occupation
+    that is genuinely unrelated to the job description, which is the condition that must
+    actually suppress context - see `_match_is_grounded`.
     """
     monkeypatch.setattr(
         planner.knowledge_base,
         "match_jobspec",
         lambda job_spec, top_k=5: [
-            OccupationMatch(onet_soc_code="15-1252.00", title="Software Developers", score=0.135),
-            OccupationMatch(onet_soc_code="35-2014.00", title="Cooks, Restaurant", score=0.131),
+            OccupationMatch(onet_soc_code="35-2014.00", title="Cooks, Restaurant", score=0.135),
+            OccupationMatch(onet_soc_code="15-1252.00", title="Software Developers", score=0.131),
         ],
     )
 
@@ -347,7 +374,7 @@ async def test_weak_ambiguous_match_produces_no_onet_context(
     assert all(c.source is not EvidenceSource.ONET for c in plan.competencies)
     assert all(t.source is not EvidenceSource.ONET for t in plan.technologies)
     # The match itself is still surfaced for transparency - just not used as a signal source.
-    assert plan.occupation_match.onet_soc_code == "15-1252.00"
+    assert plan.occupation_match.onet_soc_code == "35-2014.00"
 
 
 async def test_weak_match_with_no_alternates_only_needs_the_absolute_floor(
@@ -391,8 +418,10 @@ async def test_borderline_reliable_match_offers_no_technology_context(
     # No O*NET-only technology reaches the plan either way (JD-only by construction) - and the
     # match isn't confident enough (0.01 gap / 1.071 ratio - well under the 0.03/1.3 bar) for
     # "Git" to be offered even as context.
+    occupation = _occupation(planner)
     context = planner._build_onet_context(
-        software_job_spec, _occupation(planner), True, confident_for_tech_context=False
+        software_job_spec, occupation, True, False,
+        _task_relevance(planner, software_job_spec, occupation),
     )
     assert "Git" not in context
 

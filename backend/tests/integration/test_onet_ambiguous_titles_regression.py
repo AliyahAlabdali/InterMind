@@ -1,32 +1,39 @@
-"""Regression tests for lexically ambiguous technical job titles.
+"""Regression tests for O*NET grounding on lexically ambiguous job titles.
 
-The production failure these exist for: a Computer Vision Engineer JD matched **Orthoptists**
-(a clinical eyesight occupation) as a "confident" match. Root cause was not the title alone -
-the TF-IDF vectorizer is fit only on the O*NET corpus, so a query phrase the corpus never uses
-(``computer vision``) is silently dropped by ``transform()``, leaving the bare, very rare
-unigram ``vision`` (idf 6.13, present in 43 of 1016 occupations, almost all clinical or media)
-to carry ~79% of the winning score.
+The production failure these exist for: a Computer Vision Engineer job description was
+presented to a recruiter as *"O*NET's Orthoptists occupation profile, which it judged a
+confident match"*. Orthoptists is clinical eye care. It won because the query encoded one
+concept three times - ``computer vision`` + ``vision`` + ``computer`` - and almost no
+occupation record contains the adjacent phrase, so the rare unigram ``vision`` (present in 43
+of 1016 occupations, nearly all clinical) supplied 85% of the score on its own.
 
-These assert **category invariants**, not one exact occupation, because O*NET 31.0 genuinely
-has no dedicated occupation for most modern AI roles (``computer vision``, ``deep learning``,
-``neural network`` and ``artificial intelligence`` appear in *zero* occupation records). For
-those roles an honest abstention is a correct outcome, so the helpers below accept either "a
-plausibly technical occupation won" or "the matcher declined to claim a confident match" -
-never "an unrelated occupation was presented confidently".
+**These assert product behaviour, not ranking.** What reaches a recruiter is
+``onet_grounding_used`` - the flag that turns a candidate into the sentence claiming a
+confident match. Raw rank order is an internal retrieval detail that may legitimately shift,
+and O*NET 31.0 genuinely has no occupation for several modern roles, so for those an honest
+abstention is the correct answer. Requiring a particular winner would be requiring a fiction.
 
-Uses the real 1016-occupation KB for the same reason as
-``test_onet_matching_regression.py``: the cross-occupation competition that causes this class
-of bug cannot be reproduced on a small fixture.
+**Variants, not single samples.** Each role is asserted across a spread of realistic JobSpec
+shapes. The bug that shipped before was verified against exactly one sampled JobSpec whose
+confidence ratio happened to land 0.0014 below a threshold; across realistic variation the
+same role failed most of the time. Proportions over a variant set are the only assertion that
+catches that, so that is what these tests use.
+
+JobSpecs are built directly rather than analysed from JD text: production uses a real model
+whose output is richer than ``FakeLLMClient``'s fixed extraction vocabulary (which returns
+zero skills for several of these roles), and it is production's shape that matters here.
 """
 
 from __future__ import annotations
 
+import copy
+from dataclasses import dataclass
+
 import pytest
 
+from app.domain.job import Competency, JobSpec, Seniority, Skill
 from app.knowledge.onet_kb import DEFAULT_KB_PATH, OnetKnowledgeBase
-from app.llm.fake_client import FakeLLMClient
 from app.services.interview_planner import InterviewPlannerService
-from app.services.jd_analysis import JDAnalysisService
 
 pytestmark = pytest.mark.skipif(
     not DEFAULT_KB_PATH.exists(),
@@ -36,345 +43,392 @@ pytestmark = pytest.mark.skipif(
     ),
 )
 
-#: SOC major groups (the first two digits of an O*NET-SOC code) that a software/data/AI job
-#: description could defensibly map onto. 15 is "Computer and Mathematical", 17 is
-#: "Architecture and Engineering" (which is where O*NET files Robotics Engineers, Validation
-#: Engineers and Computer Hardware Engineers). Asserting on the *family* rather than on one
-#: occupation is deliberate - which specific occupation wins is a retrieval detail that may
-#: legitimately shift, whereas "a software JD matched a healthcare occupation" is always a bug.
-TECHNICAL_FAMILIES = {"15", "17"}
+#: SOC major groups (first two digits of an O*NET-SOC code) a role may defensibly ground to.
+#: Asserting on the family rather than one occupation keeps these tests honest about the fact
+#: that several occupations can be reasonable for the same job description.
+COMPUTER = "15"
+ENGINEERING = "17"
+BUSINESS = "13"
+MANAGEMENT = "11"
+SCIENCE = "19"
+HEALTHCARE = "29"
+HEALTHCARE_SUPPORT = "31"
 
-#: Families a technical job description must never land in. Healthcare practitioners (29) and
-#: healthcare support (31) are the ones this regression is really about; the manual-trade and
-#: production families are included because earlier investigation saw them surface as
-#: near-tied runners-up on weak matches (e.g. "Model Makers, Wood", "Forest Fire Inspectors").
-DISQUALIFYING_FAMILIES = {"29", "31", "45", "47", "49", "51", "53"}
-
-ORTHOPTISTS_SOC = "29-1299.02"
-
-
-def family(onet_soc_code: str) -> str:
-    """The SOC major group - the first two digits of an O*NET-SOC code."""
-    return onet_soc_code[:2]
+_COMPETENCIES = [
+    Competency(name="Problem-Solving", description="Strong analytical problem solving"),
+    Competency(name="Communication", description="Clear written and verbal communication"),
+]
 
 
-@pytest.fixture(scope="module")
-def real_kb() -> OnetKnowledgeBase:
-    return OnetKnowledgeBase()
+def job_spec(
+    title: str,
+    summary: str,
+    required: list[str],
+    responsibilities: list[str],
+    preferred: list[str] | None = None,
+    seniority: Seniority = Seniority.MID,
+) -> JobSpec:
+    """A production-shaped JobSpec: prose summary, required + preferred skills, duties."""
+    return JobSpec(
+        role_title=title,
+        seniority=seniority,
+        summary=summary,
+        skills=[Skill(name=n, required=True) for n in required]
+        + [Skill(name=n, required=False) for n in (preferred or [])],
+        competencies=list(_COMPETENCIES),
+        responsibilities=responsibilities,
+    )
 
 
-async def _analyze(jd_text: str):
-    return await JDAnalysisService(llm=FakeLLMClient()).analyze(jd_text)
+def variants(spec: JobSpec) -> list[JobSpec]:
+    """Eight deterministic perturbations of one JobSpec.
+
+    Models the variation a real extraction model produces for the same job description:
+    different summary phrasing, a shorter skill list, fewer captured duties, a different
+    stated seniority. Deterministic, so any failure is reproducible.
+    """
+    shorter = spec.skills[: max(4, len(spec.skills) - 3)]
+    trimmed = spec.responsibilities[: max(2, len(spec.responsibilities) - 1)]
+    first_sentence = (spec.summary or "").split(".")[0] + "."
+
+    shapes: list[dict] = [
+        {},
+        {"summary": first_sentence},
+        {"skills": shorter},
+        {"responsibilities": trimmed},
+        {"summary": first_sentence, "skills": shorter},
+        {"skills": shorter, "responsibilities": trimmed},
+        {"seniority": Seniority.SENIOR},
+        {"seniority": Seniority.UNKNOWN, "responsibilities": trimmed},
+    ]
+    built = []
+    for shape in shapes:
+        variant = copy.deepcopy(spec)
+        for field, value in shape.items():
+            setattr(variant, field, value)
+        built.append(variant)
+    return built
+
+
+@dataclass(frozen=True)
+class Role:
+    """One role under test, with the behaviour its job description must produce."""
+
+    spec: JobSpec
+    allowed_families: frozenset[str]
+    #: Minimum fraction of variants that must be grounded. ``0.0`` means abstention is
+    #: acceptable; a positive value is an over-abstention guard.
+    min_grounded: float
+
+
+def _role(spec: JobSpec, families: set[str], min_grounded: float) -> Role:
+    return Role(spec, frozenset(families), min_grounded)
 
 
 # --------------------------------------------------------------------------------------
-# Job descriptions. Deliberately realistic rather than minimal: the failure mode depends on
-# the full vocabulary of a JD competing across 1016 occupations, so a three-line stub would
-# not exercise it.
+# Adversarial: roles whose title shares a word with an unrelated occupational domain.
 # --------------------------------------------------------------------------------------
+COMPUTER_VISION = _role(
+    job_spec(
+        "Computer Vision Engineer",
+        "The Computer Vision Engineer will design and develop production-ready computer vision "
+        "systems, focusing on deep learning and image processing. This role involves building "
+        "and optimizing models, developing APIs, and collaborating with teams.",
+        ["Python", "Deep Learning", "Image Processing", "Video Processing", "PyTorch",
+         "TensorFlow", "OpenCV", "YOLO", "FastAPI", "Git", "Docker", "Relational Databases"],
+        ["Design, train, and evaluate deep learning models for image and video analysis.",
+         "Develop computer vision solutions for object detection and segmentation.",
+         "Build inference pipelines and REST APIs for serving computer vision models.",
+         "Deploy and monitor computer vision models in production environments."],
+        preferred=["ONNX", "Azure", "AWS"],
+    ),
+    {COMPUTER, ENGINEERING},
+    0.0,  # O*NET 31.0 has no computer-vision occupation; abstention is the honest answer
+)
 
-COMPUTER_VISION_JD = """Computer Vision Engineer
+CLOUD_ARCHITECT = _role(
+    job_spec(
+        "Cloud Architect",
+        "The Cloud Architect will design secure, scalable cloud infrastructure and migration "
+        "strategies across AWS and Azure, defining landing zones and reference architectures.",
+        ["AWS", "Azure", "Terraform", "Kubernetes", "Networking", "Cloud Security",
+         "Infrastructure as Code", "Linux", "CI/CD"],
+        ["Design cloud reference architectures and landing zones.",
+         "Lead cloud migration and modernization efforts.",
+         "Define cloud security, networking and cost standards."],
+        preferred=["Python", "Cost Optimization"],
+    ),
+    {COMPUTER, ENGINEERING},
+    0.0,
+)
 
-We are looking for a Computer Vision Engineer to design, develop, and deploy production-ready
-computer vision systems. The ideal candidate has strong experience in deep learning, image and
-video processing, and building reliable ML systems for real-world applications.
+# --------------------------------------------------------------------------------------
+# Positive technical controls: must keep grounding, or the fix has over-corrected.
+# --------------------------------------------------------------------------------------
+NETWORK_ENGINEER = _role(
+    job_spec(
+        "Network Engineer",
+        "The Network Engineer will design, implement and maintain enterprise network "
+        "infrastructure including routing, switching, firewalls and VPN connectivity.",
+        ["TCP/IP", "Routing", "Switching", "BGP", "OSPF", "Cisco", "Firewalls", "VPN",
+         "Network Monitoring", "DNS"],
+        ["Configure and maintain routers, switches, firewalls and VPN infrastructure.",
+         "Troubleshoot network performance, latency and connectivity issues.",
+         "Monitor network capacity and plan upgrades."],
+        preferred=["Python", "Automation"],
+    ),
+    {COMPUTER, ENGINEERING},
+    0.75,
+)
 
-Responsibilities:
-* Design, train, and evaluate deep learning models for image and video analysis.
-* Develop computer vision solutions for object detection, classification, segmentation, and
-  tracking.
-* Prepare datasets, perform data preprocessing and augmentation, and improve data quality.
-* Fine-tune and optimize models for accuracy, latency, and production performance.
-* Build inference pipelines and REST APIs for serving computer vision models.
-* Deploy and monitor computer vision models in production environments.
-* Write clean, maintainable, and well-tested Python code.
+CYBERSECURITY = _role(
+    job_spec(
+        "Cybersecurity Engineer",
+        "The Cybersecurity Engineer will defend systems and data through network and "
+        "application security, threat detection, incident response and vulnerability "
+        "assessment.",
+        ["Network Security", "Application Security", "Threat Detection", "Incident Response",
+         "Vulnerability Assessment", "Python", "Linux", "Cloud Security", "SIEM", "Encryption",
+         "Identity Management", "TCP/IP", "DNS", "Penetration Testing", "Docker"],
+        ["Monitor security events and respond to security incidents.",
+         "Perform vulnerability assessments and penetration testing.",
+         "Implement authentication, authorization and encryption controls."],
+        preferred=["DevSecOps"],
+    ),
+    {COMPUTER, BUSINESS, MANAGEMENT},
+    0.75,
+)
 
-Requirements:
-* Strong proficiency in Python.
-* Experience with PyTorch or TensorFlow.
-* Experience with OpenCV and image processing techniques.
-* Knowledge of CNN-based architectures and modern computer vision models.
-* Experience with object detection frameworks such as YOLO.
-* Experience building APIs using FastAPI or similar frameworks.
-* Familiarity with Git, Docker, and relational databases.
-"""
+DATA_ARCHITECT = _role(
+    job_spec(
+        "Data Architect",
+        "The Data Architect will design and govern relational and non-relational data "
+        "platforms, data models, ETL and ELT pipelines and distributed processing on cloud.",
+        ["Relational Databases", "Non-Relational Databases", "SQL", "Data Modeling", "ETL",
+         "ELT", "Distributed Data Processing", "Cloud Data Platforms", "Python",
+         "Data Governance", "Data Quality", "Metadata Management"],
+        ["Design relational and non-relational data models.",
+         "Build and govern ETL and ELT pipelines.",
+         "Define data governance, data quality and metadata standards."],
+        preferred=["Snowflake", "Spark"],
+    ),
+    {COMPUTER},
+    0.75,
+)
 
-MACHINE_LEARNING_JD = """Machine Learning Engineer
+MACHINE_LEARNING = _role(
+    job_spec(
+        "Machine Learning Engineer",
+        "The Machine Learning Engineer will build, train and deploy machine learning models "
+        "at scale, owning feature pipelines, model serving and production monitoring.",
+        ["Python", "Machine Learning", "Deep Learning", "PyTorch", "scikit-learn", "SQL",
+         "Feature Engineering", "Docker", "Kubernetes"],
+        ["Train, evaluate and tune machine learning models on large datasets.",
+         "Build feature pipelines and model serving infrastructure.",
+         "Monitor model performance and drift in production."],
+        preferred=["MLOps", "Airflow", "AWS"],
+    ),
+    {COMPUTER, ENGINEERING},
+    0.75,
+)
 
-We are looking for a Machine Learning Engineer to build, train and deploy machine learning
-models at scale in production systems.
+ROBOTICS = _role(
+    job_spec(
+        "Robotics Engineer",
+        "The Robotics Engineer will design and program robotic systems, integrating sensors, "
+        "actuators, control loops and motion planning for automated hardware.",
+        ["ROS", "C++", "Python", "Control Systems", "Sensors", "Motion Planning", "Kinematics"],
+        ["Design and program robotic control systems.",
+         "Integrate sensors and actuators into robotic platforms.",
+         "Test and calibrate robot motion and perception."],
+        preferred=["Computer Vision", "Embedded Systems"],
+    ),
+    {ENGINEERING, COMPUTER},
+    0.75,
+)
 
-Responsibilities:
-* Train, evaluate and tune machine learning models on large datasets.
-* Build data pipelines and model serving infrastructure.
-* Monitor model performance, drift and reliability in production.
-* Collaborate with data scientists and software engineers.
+# --------------------------------------------------------------------------------------
+# Clinical controls: the fix must not become a healthcare blocklist.
+# --------------------------------------------------------------------------------------
+ORTHOPTIST = _role(
+    job_spec(
+        "Orthoptist",
+        "The Orthoptist will diagnose and treat binocular vision and eye movement disorders, "
+        "working alongside ophthalmologists to deliver patient care.",
+        ["Visual Acuity Testing", "Binocular Vision Testing", "Strabismus", "Amblyopia",
+         "Ocular Motility", "Prism Measurement", "Vision Therapy", "Patient Assessment"],
+        ["Examine patients for strabismus, amblyopia and binocular vision disorders.",
+         "Measure visual acuity, refraction and ocular alignment.",
+         "Administer vision therapy and orthoptic exercises to patients.",
+         "Assist ophthalmologists during patient examinations."],
+        preferred=["Pediatric Eye Care"],
+    ),
+    {HEALTHCARE, HEALTHCARE_SUPPORT},
+    1.0,
+)
 
-Requirements:
-* Strong proficiency in Python.
-* Experience with machine learning and deep learning frameworks such as PyTorch.
-* Experience with scikit-learn and statistical modelling.
-* Experience with SQL, relational databases and large datasets.
-* Experience with feature engineering and model evaluation metrics.
-* Familiarity with Docker, Kubernetes and MLOps practices.
-* Familiarity with Git and collaborative software development.
-* Strong problem-solving and analytical skills.
-"""
+OPTOMETRIST = _role(
+    job_spec(
+        "Optometrist",
+        "The Optometrist will examine patients' eyes, diagnose vision conditions, prescribe "
+        "corrective lenses and manage ocular disease in a clinical practice.",
+        ["Eye Examination", "Refraction", "Contact Lenses", "Ocular Disease", "Visual Acuity",
+         "Prescribing", "Patient Care"],
+        ["Examine patients' eyes and diagnose vision conditions.",
+         "Prescribe and fit eyeglasses and contact lenses.",
+         "Detect and manage ocular disease and refer to specialists."],
+        preferred=["Glaucoma Management"],
+    ),
+    {HEALTHCARE},
+    1.0,
+)
 
-ORTHOPTIST_JD = """Orthoptist
+# --------------------------------------------------------------------------------------
+# Cross-family controls. These forbid any "technical roles may only match SOC 15/17" rule
+# from creeping back in: Clinical Data Manager is a healthcare-domain job that correctly
+# grounds to a *computer* occupation, and building Architect is a non-software "Architect".
+# --------------------------------------------------------------------------------------
+CLINICAL_DATA_MANAGER = _role(
+    job_spec(
+        "Clinical Data Manager",
+        "The Clinical Data Manager will oversee clinical trial data collection, validation and "
+        "cleaning, ensuring regulatory compliance and data integrity across studies.",
+        ["Clinical Trials", "Data Management", "CDISC", "Data Validation", "EDC Systems",
+         "SQL", "Regulatory Compliance", "Query Resolution"],
+        ["Design clinical trial databases and data collection forms.",
+         "Validate and clean clinical trial data.",
+         "Ensure compliance with regulatory and data integrity standards."],
+        preferred=["SAS", "Medical Coding"],
+    ),
+    {COMPUTER, SCIENCE, HEALTHCARE},
+    0.75,
+)
 
-We are seeking a certified Orthoptist to join our ophthalmology clinic and provide diagnostic
-and therapeutic care to patients with binocular vision and eye movement disorders.
+BUILDING_ARCHITECT = _role(
+    job_spec(
+        "Architect",
+        "The Architect will design residential and commercial buildings, produce drawings and "
+        "specifications, and coordinate with engineers and contractors through construction.",
+        ["Architectural Design", "AutoCAD", "Revit", "Building Codes", "Construction Documents",
+         "Site Planning", "Structural Coordination"],
+        ["Design building layouts and produce construction drawings.",
+         "Ensure designs comply with building codes and regulations.",
+         "Coordinate with structural engineers and contractors on site."],
+        preferred=["BIM", "Sustainable Design"],
+    ),
+    {ENGINEERING},
+    0.75,
+)
 
-Responsibilities:
-* Examine patients for strabismus, amblyopia and other binocular vision disorders.
-* Measure visual acuity, refraction, ocular alignment and ocular motility.
-* Administer vision therapy and orthoptic exercises to patients.
-* Assist ophthalmologists during patient examinations and surgical planning.
-* Maintain accurate patient records and clinical documentation.
+#: Data Scientist abstains under the grounding rule, and that is intended: its matched
+#: occupation's O*NET duties ("analyze data", "apply statistical techniques") are too generic
+#: to corroborate any particular data job, scoring 0.063-0.066 against the 0.10 floor.
+#: Recorded as an explicit expectation so nobody "fixes" it by lowering the threshold.
+DATA_SCIENTIST = _role(
+    job_spec(
+        "Data Scientist",
+        "The Data Scientist will analyze large datasets, build statistical and machine "
+        "learning models, and communicate insights that drive product decisions.",
+        ["Python", "Statistics", "Machine Learning", "SQL", "Data Analysis", "Visualization",
+         "Experimentation"],
+        ["Analyze large datasets to extract actionable insights.",
+         "Build and validate statistical and machine learning models.",
+         "Design experiments and communicate findings to stakeholders."],
+        preferred=["R", "PyTorch"],
+    ),
+    {COMPUTER, SCIENCE},
+    0.0,
+)
 
-Requirements:
-* Certification in orthoptics and clinical patient care experience.
-* Experience with visual acuity testing and prism measurement.
-* Knowledge of pediatric eye care and vision therapy protocols.
-* Strong communication skills with patients and families.
-"""
-
-AI_ENGINEER_JD = """AI Engineer
-
-We are looking for an AI Engineer to design and deploy artificial intelligence systems into
-production applications.
-
-Responsibilities:
-* Design, build and deploy AI and machine learning models into production.
-* Integrate AI capabilities into customer-facing product applications.
-* Build and maintain REST APIs for model serving and inference.
-* Work with large datasets to preprocess, analyze and extract insights.
-* Evaluate model quality using appropriate metrics and improve accuracy over time.
-* Monitor deployed models for performance, latency and drift.
-* Collaborate with software engineers and product teams.
-* Write clean, maintainable and well-tested Python code.
-
-Requirements:
-* Strong programming skills in Python.
-* Experience with machine learning and deep learning.
-* Experience with PyTorch or TensorFlow.
-* Experience with large language models and modern AI frameworks.
-* Experience building REST APIs, preferably with FastAPI.
-* Familiarity with SQL and relational databases.
-* Familiarity with Git, Docker and cloud platforms.
-* Strong problem-solving and analytical skills.
-"""
-
-CLOUD_ENGINEER_JD = """Cloud Engineer
-
-We are looking for a Cloud Engineer to design, build and operate cloud infrastructure across
-AWS and Azure.
-
-Responsibilities:
-* Provision and manage cloud infrastructure using infrastructure as code.
-* Automate application deployments and build CI/CD pipelines.
-* Monitor cloud reliability, performance and cost.
-* Improve system scalability, availability and security posture.
-
-Requirements:
-* Experience with AWS or Azure cloud platforms.
-* Experience with Terraform and infrastructure as code.
-* Experience with Kubernetes, Docker and container orchestration.
-* Strong Linux administration and networking fundamentals.
-* Experience with CI/CD pipelines and deployment automation.
-* Experience with monitoring, logging and observability tooling.
-* Proficiency in Python or another scripting language.
-* Familiarity with cloud security and identity management.
-"""
-
-NLP_ENGINEER_JD = """NLP Engineer
-
-We are looking for an NLP Engineer to build natural language processing systems and large
-language model applications.
-
-Responsibilities:
-* Train and fine-tune language models for text classification and information extraction.
-* Build text processing pipelines and model serving APIs.
-* Evaluate model quality on annotated datasets.
-* Deploy natural language processing models to production.
-
-Requirements:
-* Strong proficiency in Python.
-* Experience with transformers, PyTorch and modern NLP frameworks.
-* Experience with large language models and text classification.
-* Experience with tokenization, embeddings and text preprocessing.
-* Experience building REST APIs for model serving.
-* Familiarity with SQL and working with large text datasets.
-* Familiarity with Git, Docker and cloud platforms.
-* Strong problem-solving and analytical skills.
-"""
-
-SECURITY_ENGINEER_JD = """Security Engineer
-
-We are looking for a Security Engineer to protect our systems, applications and data from
-security threats.
-
-Responsibilities:
-* Perform security assessments, vulnerability scanning and penetration tests.
-* Monitor security events and respond to security incidents.
-* Harden infrastructure and application configurations.
-* Improve identity, access management and encryption practices.
-
-Requirements:
-* Experience with network security and application security.
-* Experience with SIEM tooling, logging and incident response.
-* Experience with vulnerability scanning and penetration testing.
-* Proficiency in Python for security automation and scripting.
-* Knowledge of cryptography and secure software development.
-* Experience with Linux, cloud platforms and container security.
-* Familiarity with identity and access management.
-* Strong problem-solving and analytical skills.
-"""
-
-NETWORK_ENGINEER_JD = """Network Engineer
-
-We are looking for a Network Engineer to design, implement and maintain enterprise network
-infrastructure.
-
-Responsibilities:
-* Configure and maintain routers, switches, firewalls and VPN infrastructure.
-* Troubleshoot network performance, latency and connectivity issues.
-* Monitor network capacity and plan upgrades.
-* Document network topology and maintain configuration standards.
-
-Requirements:
-* Strong knowledge of TCP/IP, routing and switching.
-* Experience with BGP, OSPF and enterprise firewalls.
-* Experience with Cisco networking equipment.
-* Familiarity with network monitoring tooling.
-"""
-
-DATA_ENGINEER_JD = """Data Engineer
-
-We are looking for a Data Engineer to build and maintain large scale data pipelines and our
-analytical data warehouse.
-
-Responsibilities:
-* Build batch and streaming data pipelines.
-* Model, maintain and optimize the analytical data warehouse.
-* Improve data quality, reliability and pipeline observability.
-* Support analysts and data scientists with well modelled datasets.
-
-Requirements:
-* Strong proficiency in SQL and Python.
-* Experience with Spark, Airflow and Kafka.
-* Experience with ETL design and data warehousing.
-* Familiarity with cloud data platforms.
-"""
-
-#: Every ambiguous technical role this regression covers, with the JD that exercises it.
-TECHNICAL_ROLES = {
-    "Computer Vision Engineer": COMPUTER_VISION_JD,
-    "Machine Learning Engineer": MACHINE_LEARNING_JD,
-    "AI Engineer": AI_ENGINEER_JD,
-    "Cloud Engineer": CLOUD_ENGINEER_JD,
-    "NLP Engineer": NLP_ENGINEER_JD,
-    "Security Engineer": SECURITY_ENGINEER_JD,
-    "Network Engineer": NETWORK_ENGINEER_JD,
-    "Data Engineer": DATA_ENGINEER_JD,
+ROLES: dict[str, Role] = {
+    "Computer Vision Engineer": COMPUTER_VISION,
+    "Cloud Architect": CLOUD_ARCHITECT,
+    "Network Engineer": NETWORK_ENGINEER,
+    "Cybersecurity Engineer": CYBERSECURITY,
+    "Data Architect": DATA_ARCHITECT,
+    "Machine Learning Engineer": MACHINE_LEARNING,
+    "Robotics Engineer": ROBOTICS,
+    "Orthoptist": ORTHOPTIST,
+    "Optometrist": OPTOMETRIST,
+    "Clinical Data Manager": CLINICAL_DATA_MANAGER,
+    "Architect (building)": BUILDING_ARCHITECT,
+    "Data Scientist": DATA_SCIENTIST,
 }
 
 
-@pytest.mark.parametrize("role", sorted(TECHNICAL_ROLES))
-async def test_technical_jd_never_grounds_on_a_disqualifying_occupation(real_kb, role):
-    """The product invariant: never *present* a disqualifying occupation as confident grounding.
+@pytest.fixture(scope="module")
+def planner() -> InterviewPlannerService:
+    """One KB load for the whole module: building it vectorizes 1016 occupations."""
+    return InterviewPlannerService(knowledge_base=OnetKnowledgeBase())
 
-    Asserted at the planner rather than at the raw ranking, because those are different
-    promises. Raw TF-IDF rank order is a retrieval detail; what reaches a recruiter is
-    ``onet_grounding_used``, which is what turns a candidate into the sentence "InterMind
-    judged this a confident match". O*NET 31.0 contains no occupation for most modern AI roles
-    (``computer vision``, ``deep learning``, ``neural network`` and ``artificial intelligence``
-    appear in zero records), so for some of these JDs abstaining *is* the correct answer, and
-    demanding a particular winner would be demanding a fiction.
 
-    So: either the top occupation is a defensible one, or the planner must decline to ground
-    on it. Presenting a clinical occupation for a software role confidently is the only
-    outcome this forbids.
+async def _ground(planner: InterviewPlannerService, spec: JobSpec) -> tuple[bool, str, str]:
+    """``(grounding_used, soc_code, title)`` for one JobSpec, through the real plan path."""
+    plan = await planner.plan("job-regression", spec)
+    match = plan.occupation_match
+    return plan.onet_grounding_used, match.onet_soc_code, match.title
+
+
+@pytest.mark.parametrize("role_name", sorted(ROLES))
+async def test_grounding_never_claims_an_out_of_domain_occupation(planner, role_name):
+    """The invariant the production failure violated.
+
+    Abstaining is always allowed. Claiming a *confident match* to an occupation outside the
+    role's defensible families never is - that is the sentence a recruiter reads.
     """
-    job_spec = await _analyze(TECHNICAL_ROLES[role])
-    plan = await InterviewPlannerService(knowledge_base=real_kb).plan("job-regression", job_spec)
-    top = plan.occupation_match
+    role = ROLES[role_name]
+    offenders = set()
+    for spec in variants(role.spec):
+        grounded, code, title = await _ground(planner, spec)
+        if grounded and code[:2] not in role.allowed_families:
+            offenders.add(f"{title} ({code})")
 
-    if family(top.onet_soc_code) in DISQUALIFYING_FAMILIES:
-        assert not plan.onet_grounding_used, (
-            f"{role} JD was grounded on {top.title!r} ({top.onet_soc_code}, SOC family "
-            f"{family(top.onet_soc_code)}) at score {top.score} and presented as a confident "
-            f"match - this is the Computer Vision production failure."
-        )
+    assert not offenders, (
+        f"{role_name} was grounded on out-of-domain occupation(s) {sorted(offenders)} and "
+        f"presented as a confident match; allowed SOC families are "
+        f"{sorted(role.allowed_families)}."
+    )
 
 
-@pytest.mark.parametrize("role", sorted(TECHNICAL_ROLES))
-async def test_technical_jd_grounding_is_only_offered_from_a_technical_family(real_kb, role):
-    """When grounding *is* offered for a technical role, it must come from a technical family.
+@pytest.mark.parametrize("role_name", sorted(ROLES))
+async def test_grounding_is_retained_where_the_match_is_genuine(planner, role_name):
+    """The over-abstention guard: suppressing false positives must not silence real ones."""
+    role = ROLES[role_name]
+    specs = variants(role.spec)
+    grounded = 0
+    for spec in specs:
+        used, _, _ = await _ground(planner, spec)
+        grounded += int(used)
 
-    The positive counterpart to the test above: abstaining is acceptable, grounding on
-    something unrelated is not.
+    fraction = grounded / len(specs)
+    assert fraction >= role.min_grounded, (
+        f"{role_name} grounded on only {grounded}/{len(specs)} variants ({fraction:.0%}), "
+        f"below the {role.min_grounded:.0%} floor - the confidence rule is over-abstaining "
+        "on a role whose match is genuine."
+    )
+
+
+async def test_computer_vision_never_grounds_on_clinical_eye_care(planner):
+    """The exact production failure, stated in its own terms.
+
+    Orthoptists may still appear in raw retrieval - that is a retrieval detail. What must never
+    happen again is presenting it to a recruiter as a confident match for a software role.
     """
-    job_spec = await _analyze(TECHNICAL_ROLES[role])
-    plan = await InterviewPlannerService(knowledge_base=real_kb).plan("job-regression", job_spec)
-    top = plan.occupation_match
-
-    if plan.onet_grounding_used:
-        assert family(top.onet_soc_code) in TECHNICAL_FAMILIES, (
-            f"{role} JD was grounded on {top.title!r} ({top.onet_soc_code}), SOC family "
-            f"{family(top.onet_soc_code)}, which is outside {sorted(TECHNICAL_FAMILIES)}."
+    for spec in variants(COMPUTER_VISION.spec):
+        grounded, code, title = await _ground(planner, spec)
+        assert not (grounded and code[:2] in {HEALTHCARE, HEALTHCARE_SUPPORT}), (
+            f"Computer Vision Engineer was grounded on {title} ({code}) and shown as a "
+            "confident match - the production failure has returned."
         )
 
 
-async def test_computer_vision_does_not_match_clinical_vision_occupations(real_kb):
-    """The exact production failure, asserted directly.
-
-    Orthoptists and the low-vision rehabilitation occupations must not be the top match for a
-    computer vision engineering role. Checked by SOC code rather than by title string so a
-    title change in a future O*NET release cannot silently disarm this.
-    """
-    job_spec = await _analyze(COMPUTER_VISION_JD)
-    matches = real_kb.match_jobspec(job_spec, top_k=10)
-    top = matches[0]
-
-    plan = await InterviewPlannerService(knowledge_base=real_kb).plan("job-cv", job_spec)
-    if plan.occupation_match.onet_soc_code == ORTHOPTISTS_SOC or family(
-        plan.occupation_match.onet_soc_code
-    ) == "29":
-        assert not plan.onet_grounding_used, (
-            f"Computer Vision Engineer JD is still grounded on "
-            f"{plan.occupation_match.title!r} at {plan.occupation_match.score} and shown as a "
-            "confident match - the production bug is not fixed."
-        )
-
-    # Whatever wins the raw ranking, a clinical eyesight occupation must not dominate it: the
-    # margin that made this look "confident" has to be gone.
-    if top.onet_soc_code == ORTHOPTISTS_SOC:
-        runner_up = matches[1]
-        assert top.score - runner_up.score < 0.03, (
-            f"Orthoptists still wins the Computer Vision ranking by a wide margin "
-            f"({top.score} vs {runner_up.score}) - the homonym is still dominating."
-        )
-
-
-async def test_genuine_clinical_vision_jd_still_matches_orthoptists(real_kb):
+async def test_clinical_vision_role_still_grounds_decisively(planner):
     """The control that stops the fix from degenerating into a healthcare blocklist.
 
-    A real orthoptics job description must still select Orthoptists, and must still do so
-    decisively - if suppressing the false positive also flattens this, the fix is wrong.
+    A genuine orthoptics job description must still reach Orthoptists on every variant. If
+    suppressing the false positive also silences this, the fix is wrong.
     """
-    job_spec = await _analyze(ORTHOPTIST_JD)
-    matches = real_kb.match_jobspec(job_spec, top_k=5)
-    assert matches, "matcher returned no candidates for the clinical JD"
-
-    top = matches[0]
-    assert top.onet_soc_code == ORTHOPTISTS_SOC, (
-        f"Genuine Orthoptist JD matched {top.title!r} ({top.onet_soc_code}) instead of "
-        "Orthoptists - legitimate clinical matching regressed."
-    )
-    assert family(top.onet_soc_code) == "29"
-
-    # It should win clearly, not by a hair: a real match has margin a false one does not.
-    runner_up = matches[1]
-    assert top.score > runner_up.score, "clinical match lost its margin entirely"
+    for spec in variants(ORTHOPTIST.spec):
+        grounded, code, title = await _ground(planner, spec)
+        assert grounded, "genuine Orthoptist JD lost its O*NET grounding"
+        assert code[:2] == HEALTHCARE, f"clinical JD grounded on {title} ({code})"

@@ -14,6 +14,7 @@ from pathlib import Path
 from pydantic import ValidationError
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.preprocessing import normalize
 
 from app.core.exceptions import ConfigurationError, OccupationNotFound
 from app.domain.job import JobSpec, Seniority
@@ -22,6 +23,27 @@ from app.services.text_normalize import normalize_name as _normalize
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_KB_PATH = _REPO_ROOT / "data" / "processed" / "onet" / "onet_kb.jsonl"
+
+#: How much weight a query unigram keeps when it is also part of an active query bigram.
+#:
+#: The problem this solves, measured: a job description for a "Computer Vision Engineer"
+#: matched **Orthoptists** - a clinical eye-care occupation - because the query encodes one
+#: concept three times (``computer vision`` 0.5348 + ``vision`` 0.3723 + ``computer`` 0.1829).
+#: No occupation record contains the adjacent phrase ``computer vision`` except Robotics
+#: Engineers, so Orthoptists matched only the *fragments*, and ``vision`` alone - idf 5.03,
+#: present in 43 of 1016 occupations, nearly all clinical - supplied 85% of the winning score.
+#:
+#: The redundancy is on the query side; the corpus side is legitimate (an occupation genuinely
+#: about eyesight *should* score highly on ``vision``). So the fix is a query-side one: a
+#: fragment of a phrase already represented in the query carries less independent information
+#: than the phrase itself, and should not be counted again at full strength.
+#:
+#: 0.5 is not the best-scoring value on any dataset and was deliberately not tuned to one. It
+#: reads as "a fragment carries at most half the evidence of the phrase containing it", and it
+#: sits inside the stable region: the Orthoptists/Robotics crossover for the case above is at
+#: f = 0.546, computed analytically from the two score decompositions, and the corrected
+#: behaviour holds across f in [0.0, 0.6].
+FRAGMENT_WEIGHT = 0.5
 
 
 def _load_records(path: Path) -> list[dict]:
@@ -143,6 +165,21 @@ class OnetKnowledgeBase:
             _occupation_matching_text(self._records[code]) for code in self._order
         )
 
+        # For each bigram feature, which of its two words also exist as unigram features.
+        # Built once here rather than per query: the vocabulary is fixed after fit, and this
+        # turns fragment lookup into a dict hit instead of re-splitting 100k+ feature names on
+        # every match. See `FRAGMENT_WEIGHT` and `_downweight_fragments`.
+        vocabulary = self._vectorizer.vocabulary_
+        self._bigram_fragments: dict[int, tuple[int, ...]] = {}
+        for feature, column in vocabulary.items():
+            if " " not in feature:
+                continue
+            parts = tuple(
+                vocabulary[word] for word in feature.split() if word in vocabulary
+            )
+            if parts:
+                self._bigram_fragments[column] = parts
+
         # How many distinct occupations list each technology name - see
         # `technology_prevalence`'s docstring for why this matters.
         self._technology_doc_freq: dict[str, int] = {}
@@ -162,12 +199,47 @@ class OnetKnowledgeBase:
         except KeyError:
             raise OccupationNotFound(onet_soc_code) from None
 
+    def _downweight_fragments(self, query_vector):
+        """Reduce query unigrams that are already represented by an active query bigram.
+
+        Query side only: the corpus matrix and the fitted vectorizer are untouched, so nothing
+        here needs the KB to be rebuilt or ``onet_kb.jsonl`` to be regenerated.
+
+        Each fragment is collected into a set *before* anything is scaled, then weighted
+        exactly once. That matters: 19% of fragment unigrams belong to more than one active
+        bigram (``develop`` appears in four for a single measured job description), and
+        multiplying inside the loop would compound to ``FRAGMENT_WEIGHT`` squared or cubed for
+        those - penalising a word for being productive rather than for being redundant.
+
+        The vector is renormalised afterwards so scores stay on the same scale as before, which
+        is what lets the absolute floor in ``InterviewPlannerService`` keep its meaning.
+        """
+        active = set(query_vector.indices)
+        fragments = {
+            unigram
+            for column in query_vector.indices
+            for unigram in self._bigram_fragments.get(column, ())
+            if unigram in active
+        }
+        if not fragments:
+            return query_vector
+
+        adjusted = query_vector.copy()
+        for position, column in enumerate(adjusted.indices):
+            if column in fragments:
+                adjusted.data[position] *= FRAGMENT_WEIGHT
+        return normalize(adjusted)
+
+    def _query_vector(self, job_spec: JobSpec):
+        """The JobSpec's query text as a fragment-adjusted, unit-norm TF-IDF vector."""
+        query = _jobspec_to_query_text(job_spec)
+        return self._downweight_fragments(self._vectorizer.transform([query]))
+
     def match_jobspec(self, job_spec: JobSpec, top_k: int = 5) -> list[OccupationMatch]:
         """Return up to ``top_k`` candidate occupations, ranked by similarity, descending."""
         if top_k <= 0:
             raise ValueError(f"top_k must be a positive integer, got {top_k}")
-        query = _jobspec_to_query_text(job_spec)
-        sims = cosine_similarity(self._vectorizer.transform([query]), self._matrix)[0]
+        sims = cosine_similarity(self._query_vector(job_spec), self._matrix)[0]
         ranked_idx = sims.argsort()[::-1][:top_k]
         return [
             OccupationMatch(
@@ -202,7 +274,11 @@ class OnetKnowledgeBase:
         is what lets an O*NET task sentence be checked for relevance against a specific JobSpec,
         instead of assuming every task belonging to a matched occupation applies to this job - a
         practical engineering heuristic, not a validated probability.
+
+        Uses the same fragment-adjusted query representation as ``match_jobspec`` (see
+        ``_downweight_fragments``), so a task is scored against the same reading of the job
+        description that selected its occupation in the first place.
         """
-        query = _jobspec_to_query_text(job_spec)
-        vectors = self._vectorizer.transform([query, text])
-        return float(cosine_similarity(vectors[0], vectors[1])[0][0])
+        query_vector = self._query_vector(job_spec)
+        text_vector = self._vectorizer.transform([text])
+        return float(cosine_similarity(query_vector, text_vector)[0][0])

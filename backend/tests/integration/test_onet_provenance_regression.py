@@ -209,7 +209,11 @@ async def test_health_informatics_jd_still_gets_relevant_onet_context(planner):
     assert plan.onet_grounding_used is True
 
     occupation = planner.knowledge_base.get_occupation(plan.occupation_match.onet_soc_code)
-    context = planner._build_onet_context(job_spec, occupation, True, True)
+    task_relevance = {
+        task: planner.knowledge_base.relevance_to_jobspec(job_spec, task)
+        for task in occupation.core_tasks
+    }
+    context = planner._build_onet_context(job_spec, occupation, True, True, task_relevance)
     assert context, "expected genuinely relevant O*NET context to survive the relevance gate"
     assert "Health Informatics Specialists" in context
 

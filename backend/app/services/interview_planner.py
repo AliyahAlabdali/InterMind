@@ -111,6 +111,28 @@ _MIN_OCCUPATIONS_FOR_PREVALENCE_STAT = 20
 #: validated probability - see the module docstring's core principle.
 _MIN_TASK_RELEVANCE = 0.05
 
+#: The grounding confidence floor: the *best* of the matched occupation's tasks must reach this
+#: relevance to the JobSpec before any O*NET context is offered at all.
+#:
+#: Deliberately a different constant from `_MIN_TASK_RELEVANCE` above, because the two answer
+#: different questions. That one is an item filter - "is this particular task worth including
+#: in the context block". This one is a confidence gate - "does this occupation resemble this
+#: job at all, or did it win on one ambiguous word".
+#:
+#: Why this replaced the previous margin/ratio gate for grounding, measured over 308 realistic
+#: JobSpec variants: ratio *inverts* between right and wrong answers. A "Cloud Architect" JD
+#: matching Security Management Specialists (wrong) had a mean ratio of 1.0833, while a
+#: "Network Engineer" JD matching Computer Network Support Specialists (right) had 1.0474. No
+#: ratio threshold could separate them - every value that excluded the wrong match excluded
+#: both correct ones first. Best-task-relevance separates them cleanly: the wrong matches sat
+#: at 0.036-0.060, the correct ones at 0.120-0.156.
+#:
+#: 0.10 is twice `_MIN_TASK_RELEVANCE`, which its own note above calibrated against unrelated
+#: tasks scoring 0.0-0.033 and relevant ones 0.04+. The failures land at 0.036-0.060 - inside
+#: that ambiguous band - so this puts the gate clearly above it. It is not a knife edge:
+#: anything in 0.07-0.13 gives the same behaviour on the measured set.
+_MIN_GROUNDING_TASK_RELEVANCE = 0.10
+
 #: Technologies get a *second*, stricter macro check before being offered as context at all:
 #: named tools read as concrete, specific signals in a way generic competencies don't, so the
 #: bar for offering one from O*NET rather than the JD is higher. These are the same
@@ -132,6 +154,30 @@ _MIN_CONFIDENT_TECH_CONTEXT_MARGIN_RATIO = 1.3
 #: stays a short, curated list rather than a wholesale dump of the occupation record.
 _MAX_CONTEXT_TECHNOLOGIES = 3
 _MAX_CONTEXT_TASKS = 3
+
+
+def _match_is_grounded(top_score: float, task_relevance: dict[str, float]) -> bool:
+    """Whether a match is strong enough to offer as supplementary grounding.
+
+    Two signals, both already produced by the matcher:
+
+    * ``top_score >= _MIN_RELIABLE_SCORE`` - the occupation is lexically related to this job
+      at all, rather than the least-bad of 1016 near-zero candidates.
+    * the best of its O*NET core tasks reaches ``_MIN_GROUNDING_TASK_RELEVANCE`` - what the
+      occupation actually *does* resembles this job, not merely what it is called.
+
+    The second condition is the one that carries the weight. An occupation can win the ranking
+    on a single ambiguous word shared with the job title; it cannot also have duties that read
+    like the job unless the match is real. Deliberately no margin/ratio term: measurement
+    showed those rank wrong answers *above* right ones for this failure class - see
+    `_MIN_GROUNDING_TASK_RELEVANCE`.
+
+    An occupation with no core tasks cannot clear this, which is the intended conservative
+    default: nothing to corroborate with means nothing to say.
+    """
+    if top_score < _MIN_RELIABLE_SCORE:
+        return False
+    return any(score >= _MIN_GROUNDING_TASK_RELEVANCE for score in task_relevance.values())
 
 
 def _match_is_reliable(
@@ -198,7 +244,11 @@ class InterviewPlannerService:
             raise NoOccupationMatch(job_spec.role_title)
         top_match, *alternates = matches
         occupation = self.knowledge_base.get_occupation(top_match.onet_soc_code)
-        reliable = _match_is_reliable(top_match.score, alternates)
+        task_relevance = {
+            task: self.knowledge_base.relevance_to_jobspec(job_spec, task)
+            for task in occupation.core_tasks
+        }
+        reliable = _match_is_grounded(top_match.score, task_relevance)
         confident_for_tech_context = reliable and _match_is_reliable(
             top_match.score,
             alternates,
@@ -210,7 +260,7 @@ class InterviewPlannerService:
         technologies = self._build_technologies(job_spec, occupation, reliable)
         tasks = self._build_tasks(job_spec, occupation, reliable)
         onet_context = self._build_onet_context(
-            job_spec, occupation, reliable, confident_for_tech_context
+            job_spec, occupation, reliable, confident_for_tech_context, task_relevance
         )
         coverage_targets = _build_coverage_targets(
             job_id, competencies=competencies, technologies=technologies, tasks=tasks
@@ -316,6 +366,7 @@ class InterviewPlannerService:
         occupation: OccupationRecord,
         reliable: bool,
         confident_for_tech_context: bool,
+        task_relevance: dict[str, float],
     ) -> str:
         """A short, relevance-filtered block of O*NET context for question phrasing only.
 
@@ -349,7 +400,7 @@ class InterviewPlannerService:
         for task in occupation.core_tasks:
             if _normalize(task) in existing_task_keys:
                 continue  # already a JD responsibility - not new context
-            if self.knowledge_base.relevance_to_jobspec(job_spec, task) < _MIN_TASK_RELEVANCE:
+            if task_relevance.get(task, 0.0) < _MIN_TASK_RELEVANCE:
                 continue  # a Core Task for the occupation, but not relevant to this JD
             relevant_tasks.append(task)
             if len(relevant_tasks) >= _MAX_CONTEXT_TASKS:
