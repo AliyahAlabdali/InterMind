@@ -24,7 +24,7 @@ from httpx import ASGITransport, AsyncClient
 from app.api.deps import get_onet_kb
 from app.core.limits import LIMITS, MAX_ANSWER_CHARS, MAX_JOB_DESCRIPTION_CHARS
 from app.knowledge.onet_kb import OnetKnowledgeBase
-from tests.conftest import FIXTURES, recruiter_credentials
+from tests.conftest import FIXTURES, answer_payload, recruiter_credentials
 
 FIXTURE_KB_PATH = FIXTURES / "onet_kb_fixture.jsonl"
 
@@ -349,12 +349,22 @@ async def test_the_answer_loop_is_rate_limited_and_keyed_by_interview(app, clien
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as candidate:
         refused = await candidate.post(
             f"/interviews/{interview_a}/answers",
-            json=answer,
+            json=await answer_payload(
+                candidate,
+                f"/interviews/{interview_a}/answers",
+                answer,
+                {"Authorization": f"Bearer {token_a}"},
+            ),
             headers={"Authorization": f"Bearer {token_a}"},
         )
         unaffected = await candidate.post(
             f"/interviews/{interview_b}/answers",
-            json=answer,
+            json=await answer_payload(
+                candidate,
+                f"/interviews/{interview_b}/answers",
+                answer,
+                {"Authorization": f"Bearer {token_b}"},
+            ),
             headers={"Authorization": f"Bearer {token_b}"},
         )
 
@@ -375,7 +385,12 @@ async def test_the_answer_budget_is_not_reached_by_a_real_interview(app, client)
         for _ in range(LIMITS["answer_interview"][0].count):
             response = await candidate.post(
                 f"/interviews/{interview_id}/answers",
-                json={"answer": "I used PostgreSQL and Python to build and ship a service."},
+                json=await answer_payload(
+                    candidate,
+                    f"/interviews/{interview_id}/answers",
+                    {"answer": "I used PostgreSQL and Python to build and ship a service."},
+                    headers,
+                ),
                 headers=headers,
             )
             statuses.append(response.status_code)
@@ -395,7 +410,12 @@ async def test_an_unauthorized_caller_cannot_spend_a_real_candidates_budget(app,
         for _ in range(LIMITS["answer_interview"][0].count + 5):
             response = await attacker.post(
                 f"/interviews/{interview_id}/answers",
-                json={"answer": "spam"},
+                json=await answer_payload(
+                    attacker,
+                    f"/interviews/{interview_id}/answers",
+                    {"answer": "spam"},
+                    {"Authorization": "Bearer not-the-right-token"},
+                ),
                 headers={"Authorization": "Bearer not-the-right-token"},
             )
             assert response.status_code == 401
@@ -404,7 +424,12 @@ async def test_an_unauthorized_caller_cannot_spend_a_real_candidates_budget(app,
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as candidate:
         response = await candidate.post(
             f"/interviews/{interview_id}/answers",
-            json={"answer": "I built a FastAPI service backed by PostgreSQL."},
+            json=await answer_payload(
+                candidate,
+                f"/interviews/{interview_id}/answers",
+                {"answer": "I built a FastAPI service backed by PostgreSQL."},
+                {"Authorization": f"Bearer {token}"},
+            ),
             headers={"Authorization": f"Bearer {token}"},
         )
 
@@ -427,7 +452,12 @@ async def test_report_generation_is_budgeted_on_the_candidate_listing_too(app, c
         for _ in range(LIMITS["answer_interview"][0].count):
             response = await candidate.post(
                 f"/interviews/{interview_id}/answers",
-                json={"answer": "I used PostgreSQL and Python to build and ship a service."},
+                json=await answer_payload(
+                    candidate,
+                    f"/interviews/{interview_id}/answers",
+                    {"answer": "I used PostgreSQL and Python to build and ship a service."},
+                    headers,
+                ),
                 headers=headers,
             )
             if response.status_code == 409:
@@ -512,7 +542,12 @@ async def test_an_oversized_answer_is_rejected(app, client):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as candidate:
         response = await candidate.post(
             f"/interviews/{interview_id}/answers",
-            json={"answer": "y" * (MAX_ANSWER_CHARS + 1)},
+            json=await answer_payload(
+                candidate,
+                f"/interviews/{interview_id}/answers",
+                {"answer": "y" * (MAX_ANSWER_CHARS + 1)},
+                {"Authorization": f"Bearer {token}"},
+            ),
             headers={"Authorization": f"Bearer {token}"},
         )
 
@@ -525,7 +560,12 @@ async def test_a_normal_length_answer_is_still_accepted(app, client):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as candidate:
         response = await candidate.post(
             f"/interviews/{interview_id}/answers",
-            json={"answer": "I designed a PostgreSQL schema and served it through FastAPI. " * 20},
+            json=await answer_payload(
+                candidate,
+                f"/interviews/{interview_id}/answers",
+                {"answer": "I designed a PostgreSQL schema and served it through FastAPI. " * 20},
+                {"Authorization": f"Bearer {token}"},
+            ),
             headers={"Authorization": f"Bearer {token}"},
         )
 
@@ -551,6 +591,11 @@ async def test_oversized_candidate_identity_fields_are_rejected(client):
 async def test_a_completed_interview_is_refused_speech_credentials(app, client, monkeypatch):
     """A finished interview accepts no further answers, so it has no use for a microphone -
     and issuing Azure credentials for one spends a real resource on a dead session."""
+    from app.core.config import Settings, get_settings
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        _env_file=None, speech_provider="azure", azure_speech_key=None,
+        azure_speech_resource_id=None,
+    )
     from app.api.routes import speech as speech_route
     from app.domain.interview import InterviewStatus
 
@@ -688,7 +733,12 @@ async def test_an_oversized_answer_is_not_echoed_back_either(app, client):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as candidate:
         response = await candidate.post(
             f"/interviews/{interview_id}/answers",
-            json={"answer": marker + "z" * MAX_ANSWER_CHARS},
+            json=await answer_payload(
+                candidate,
+                f"/interviews/{interview_id}/answers",
+                {"answer": marker + "z" * MAX_ANSWER_CHARS},
+                {"Authorization": f"Bearer {token}"},
+            ),
             headers={"Authorization": f"Bearer {token}"},
         )
 

@@ -14,7 +14,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.api.deps import get_onet_kb
 from app.knowledge.onet_kb import OnetKnowledgeBase
-from tests.conftest import FIXTURES, recruiter_credentials
+from tests.conftest import FIXTURES, answer_payload, recruiter_credentials
 
 FIXTURE_KB_PATH = FIXTURES / "onet_kb_fixture.jsonl"
 
@@ -74,7 +74,12 @@ async def test_answering_records_evidence_and_completion_events(client):
     interview_id = await _start_candidate(client, job_id)
 
     for _ in question_ids:
-        await client.post(f"/interviews/{interview_id}/answers", json={"answer": DETAILED_ANSWER})
+        await client.post(f"/interviews/{interview_id}/answers", json=await answer_payload(
+            client,
+            f"/interviews/{interview_id}/answers",
+            {"answer": DETAILED_ANSWER},
+            None,
+        ))
 
     events = (await client.get("/activity", params={"limit": 100})).json()
     types = [e["type"] for e in events]
@@ -95,7 +100,12 @@ async def test_a_follow_up_decision_is_recorded_as_its_own_event(client):
 
     # A thin answer is what makes the graph decide to go deeper - see the evaluator's
     # follow-up resolution. The event must reflect that real decision, not be synthesised.
-    await client.post(f"/interviews/{interview_id}/answers", json={"answer": SHORT_ANSWER})
+    await client.post(f"/interviews/{interview_id}/answers", json=await answer_payload(
+        client,
+        f"/interviews/{interview_id}/answers",
+        {"answer": SHORT_ANSWER},
+        None,
+    ))
 
     events = (await client.get("/activity", params={"limit": 100})).json()
     follow_ups = [e for e in events if e["type"] == "follow_up_generated"]

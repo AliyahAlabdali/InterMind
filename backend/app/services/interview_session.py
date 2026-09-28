@@ -14,12 +14,17 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
+from uuid import uuid4
 
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
 from app.agents.interview_graph import build_graph_state
-from app.core.exceptions import InterviewAlreadyCompleted, InterviewStateUnavailable
+from app.core.exceptions import (
+    InterviewAlreadyCompleted,
+    InterviewStateUnavailable,
+    StaleInterviewTurn,
+)
 from app.domain.candidate import Candidate
 from app.domain.interview import InterviewState, InterviewStatus
 from app.domain.interview_plan import InterviewPlan
@@ -90,9 +95,8 @@ class InterviewLockRegistry:
 
     Must be a single instance per process (see :func:`app.api.deps.get_interview_lock_registry`,
     cached on ``app.state``) - a fresh instance per request would defeat the point of locking,
-    since two concurrent requests would each get their own empty registry and never actually
-    serialize on the same interview id. Kept intentionally simple: no eviction, since this is
-    in-memory, single-process, no-database scope for now (same as the checkpointer itself).
+    since two concurrent requests would each get their own empty registry. PostgreSQL also
+    locks each session row during turn acceptance and report generation.
     """
 
     def __init__(self) -> None:
@@ -110,84 +114,114 @@ class InterviewSessionService:
     candidate_repo: CandidateRepository
     locks: InterviewLockRegistry = field(default_factory=InterviewLockRegistry)
 
+    async def _snapshot(self, interview_id: str) -> dict:
+        snapshot = await self.graph.aget_state(_thread_config(interview_id))
+        state = _to_interview_state(interview_id, snapshot.values)
+        pending = snapshot.next[0] if len(snapshot.next) == 1 else None
+        if state.status != InterviewStatus.COMPLETED and pending not in (
+            "ask_question", "follow_up_question"
+        ):
+            raise InterviewStateUnavailable(interview_id, "no answerable pending node")
+        return {
+            "version": 1,
+            "values": dict(snapshot.values),
+            "pending_node": pending,
+            "turn_id": uuid4().hex if pending else None,
+        }
+
+    @staticmethod
+    def _saved_state(session: InterviewSession) -> InterviewState:
+        saved = session.runtime_snapshot
+        if not isinstance(saved, dict) or saved.get("version") != 1:
+            raise InterviewStateUnavailable(session.id, "no durable runtime snapshot")
+        values = saved.get("values")
+        if not isinstance(values, dict):
+            raise InterviewStateUnavailable(session.id, "invalid durable runtime values")
+        state = _to_interview_state(session.id, values)
+        if state.job_id != session.job_id:
+            raise InterviewStateUnavailable(session.id, "snapshot job mismatch")
+        if state.status == InterviewStatus.IN_PROGRESS:
+            turn = saved.get("turn_id")
+            if (saved.get("pending_node") not in ("ask_question", "follow_up_question")
+                    or not isinstance(turn, str) or len(turn) != 32
+                    or not state.current_question_id or not state.current_question_text):
+                raise InterviewStateUnavailable(session.id, "no durable answerable turn")
+            state.current_turn_id = turn
+        elif state.status != InterviewStatus.COMPLETED or saved.get("pending_node") is not None:
+            raise InterviewStateUnavailable(session.id, "invalid durable lifecycle state")
+        return state
+
+    async def _restore(self, session: InterviewSession) -> None:
+        """Recreate only the pending interrupt, without repeating accepted evaluation/LLM work.
+
+        Each invocation starts from the committed snapshot, even after a previous invocation
+        failed part-way through. Failed attempts therefore cannot silently advance a turn.
+        """
+        saved = session.runtime_snapshot
+        config = _thread_config(session.id)
+        await self.graph.checkpointer.adelete_thread(session.id)
+        previous_node = {
+            "ask_question": "select_target",
+            "follow_up_question": "evaluate_answer",
+        }[saved["pending_node"]]
+        await self.graph.aupdate_state(config, saved["values"], as_node=previous_node)
+        await self.graph.ainvoke(None, config=config)
+
     async def start(
         self, job_id: str, candidate_name: str = "Candidate", candidate_email: str = ""
     ) -> tuple[str, InterviewState]:
-        """Start a new interview thread from the job's existing plan, for a named candidate.
-
-        Creates a new :class:`~app.domain.candidate.Candidate` and associates it with the new
-        :class:`~app.repositories.ports.InterviewSession` - see the recruiter-workflow
-        architecture review: the recruiter must be able to tell which candidate completed
-        which interview, so identity is captured at invitation time rather than left implicit.
-
-        Raises:
-            app.core.exceptions.InterviewPlanNotFound: no plan exists for ``job_id`` yet.
-        """
         plan: InterviewPlan = await self.plan_repo.get(job_id)
-        candidate = await self.candidate_repo.add(
-            Candidate(name=candidate_name, email=candidate_email)
-        )
-        session = await self.session_repo.add(
-            InterviewSession(job_id=job_id, candidate_id=candidate.id)
-        )
-
-        # Latency instrumentation (adaptive-runtime review, item 6): the total time for this
-        # turn's graph invocation, for comparison against the per-phase measurements logged
-        # inside app.agents.interview_graph (answer_evaluation/cross_target_evidence/
-        # target_selection/question_generation) - this is what a candidate actually waits for.
+        candidate = Candidate(name=candidate_name, email=candidate_email)
+        session = InterviewSession(job_id=job_id, candidate_id=candidate.id)
         started_at = time.perf_counter()
-        raw_state = await self.graph.ainvoke(
-            build_graph_state(plan), config=_thread_config(session.id)
-        )
+        try:
+            await self.graph.ainvoke(build_graph_state(plan), config=_thread_config(session.id))
+            session.runtime_snapshot = await self._snapshot(session.id)
+            state = self._saved_state(session)
+            # Do not publish an invitation until its first question is usable.
+            await self.candidate_repo.add(candidate)
+            await self.session_repo.add(session)
+        finally:
+            await self.graph.checkpointer.adelete_thread(session.id)
         logger.info(
             "interview_timing phase=total_turn seconds=%.4f interview_id=%s turn=start",
-            time.perf_counter() - started_at,
-            session.id,
+            time.perf_counter() - started_at, session.id,
         )
-        return session.id, _to_interview_state(session.id, raw_state)
+        return session.id, state
 
-    async def submit_answer(self, interview_id: str, answer: str) -> InterviewState:
-        """Resume the interview thread with ``answer``.
+    async def submit_answer(
+        self, interview_id: str, answer: str, turn_id: str
+    ) -> InterviewState:
+        """Consume exactly the observed turn and commit evidence before acknowledging it.
 
-        Serialized per ``interview_id`` via :class:`InterviewLockRegistry` so two duplicate or
-        genuinely concurrent submissions for the same interview can't both observe
-        "not completed" and race each other into ``graph.ainvoke`` - the second one always
-        re-checks state (now advanced by the first) before acting, rather than corrupting the
-        checkpoint or crashing on a stale interrupt.
-
-        Raises:
-            app.core.exceptions.InterviewNotFound: no interview with that id.
-            app.core.exceptions.InterviewAlreadyCompleted: the interview already finished.
-            app.core.exceptions.InterviewStateUnavailable: the checkpointed state is missing
-                or invalid.
+        The process lock protects the graph cache; the PostgreSQL row lock serializes the
+        durable compare/advance/commit across processes. A stale or exact duplicate is rejected
+        (412), never applied to the next question. Completion remains 409.
         """
-        await self.session_repo.get(interview_id)
-
         async with self.locks.lock_for(interview_id):
-            config = _thread_config(interview_id)
-
-            snapshot = await self.graph.aget_state(config)
-            current_state = _to_interview_state(interview_id, snapshot.values)
-            if current_state.status == InterviewStatus.COMPLETED:
-                raise InterviewAlreadyCompleted(interview_id)
-
-            started_at = time.perf_counter()
-            raw_state = await self.graph.ainvoke(Command(resume=answer), config=config)
-            logger.info(
-                "interview_timing phase=total_turn seconds=%.4f interview_id=%s turn=answer",
-                time.perf_counter() - started_at,
-                interview_id,
-            )
-            return _to_interview_state(interview_id, raw_state)
+            async with self.session_repo.locked(interview_id) as session:
+                current = self._saved_state(session)
+                if current.status == InterviewStatus.COMPLETED:
+                    raise InterviewAlreadyCompleted(interview_id)
+                if current.current_turn_id != turn_id:
+                    raise StaleInterviewTurn()
+                started_at = time.perf_counter()
+                try:
+                    await self._restore(session)
+                    await self.graph.ainvoke(
+                        Command(resume=answer), config=_thread_config(interview_id)
+                    )
+                    session.runtime_snapshot = await self._snapshot(interview_id)
+                    state = self._saved_state(session)
+                finally:
+                    await self.graph.checkpointer.adelete_thread(interview_id)
+                logger.info(
+                    "interview_timing phase=total_turn seconds=%.4f interview_id=%s turn=answer",
+                    time.perf_counter() - started_at, interview_id,
+                )
+            # Exiting the repository transaction successfully is part of accepting evidence.
+            return state
 
     async def get_state(self, interview_id: str) -> InterviewState:
-        """Return the interview's current state without advancing it.
-
-        Raises:
-            app.core.exceptions.InterviewNotFound: no interview with that id.
-            app.core.exceptions.InterviewStateUnavailable: the checkpointed state is missing
-                or invalid.
-        """
-        await self.session_repo.get(interview_id)
-        snapshot = await self.graph.aget_state(_thread_config(interview_id))
-        return _to_interview_state(interview_id, snapshot.values)
+        """Read the last committed state; never expose a graph's partial/failed transition."""
+        return self._saved_state(await self.session_repo.get(interview_id))

@@ -22,7 +22,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.api.deps import get_onet_kb
 from app.knowledge.onet_kb import OnetKnowledgeBase
-from tests.conftest import FIXTURES, recruiter_credentials
+from tests.conftest import FIXTURES, answer_payload, recruiter_credentials
 
 FIXTURE_KB_PATH = FIXTURES / "onet_kb_fixture.jsonl"
 
@@ -85,7 +85,12 @@ async def _start_interview(
 async def _complete_interview(client: AsyncClient, interview_id: str, num_questions: int) -> None:
     for _ in range(num_questions):
         resp = await client.post(
-            f"/interviews/{interview_id}/answers", json={"answer": DETAILED_ANSWER}
+            f"/interviews/{interview_id}/answers", json=await answer_payload(
+                client,
+                f"/interviews/{interview_id}/answers",
+                {"answer": DETAILED_ANSWER},
+                None,
+            )
         )
         assert resp.status_code == 200, resp.text
     assert resp.json()["finished"] is True
@@ -105,7 +110,12 @@ async def test_A_candidate_token_can_access_its_own_interview_flow(app):
         assert get_resp.json()["interview_id"] == interview_id
 
         answer_resp = await candidate.post(
-            f"/interviews/{interview_id}/answers", json={"answer": DETAILED_ANSWER}
+            f"/interviews/{interview_id}/answers", json=await answer_payload(
+                candidate,
+                f"/interviews/{interview_id}/answers",
+                {"answer": DETAILED_ANSWER},
+                None,
+            )
         )
         assert answer_resp.status_code == 200
         assert answer_resp.json()["current_question_id"] == questions[1]
@@ -218,7 +228,12 @@ async def test_G_interview_a_token_cannot_access_interview_b(app):
         assert other_resp.status_code == 401
 
         other_answer_resp = await candidate_a.post(
-            f"/interviews/{interview_b}/answers", json={"answer": DETAILED_ANSWER}
+            f"/interviews/{interview_b}/answers", json=await answer_payload(
+                candidate_a,
+                f"/interviews/{interview_b}/answers",
+                {"answer": DETAILED_ANSWER},
+                None,
+            )
         )
         assert other_answer_resp.status_code == 401
 
@@ -249,7 +264,12 @@ async def test_I_follow_up_behavior_remains_unchanged(client):
     interview_id, _ = await _start_interview(client, job_id)
 
     follow_up = await client.post(
-        f"/interviews/{interview_id}/answers", json={"answer": SHORT_ANSWER}
+        f"/interviews/{interview_id}/answers", json=await answer_payload(
+            client,
+            f"/interviews/{interview_id}/answers",
+            {"answer": SHORT_ANSWER},
+            None,
+        )
     )
     assert follow_up.status_code == 200
     follow_up_body = follow_up.json()
@@ -257,7 +277,12 @@ async def test_I_follow_up_behavior_remains_unchanged(client):
     assert follow_up_body["current_question_is_follow_up"] is True
 
     advanced = await client.post(
-        f"/interviews/{interview_id}/answers", json={"answer": DETAILED_ANSWER}
+        f"/interviews/{interview_id}/answers", json=await answer_payload(
+            client,
+            f"/interviews/{interview_id}/answers",
+            {"answer": DETAILED_ANSWER},
+            None,
+        )
     )
     assert advanced.status_code == 200
     advanced_body = advanced.json()

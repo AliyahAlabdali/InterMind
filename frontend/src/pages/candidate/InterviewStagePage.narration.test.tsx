@@ -6,12 +6,14 @@
  * answerable whether or not narration works at all.
  */
 
-import { render, screen, waitFor } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const speak = vi.fn()
 const cancel = vi.fn()
+const stopAndCollect = vi.fn(async () => "")
+let partial = ""
 
 vi.mock("../../speech", async () => {
   const actual = await vi.importActual<typeof import("../../speech")>("../../speech")
@@ -27,12 +29,12 @@ vi.mock("../../speech", async () => {
     useSpeechInput: () => ({
       start: vi.fn(),
       stop: vi.fn(),
-      stopAndCollect: vi.fn(),
+      stopAndCollect,
       isRecording: false,
       isSupported: false,
       level: 0,
       error: null,
-      partial: "",
+      partial,
     }),
   }
 })
@@ -50,9 +52,10 @@ vi.mock("../../api/interviewPlans", () => ({
   getCandidateInterviewPlan: vi.fn(),
 }))
 
-import { getInterview } from "../../api/interviews"
+import { getInterview, submitAnswer } from "../../api/interviews"
 import { getCandidateInterviewPlan } from "../../api/interviewPlans"
 import { InterviewStagePage } from "./InterviewStagePage"
+import { ApiError } from "../../api/client"
 
 const INTERVIEW = {
   interview_id: "interview-1",
@@ -62,6 +65,7 @@ const INTERVIEW = {
   status: "in_progress",
   finished: false,
   turn_index: 0,
+  current_turn_id: "11111111111111111111111111111111",
   current_question_id: "target-1",
   current_question_text: "Tell me about a backend system you designed.",
   current_question_is_follow_up: false,
@@ -107,6 +111,8 @@ beforeEach(() => {
   )
   speak.mockClear()
   cancel.mockClear()
+  stopAndCollect.mockResolvedValue("")
+  partial = ""
   vi.mocked(getCandidateInterviewPlan).mockResolvedValue(PLAN as never)
   vi.mocked(getInterview).mockResolvedValue(INTERVIEW as never)
 })
@@ -117,6 +123,47 @@ afterEach(() => {
 })
 
 describe("question narration", () => {
+  it("keeps the complete attempted spoken answer editable after a failed submit", async () => {
+    stopAndCollect.mockResolvedValue("Final spoken sentence.")
+    vi.mocked(submitAnswer).mockRejectedValue(new Error("offline"))
+    renderStage()
+    const field = await screen.findByRole("textbox")
+    fireEvent.change(field, { target: { value: "Typed beginning." } })
+    fireEvent.click(screen.getByRole("button", { name: /submit|send/i }))
+    await waitFor(() => expect(submitAnswer).toHaveBeenCalled())
+    expect(submitAnswer).toHaveBeenCalledWith(
+      "interview-1", "Typed beginning. Final spoken sentence.", "t", INTERVIEW.current_turn_id,
+    )
+    await waitFor(() => expect(field).toHaveProperty(
+      "value", "Typed beginning. Final spoken sentence.",
+    ))
+  })
+
+  it("keeps a speech-only answer retryable without duplicating the collected segment", async () => {
+    partial = "Complete spoken answer."
+    stopAndCollect.mockResolvedValueOnce("Complete spoken answer.").mockResolvedValue("")
+    vi.mocked(submitAnswer).mockRejectedValue(new Error("offline"))
+    renderStage()
+    const field = await screen.findByRole("textbox")
+    fireEvent.click(screen.getByRole("button", { name: /submit|send/i }))
+    await waitFor(() => expect(field).toHaveProperty("value", "Complete spoken answer."))
+    await waitFor(() => expect(screen.getByRole("button", { name: /submit|send/i })).toHaveProperty("disabled", false))
+    fireEvent.click(screen.getByRole("button", { name: /submit|send/i }))
+    await waitFor(() => expect(submitAnswer).toHaveBeenCalledTimes(2))
+    expect(vi.mocked(submitAnswer).mock.calls[1][1]).toBe("Complete spoken answer.")
+  })
+
+  it("reloads a stale turn while keeping the draft and staying on the interview", async () => {
+    vi.mocked(submitAnswer).mockRejectedValue(new ApiError(412, "stale"))
+    renderStage()
+    const field = await screen.findByRole("textbox")
+    fireEvent.change(field, { target: { value: "My draft" } })
+    vi.mocked(getInterview).mockResolvedValue({ ...INTERVIEW, current_turn_id: "2".repeat(32) } as never)
+    fireEvent.click(screen.getByRole("button", { name: /submit|send/i }))
+    await screen.findByText(/This question changed in another tab/)
+    expect(field).toHaveProperty("value", "My draft")
+    expect(getInterview).toHaveBeenCalledTimes(2)
+  })
   it("reads the current question aloud once it arrives", async () => {
     renderStage()
 

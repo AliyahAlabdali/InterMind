@@ -361,6 +361,8 @@ function loadVoices(timeoutMs = 1500): Promise<SpeechSynthesisVoice[]> {
   })
 }
 
+let outputGeneration = 0
+
 export const browserSpeechOutput: SpeechOutputProvider = {
   id: "browser-speech-synthesis",
 
@@ -369,6 +371,8 @@ export const browserSpeechOutput: SpeechOutputProvider = {
   },
 
   speak(text: string, handlers: SpeechOutputHandlers): SpeechOutputSession {
+    this.cancelAll()
+    const generation = outputGeneration
     if (!this.isSupported()) {
       handlers.onError?.()
       return { cancel: () => {} }
@@ -382,13 +386,14 @@ export const browserSpeechOutput: SpeechOutputProvider = {
     // each word boundary re-energises it and it decays between words. The bars therefore track
     // actual speech, they are not a free-running animation.
     function pumpLevel() {
+      if (cancelled || generation !== outputGeneration) return
       envelope *= 0.82
       handlers.onLevel?.(envelope)
       levelTimer = window.setTimeout(pumpLevel, 60)
     }
 
     function startWith(voices: SpeechSynthesisVoice[]) {
-      if (cancelled) return
+      if (cancelled || generation !== outputGeneration) return
 
       const utterance = new SpeechSynthesisUtterance(text)
       utterance.lang = SPEECH_LANG
@@ -411,18 +416,22 @@ export const browserSpeechOutput: SpeechOutputProvider = {
       }
 
       utterance.onstart = () => {
+        if (cancelled || generation !== outputGeneration) return
         handlers.onStart?.()
         pumpLevel()
       }
       utterance.onboundary = () => {
+        if (cancelled || generation !== outputGeneration) return
         envelope = Math.min(1, 0.55 + Math.random() * 0.45)
       }
       utterance.onend = () => {
+        if (cancelled || generation !== outputGeneration) return
         window.clearTimeout(levelTimer)
         handlers.onLevel?.(0)
         handlers.onEnd?.()
       }
       utterance.onerror = () => {
+        if (cancelled || generation !== outputGeneration) return
         window.clearTimeout(levelTimer)
         handlers.onLevel?.(0)
         handlers.onError?.()
@@ -455,6 +464,7 @@ export const browserSpeechOutput: SpeechOutputProvider = {
   },
 
   cancelAll() {
+    outputGeneration += 1
     if (this.isSupported()) window.speechSynthesis.cancel()
   },
 }

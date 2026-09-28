@@ -196,7 +196,8 @@ export function InterviewStagePage() {
   const speechCancel = speech.cancel
 
   const handleSubmit = useCallback(async () => {
-    if (!interviewId || inFlightRef.current) return
+    if (!interviewId || !interview?.current_turn_id || inFlightRef.current) return
+    const turnId = interview.current_turn_id
     // Claimed before the grace window below rather than after it: that window is real elapsed
     // time, during which a second press would otherwise start a second submission.
     inFlightRef.current = true
@@ -214,12 +215,13 @@ export function InterviewStagePage() {
     }
 
     speechCancel()
+    setAnswer(composed)
     setIsSubmitting(true)
     setSubmitError(null)
     const startedAt = Date.now()
 
     try {
-      const updated = await submitAnswer(interviewId, composed, token ?? "")
+      const updated = await submitAnswer(interviewId, composed, token ?? "", turnId)
       const floor = reducedMotion ? MIN_THINKING_MS_REDUCED : MIN_THINKING_MS
       const remaining = floor - (Date.now() - startedAt)
       if (remaining > 0) await wait(remaining)
@@ -236,6 +238,16 @@ export function InterviewStagePage() {
       }
       setAdvanced(updated)
     } catch (error) {
+      if (error instanceof ApiError && error.status === 412) {
+        setSubmitError("This question changed in another tab. Your draft is kept; review the current question before submitting.")
+        try {
+          setAdvanced(await getInterview(interviewId, token ?? ""))
+        } catch {
+          setSubmitError("Your draft is kept. Reload the interview to get the current question.")
+        }
+        setIsSubmitting(false)
+        return
+      }
       // The interview finished in another tab, or a duplicate landed second: not a failure,
       // just somewhere else to be.
       if (error instanceof ApiError && error.status === 409) {
@@ -247,7 +259,7 @@ export function InterviewStagePage() {
     } finally {
       inFlightRef.current = false
     }
-  }, [answer, interviewId, navigate, reducedMotion, speechCancel, token, voiceStopAndCollect])
+  }, [answer, interview, interviewId, navigate, reducedMotion, speechCancel, token, voiceStopAndCollect])
 
   if (initial.isLoading || (!interview && !initial.error)) {
     return (

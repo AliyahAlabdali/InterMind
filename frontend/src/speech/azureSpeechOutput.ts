@@ -123,8 +123,11 @@ async function buildConfig(credentials: SpeechTokenResponse) {
 }
 
 /** Synthesize `text` to MP3 bytes. Never plays anything itself - see `speak`. */
-async function synthesize(text: string, context: SpeechOutputContext): Promise<ArrayBuffer> {
+async function synthesize(
+  text: string, context: SpeechOutputContext, signal: AbortSignal,
+): Promise<ArrayBuffer> {
   const credentials = await credentialsFor(context)
+  signal.throwIfAborted()
   const config = await buildConfig(credentials)
   const { ResultReason, SpeechSynthesizer } = await import(
     "microsoft-cognitiveservices-speech-sdk"
@@ -133,10 +136,14 @@ async function synthesize(text: string, context: SpeechOutputContext): Promise<A
   // `null` audio config means "do not open a speaker": the SDK hands back the bytes instead.
   // That is what lets playback go through the element unlocked by the candidate's own tap,
   // which is the only way narration can start on iOS.
+  signal.throwIfAborted()
   const synthesizer = new SpeechSynthesizer(config, null)
+  let abort: (() => void) | undefined
 
   try {
     return await new Promise<ArrayBuffer>((resolve, reject) => {
+      abort = () => reject(new Error("Synthesis retired"))
+      signal.addEventListener("abort", abort, { once: true })
       synthesizer.speakTextAsync(
         text,
         (result) => {
@@ -152,9 +159,12 @@ async function synthesize(text: string, context: SpeechOutputContext): Promise<A
       )
     })
   } finally {
+    if (abort) signal.removeEventListener("abort", abort)
     synthesizer.close()
   }
 }
+
+const activeCancellations = new Set<() => void>()
 
 export const azureSpeechOutput: SpeechOutputProvider = {
   id: "azure-speech-synthesis",
@@ -168,6 +178,7 @@ export const azureSpeechOutput: SpeechOutputProvider = {
     handlers: SpeechOutputHandlers,
     context?: SpeechOutputContext,
   ): SpeechOutputSession {
+    this.cancelAll()
     const element = getNarrationAudio()
     if (!element || !context?.interviewId || !context.accessToken) {
       handlers.onError?.()
@@ -175,6 +186,7 @@ export const azureSpeechOutput: SpeechOutputProvider = {
     }
 
     let cancelled = false
+    const controller = new AbortController()
     let objectUrl: string | null = null
     let levelTimer = 0
 
@@ -193,7 +205,26 @@ export const azureSpeechOutput: SpeechOutputProvider = {
       handlers.onLevel?.(0)
     }
 
+    const cancel = () => {
+      if (cancelled) return
+      cancelled = true
+      activeCancellations.delete(cancel)
+      controller.abort()
+      stopLevel()
+      element.onended = null
+      element.onerror = null
+      try {
+        element.pause()
+        element.currentTime = 0
+      } catch {
+        // An element that never got a source cannot be paused; nothing to clean up.
+      }
+      releaseUrl()
+    }
+
     const finish = (ok: boolean) => {
+      if (cancelled) return
+      activeCancellations.delete(cancel)
       stopLevel()
       releaseUrl()
       if (ok) handlers.onEnd?.()
@@ -203,8 +234,10 @@ export const azureSpeechOutput: SpeechOutputProvider = {
     void (async () => {
       let audio: ArrayBuffer
       try {
-        audio = await synthesize(text, context)
+        audio = await synthesize(text, context, controller.signal)
       } catch (error) {
+        if (cancelled) return
+        activeCancellations.delete(cancel)
         // A rejected token must never be reused, or every later question fails the same way.
         clearSpeechTokenCache()
         speechLog("tts", "azure synthesis failed", (error as Error)?.message)
@@ -238,24 +271,12 @@ export const azureSpeechOutput: SpeechOutputProvider = {
       }, 90)
     })()
 
-    return {
-      cancel() {
-        cancelled = true
-        stopLevel()
-        element.onended = null
-        element.onerror = null
-        try {
-          element.pause()
-          element.currentTime = 0
-        } catch {
-          // An element that never got a source cannot be paused; nothing to clean up.
-        }
-        releaseUrl()
-      },
-    }
+    activeCancellations.add(cancel)
+    return { cancel }
   },
 
   cancelAll() {
+    for (const cancel of [...activeCancellations]) cancel()
     const element = getNarrationAudio()
     if (!element) return
     element.onended = null

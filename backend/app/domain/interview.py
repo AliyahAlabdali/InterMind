@@ -24,8 +24,8 @@ class InterviewState(BaseModel):
     """Serialisable state for a single interview session.
 
     **Identity contract (root target vs. current turn vs. follow-up)** - reviewed and kept
-    as-is (Copilot review, cross-target/JD-grounding pass): there are three distinct notions
-    of "which question" at any point in an interview, and only two of them are exposed here:
+    as-is (Copilot review, cross-target/JD-grounding pass): there are distinct notions
+    of "which question" at any point in an interview:
 
     - The *root target's identity* - ``current_question_id``. Stable across an entire target's
       lifetime, including any follow-up on it: it never changes to the follow-up's own id, even
@@ -42,13 +42,8 @@ class InterviewState(BaseModel):
       ``app.agents.interview_graph._follow_up_question_id``), each entry keeping a
       ``root_question_id`` pointing back at the target it belongs to.
 
-    This contract was deliberately kept rather than changed: nothing in this API needs a
-    per-turn id (``POST /interviews/{id}/answers`` takes no question id at all - the graph
-    always knows what it's currently waiting on), and introducing one here would only add a
-    field every existing caller (candidate frontend routing, report attribution) would need to
-    learn to ignore. See ``tests/unit/test_interview_session_service.py::
-    test_current_question_id_contract_during_a_follow_up`` for a regression test pinning this
-    contract down directly.
+    ``current_turn_id`` binds answer submissions to the exact pending turn. It changes for
+    every new question or follow-up, while the root target identity remains unchanged.
     """
 
     job_id: str
@@ -56,5 +51,6 @@ class InterviewState(BaseModel):
     turn_index: int = 0
     history: list[dict] = Field(default_factory=list)
     current_question_id: str | None = None
+    current_turn_id: str | None = None
     current_question_text: str | None = None
     asked_question_ids: list[str] = Field(default_factory=list)

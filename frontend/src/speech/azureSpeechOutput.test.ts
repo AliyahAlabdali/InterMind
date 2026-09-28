@@ -14,6 +14,8 @@ vi.mock("../api/speech", () => ({ getSpeechToken: (...args: unknown[]) => getSpe
 // A synthesizer that hands back bytes, and records the config it was built with.
 const synthesized: Array<{ text: string; voice: string; format: number }> = []
 let synthesisShouldFail = false
+let pendingSynthesis: ((result: unknown) => void) | null = null
+let delaySynthesis = false
 
 class FakeSpeechConfig {
   authorizationToken = ""
@@ -33,6 +35,10 @@ class FakeSynthesizer {
     done: (result: unknown) => void,
     fail: (error: string) => void,
   ) {
+    if (delaySynthesis) {
+      pendingSynthesis = done
+      return
+    }
     if (synthesisShouldFail) {
       fail("synthesis refused")
       return
@@ -92,6 +98,8 @@ let originalRevokeObjectURL: typeof URL.revokeObjectURL
 beforeEach(() => {
   synthesized.length = 0
   synthesisShouldFail = false
+  pendingSynthesis = null
+  delaySynthesis = false
   getSpeechToken.mockReset()
   getSpeechToken.mockResolvedValue({ ...TOKEN })
   clearSpeechTokenCache()
@@ -115,6 +123,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  azureSpeechOutput.cancelAll()
   URL.createObjectURL = originalCreateObjectURL
   URL.revokeObjectURL = originalRevokeObjectURL
   vi.unstubAllGlobals()
@@ -125,6 +134,18 @@ afterEach(() => {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe("azure narration", () => {
+  it("never plays synthesis that finishes after cancelAll", async () => {
+    delaySynthesis = true
+    const onStart = vi.fn()
+    azureSpeechOutput.speak("Retired question.", { onStart }, CONTEXT)
+    await settle()
+    expect(pendingSynthesis).not.toBeNull()
+    azureSpeechOutput.cancelAll()
+    pendingSynthesis!({ reason: 8, audioData: new ArrayBuffer(16), errorDetails: "" })
+    await settle()
+    expect(audio.play).not.toHaveBeenCalled()
+    expect(onStart).not.toHaveBeenCalled()
+  })
   it("synthesizes with the pinned adult female voice, not a browser-chosen one", async () => {
     azureSpeechOutput.speak("Tell me about a system you designed.", {}, CONTEXT)
     await settle()

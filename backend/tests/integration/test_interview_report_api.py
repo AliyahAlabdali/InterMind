@@ -4,7 +4,7 @@ from httpx import ASGITransport, AsyncClient
 from app.api.deps import get_onet_kb
 from app.knowledge.onet_kb import OnetKnowledgeBase
 from app.repositories.ports import InterviewSession
-from tests.conftest import FIXTURES, recruiter_credentials
+from tests.conftest import FIXTURES, answer_payload, recruiter_credentials
 
 FIXTURE_KB_PATH = FIXTURES / "onet_kb_fixture.jsonl"
 
@@ -35,7 +35,12 @@ async def _complete_interview(client, job_id: str, questions: list[dict]) -> str
     interview_id = start.json()["interview_id"]
     for _ in questions:
         resp = await client.post(
-            f"/interviews/{interview_id}/answers", json={"answer": DETAILED_ANSWER}
+            f"/interviews/{interview_id}/answers", json=await answer_payload(
+                client,
+                f"/interviews/{interview_id}/answers",
+                {"answer": DETAILED_ANSWER},
+                None,
+            )
         )
     assert resp.json()["finished"] is True
     return interview_id
@@ -143,12 +148,27 @@ async def test_report_reflects_a_weak_final_answer_without_inventing_success(cli
     short_answer = "I did that once."
     # Two short answers in a row: first triggers a follow-up, second is still weak but the
     # one-follow-up cap forces the graph to advance anyway (see interview_graph.py).
-    await client.post(f"/interviews/{interview_id}/answers", json={"answer": short_answer})
-    await client.post(f"/interviews/{interview_id}/answers", json={"answer": short_answer})
+    await client.post(f"/interviews/{interview_id}/answers", json=await answer_payload(
+        client,
+        f"/interviews/{interview_id}/answers",
+        {"answer": short_answer},
+        None,
+    ))
+    await client.post(f"/interviews/{interview_id}/answers", json=await answer_payload(
+        client,
+        f"/interviews/{interview_id}/answers",
+        {"answer": short_answer},
+        None,
+    ))
     resp = None
     for _ in range(len(questions) - 1):
         resp = await client.post(
-            f"/interviews/{interview_id}/answers", json={"answer": DETAILED_ANSWER}
+            f"/interviews/{interview_id}/answers", json=await answer_payload(
+                client,
+                f"/interviews/{interview_id}/answers",
+                {"answer": DETAILED_ANSWER},
+                None,
+            )
         )
     assert resp.json()["finished"] is True
 
@@ -178,7 +198,12 @@ async def test_regression_6_report_maps_the_follow_up_answer_to_the_follow_up_qu
     interview_id = start.json()["interview_id"]
     original_question_text = start.json()["current_question_text"]
 
-    await client.post(f"/interviews/{interview_id}/answers", json={"answer": SHORT_ANSWER})
+    await client.post(f"/interviews/{interview_id}/answers", json=await answer_payload(
+        client,
+        f"/interviews/{interview_id}/answers",
+        {"answer": SHORT_ANSWER},
+        None,
+    ))
     follow_up_state = (await client.get(f"/interviews/{interview_id}")).json()
     follow_up_text = follow_up_state["current_question_text"]
     follow_up_answer = "Here is the concrete detail the follow-up asked for."
@@ -186,7 +211,12 @@ async def test_regression_6_report_maps_the_follow_up_answer_to_the_follow_up_qu
     resp = None
     for _ in range(len(questions)):
         answer = follow_up_answer if resp is None else DETAILED_ANSWER
-        resp = await client.post(f"/interviews/{interview_id}/answers", json={"answer": answer})
+        resp = await client.post(f"/interviews/{interview_id}/answers", json=await answer_payload(
+            client,
+            f"/interviews/{interview_id}/answers",
+            {"answer": answer},
+            None,
+        ))
     assert resp.json()["finished"] is True
 
     report = (await client.get(f"/interviews/{interview_id}/report")).json()

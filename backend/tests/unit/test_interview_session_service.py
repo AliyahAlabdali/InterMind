@@ -7,6 +7,7 @@ from app.core.exceptions import (
     InterviewAlreadyCompleted,
     InterviewNotFound,
     InterviewStateUnavailable,
+    StaleInterviewTurn,
 )
 from app.domain.evaluation import AnswerEvaluation, AnswerEvidenceType, EvaluationDecision
 from app.domain.interview import InterviewStatus
@@ -210,7 +211,7 @@ async def test_submit_answer_on_orphaned_session_raises_state_unavailable():
     service = _make_service()
     orphan = await service.session_repo.add(InterviewSession(job_id="job-1", id="orphan-thread-2"))
     with pytest.raises(InterviewStateUnavailable):
-        await service.submit_answer(orphan.id, DETAILED_ANSWER)
+        await service.submit_answer(orphan.id, DETAILED_ANSWER, "0" * 32)
 
 
 async def test_get_state_unknown_interview_raises_not_found():
@@ -222,36 +223,32 @@ async def test_get_state_unknown_interview_raises_not_found():
 # --- duplicate / concurrent submissions --------------------------------------------------
 
 
-async def test_duplicate_sequential_submission_advances_each_time():
+async def test_duplicate_sequential_submission_is_rejected():
     service = _make_service()
     await service.plan_repo.add(_make_plan())
-    interview_id, state = await service.start("job-1")
-    assert state.current_question_id == "q1"
-
-    first = await service.submit_answer(interview_id, DETAILED_ANSWER)
+    interview_id, initial = await service.start("job-1")
+    first = await service.submit_answer(interview_id, DETAILED_ANSWER, initial.current_turn_id)
     assert first.current_question_id == "q2"
+    with pytest.raises(StaleInterviewTurn):
+        await service.submit_answer(interview_id, DETAILED_ANSWER, initial.current_turn_id)
+    assert len((await service.get_state(interview_id)).history) == 1
+    next_state = await service.submit_answer(interview_id, DETAILED_ANSWER, first.current_turn_id)
+    assert next_state.current_question_id == "q3"
 
-    # Submitting again (e.g. a client retry) is treated as the answer to the now-current
-    # question - it must not crash or corrupt state.
-    second = await service.submit_answer(interview_id, DETAILED_ANSWER)
-    assert second.current_question_id == "q3"
-    assert second.asked_question_ids == ["q1", "q2", "q3"]
 
-
-async def test_concurrent_submissions_serialize_without_corruption():
+async def test_concurrent_submissions_reject_the_duplicate():
     service = _make_service()
     await service.plan_repo.add(_make_plan())
-    interview_id, _ = await service.start("job-1")
-
+    interview_id, initial = await service.start("job-1")
     results = await asyncio.gather(
-        service.submit_answer(interview_id, DETAILED_ANSWER),
-        service.submit_answer(interview_id, DETAILED_ANSWER),
+        service.submit_answer(interview_id, DETAILED_ANSWER, initial.current_turn_id),
+        service.submit_answer(interview_id, DETAILED_ANSWER, initial.current_turn_id),
+        return_exceptions=True,
     )
-
+    assert sum(isinstance(r, StaleInterviewTurn) for r in results) == 1
     final = await service.get_state(interview_id)
-    assert final.asked_question_ids == ["q1", "q2", "q3"]
-    assert len(set(final.asked_question_ids)) == 3
-    assert {r.current_question_id for r in results} <= {"q2", "q3", None}
+    assert final.current_question_id == "q2"
+    assert len(final.history) == 1
 
 
 async def test_submit_after_completion_raises_already_completed():
@@ -275,11 +272,19 @@ async def test_submit_after_completion_raises_already_completed():
     await service.plan_repo.add(plan)
     interview_id, _ = await service.start("job-1")
 
-    completed = await service.submit_answer(interview_id, DETAILED_ANSWER)
+    completed = await service.submit_answer(
+        interview_id,
+        DETAILED_ANSWER,
+        (await service.get_state(interview_id)).current_turn_id,
+    )
     assert completed.status == InterviewStatus.COMPLETED
 
     with pytest.raises(InterviewAlreadyCompleted):
-        await service.submit_answer(interview_id, DETAILED_ANSWER)
+        await service.submit_answer(
+            interview_id,
+            DETAILED_ANSWER,
+            (await service.get_state(interview_id)).current_turn_id,
+        )
 
 
 # --- multi-turn follow-up flow -----------------------------------------------------------
@@ -291,21 +296,41 @@ async def test_multi_turn_follow_up_then_advance_across_questions():
     interview_id, state = await service.start("job-1")
     assert state.current_question_id == "q1"
 
-    follow_up = await service.submit_answer(interview_id, SHORT_ANSWER)
+    follow_up = await service.submit_answer(
+        interview_id,
+        SHORT_ANSWER,
+        (await service.get_state(interview_id)).current_turn_id,
+    )
     assert follow_up.current_question_id == "q1"  # still on q1, follow-up asked
     assert follow_up.history[-1]["evaluation"]["decision"] == "follow_up"
 
-    advanced = await service.submit_answer(interview_id, DETAILED_ANSWER)
+    advanced = await service.submit_answer(
+        interview_id,
+        DETAILED_ANSWER,
+        (await service.get_state(interview_id)).current_turn_id,
+    )
     assert advanced.current_question_id == "q2"
     assert advanced.history[-1]["evaluation"]["decision"] == "advance"
 
-    follow_up_2 = await service.submit_answer(interview_id, SHORT_ANSWER)
+    follow_up_2 = await service.submit_answer(
+        interview_id,
+        SHORT_ANSWER,
+        (await service.get_state(interview_id)).current_turn_id,
+    )
     assert follow_up_2.current_question_id == "q2"
 
-    advanced_2 = await service.submit_answer(interview_id, DETAILED_ANSWER)
+    advanced_2 = await service.submit_answer(
+        interview_id,
+        DETAILED_ANSWER,
+        (await service.get_state(interview_id)).current_turn_id,
+    )
     assert advanced_2.current_question_id == "q3"
 
-    finished = await service.submit_answer(interview_id, DETAILED_ANSWER)
+    finished = await service.submit_answer(
+        interview_id,
+        DETAILED_ANSWER,
+        (await service.get_state(interview_id)).current_turn_id,
+    )
     assert finished.status == InterviewStatus.COMPLETED
 
 
@@ -322,7 +347,11 @@ async def test_one_answer_submission_advances_exactly_once():
     assert state.turn_index == 1
     assert state.asked_question_ids == ["q1"]
 
-    after_one = await service.submit_answer(interview_id, DETAILED_ANSWER)
+    after_one = await service.submit_answer(
+        interview_id,
+        DETAILED_ANSWER,
+        (await service.get_state(interview_id)).current_turn_id,
+    )
     assert after_one.current_question_id == "q2"
     assert after_one.asked_question_ids == ["q1", "q2"]  # exactly one new question asked
     assert after_one.turn_index == 2
@@ -346,7 +375,11 @@ async def test_follow_up_does_not_require_resubmitting_the_original_answer():
     original_question_text = initial_state.current_question_text
     assert original_question_text == "Q1?"
 
-    follow_up = await service.submit_answer(interview_id, SHORT_ANSWER)
+    follow_up = await service.submit_answer(
+        interview_id,
+        SHORT_ANSWER,
+        (await service.get_state(interview_id)).current_turn_id,
+    )
     assert follow_up.current_question_id == "q1"  # same underlying question slot
     # ... but the candidate must see a *different*, follow-up-specific prompt, not the
     # original question text repeated back at them.
@@ -354,7 +387,11 @@ async def test_follow_up_does_not_require_resubmitting_the_original_answer():
     assert follow_up.current_question_text  # never blank
 
     # One submission in response to the (correctly-shown) follow-up must be enough to advance.
-    advanced = await service.submit_answer(interview_id, DETAILED_ANSWER)
+    advanced = await service.submit_answer(
+        interview_id,
+        DETAILED_ANSWER,
+        (await service.get_state(interview_id)).current_turn_id,
+    )
     assert advanced.current_question_id == "q2"
 
 
@@ -378,7 +415,11 @@ async def test_current_question_id_contract_during_a_follow_up():
 
     # First submission: a weak answer to the ROOT question itself triggers a follow-up. This
     # turn's own question_id is still the root id - it hasn't been asked the follow-up yet.
-    follow_up_state = await service.submit_answer(interview_id, SHORT_ANSWER)
+    follow_up_state = await service.submit_answer(
+        interview_id,
+        SHORT_ANSWER,
+        (await service.get_state(interview_id)).current_turn_id,
+    )
     assert follow_up_state.history[-1]["question_id"] == root_id
 
     # Root target identity: unchanged by the follow-up.
@@ -390,7 +431,11 @@ async def test_current_question_id_contract_during_a_follow_up():
     # Second submission: answering the follow-up itself. THIS turn's own identity is the
     # follow-up's - distinct from the root id, and never what current_question_id reports,
     # even though it was the answer that resolved this same root target.
-    advanced_state = await service.submit_answer(interview_id, DETAILED_ANSWER)
+    advanced_state = await service.submit_answer(
+        interview_id,
+        DETAILED_ANSWER,
+        (await service.get_state(interview_id)).current_turn_id,
+    )
     follow_up_turn = advanced_state.history[-1]
     follow_up_id = follow_up_turn["question_id"]
     assert follow_up_id != root_id
@@ -419,7 +464,11 @@ async def test_viewing_previous_questions_does_not_corrupt_interview_state():
         assert state.asked_question_ids == ["q1"]
         assert state.history == []
 
-    after_q1 = await service.submit_answer(interview_id, DETAILED_ANSWER)
+    after_q1 = await service.submit_answer(
+        interview_id,
+        DETAILED_ANSWER,
+        (await service.get_state(interview_id)).current_turn_id,
+    )
     assert after_q1.current_question_id == "q2"
     assert after_q1.asked_question_ids == ["q1", "q2"]
 
@@ -431,7 +480,11 @@ async def test_viewing_previous_questions_does_not_corrupt_interview_state():
         assert len(state.history) == 1
         assert state.history[0]["question_id"] == "q1"
 
-    after_q2 = await service.submit_answer(interview_id, DETAILED_ANSWER)
+    after_q2 = await service.submit_answer(
+        interview_id,
+        DETAILED_ANSWER,
+        (await service.get_state(interview_id)).current_turn_id,
+    )
     assert after_q2.current_question_id == "q3"
     assert after_q2.asked_question_ids == ["q1", "q2", "q3"]
 
@@ -478,7 +531,11 @@ async def test_meaningful_evidence_gap_triggers_a_follow_up_despite_a_raw_advanc
     interview_id, initial_state = await service.start("job-1")
     original_text = initial_state.current_question_text
 
-    result = await service.submit_answer(interview_id, "I balanced two competing concerns.")
+    result = await service.submit_answer(
+        interview_id,
+        "I balanced two competing concerns.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
 
     assert result.current_question_id == "q1"  # still on q1 - a follow-up was asked
     assert result.current_question_text != original_text
@@ -504,10 +561,18 @@ async def test_same_gap_does_not_trigger_unlimited_follow_ups():
     await service.plan_repo.add(_make_plan())
     interview_id, _ = await service.start("job-1")
 
-    follow_up = await service.submit_answer(interview_id, "I balanced two competing concerns.")
+    follow_up = await service.submit_answer(
+        interview_id,
+        "I balanced two competing concerns.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
     assert follow_up.current_question_id == "q1"
 
-    advanced = await service.submit_answer(interview_id, "Still no numbers, sorry.")
+    advanced = await service.submit_answer(
+        interview_id,
+        "Still no numbers, sorry.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
     assert advanced.current_question_id == "q2"  # capped -> advanced, not a second follow-up
     assert advanced.history[-1]["evaluation"]["decision"] == "advance"
 
@@ -532,8 +597,16 @@ async def test_follow_up_is_stored_in_history_and_asked_question_ids_with_a_stab
     await service.plan_repo.add(_make_plan())
     interview_id, _ = await service.start("job-1")
 
-    await service.submit_answer(interview_id, "I balanced two competing concerns.")
-    result = await service.submit_answer(interview_id, "It was 40ms before, 12ms after.")
+    await service.submit_answer(
+        interview_id,
+        "I balanced two competing concerns.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
+    result = await service.submit_answer(
+        interview_id,
+        "It was 40ms before, 12ms after.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
 
     # Test G: the follow-up resolved and the interview genuinely advanced afterward.
     assert result.current_question_id == "q2"
@@ -572,8 +645,16 @@ async def test_regression_1_original_and_follow_up_have_different_ids():
     await service.plan_repo.add(_make_plan())
     interview_id, _ = await service.start("job-1")
 
-    await service.submit_answer(interview_id, "I balanced two competing concerns.")
-    result = await service.submit_answer(interview_id, "40ms before, 12ms after.")
+    await service.submit_answer(
+        interview_id,
+        "I balanced two competing concerns.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
+    result = await service.submit_answer(
+        interview_id,
+        "40ms before, 12ms after.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
 
     original_id, follow_up_id = (turn["question_id"] for turn in result.history)
     assert original_id == "q1"
@@ -589,8 +670,16 @@ async def test_regression_2_original_and_follow_up_are_separate_history_entries(
     await service.plan_repo.add(_make_plan())
     interview_id, _ = await service.start("job-1")
 
-    await service.submit_answer(interview_id, "I balanced two competing concerns.")
-    result = await service.submit_answer(interview_id, "40ms before, 12ms after.")
+    await service.submit_answer(
+        interview_id,
+        "I balanced two competing concerns.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
+    result = await service.submit_answer(
+        interview_id,
+        "40ms before, 12ms after.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
 
     assert len(result.history) == 2
     assert result.history[0]["answer"] == "I balanced two competing concerns."
@@ -604,8 +693,16 @@ async def test_regression_3_follow_up_history_contains_the_actual_follow_up_text
     await service.plan_repo.add(_make_plan())
     interview_id, _ = await service.start("job-1")
 
-    await service.submit_answer(interview_id, "I balanced two competing concerns.")
-    result = await service.submit_answer(interview_id, "40ms before, 12ms after.")
+    await service.submit_answer(
+        interview_id,
+        "I balanced two competing concerns.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
+    result = await service.submit_answer(
+        interview_id,
+        "40ms before, 12ms after.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
 
     assert result.history[0]["question"] == "Q1?"  # the original question, unchanged
     assert result.history[1]["question"] == follow_up_text  # not "Q1?" again
@@ -619,8 +716,16 @@ async def test_regression_4_asked_question_ids_contains_both_original_and_follow
     await service.plan_repo.add(_make_plan())
     interview_id, _ = await service.start("job-1")
 
-    await service.submit_answer(interview_id, "I balanced two competing concerns.")
-    result = await service.submit_answer(interview_id, "40ms before, 12ms after.")
+    await service.submit_answer(
+        interview_id,
+        "I balanced two competing concerns.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
+    result = await service.submit_answer(
+        interview_id,
+        "40ms before, 12ms after.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
 
     follow_up_id = result.history[1]["question_id"]
     assert "q1" in result.asked_question_ids
@@ -643,11 +748,31 @@ async def test_regression_7_completed_interview_with_follow_ups_has_no_duplicate
     interview_id, _ = await service.start("job-1")
 
     # q1 -> follow-up -> q2 -> follow-up -> q3 -> completed
-    await service.submit_answer(interview_id, "I balanced two competing concerns.")
-    await service.submit_answer(interview_id, "40ms before, 12ms after.")
-    await service.submit_answer(interview_id, "It depends on the situation.")
-    await service.submit_answer(interview_id, "Specifically, it was X because Y.")
-    finished = await service.submit_answer(interview_id, DETAILED_ANSWER)
+    await service.submit_answer(
+        interview_id,
+        "I balanced two competing concerns.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
+    await service.submit_answer(
+        interview_id,
+        "40ms before, 12ms after.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
+    await service.submit_answer(
+        interview_id,
+        "It depends on the situation.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
+    await service.submit_answer(
+        interview_id,
+        "Specifically, it was X because Y.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
+    finished = await service.submit_answer(
+        interview_id,
+        DETAILED_ANSWER,
+        (await service.get_state(interview_id)).current_turn_id,
+    )
 
     assert finished.status == InterviewStatus.COMPLETED
     history_ids = [turn["question_id"] for turn in finished.history]
@@ -662,7 +787,11 @@ async def test_regression_8_existing_no_follow_up_interview_is_unaffected():
     await service.plan_repo.add(_make_plan())
     interview_id, _ = await service.start("job-1")
 
-    result = await service.submit_answer(interview_id, DETAILED_ANSWER)
+    result = await service.submit_answer(
+        interview_id,
+        DETAILED_ANSWER,
+        (await service.get_state(interview_id)).current_turn_id,
+    )
 
     assert len(result.history) == 1
     turn = result.history[0]
@@ -688,10 +817,26 @@ async def test_interview_finishes_correctly_after_planned_questions_and_follow_u
     await service.plan_repo.add(_make_plan())
     interview_id, _ = await service.start("job-1")
 
-    await service.submit_answer(interview_id, "I balanced two competing concerns.")  # -> follow-up
-    await service.submit_answer(interview_id, "It was 40ms before, 12ms after.")  # -> q2
-    await service.submit_answer(interview_id, DETAILED_ANSWER)  # -> q3
-    finished = await service.submit_answer(interview_id, DETAILED_ANSWER)  # -> completed
+    await service.submit_answer(
+        interview_id,
+        "I balanced two competing concerns.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )  # -> follow-up
+    await service.submit_answer(
+        interview_id,
+        "It was 40ms before, 12ms after.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )  # -> q2
+    await service.submit_answer(
+        interview_id,
+        DETAILED_ANSWER,
+        (await service.get_state(interview_id)).current_turn_id,
+    )  # -> q3
+    finished = await service.submit_answer(
+        interview_id,
+        DETAILED_ANSWER,
+        (await service.get_state(interview_id)).current_turn_id,
+    )  # -> completed
 
     assert finished.status == InterviewStatus.COMPLETED
     assert finished.current_question_id is None
@@ -714,12 +859,23 @@ async def test_concurrency_still_serializes_correctly_with_a_follow_up_in_play()
     # Two concurrent submissions racing to answer q1 - only one can actually be evaluated
     # against q1 first; the lock must serialize them rather than corrupt state or crash.
     results = await asyncio.gather(
-        service.submit_answer(interview_id, "I balanced two competing concerns."),
-        service.submit_answer(interview_id, "I balanced two competing concerns."),
+        service.submit_answer(
+            interview_id,
+            "I balanced two competing concerns.",
+            (await service.get_state(interview_id)).current_turn_id,
+        ),
+        service.submit_answer(
+            interview_id,
+            "I balanced two competing concerns.",
+            (await service.get_state(interview_id)).current_turn_id,
+        ),
+        return_exceptions=True,
     )
     final = await service.get_state(interview_id)
+    assert sum(isinstance(r, StaleInterviewTurn) for r in results) == 1
+    assert len(final.history) == 1
     assert len(set(final.asked_question_ids)) == len(final.asked_question_ids)  # no duplicates
-    assert all(r.current_question_id in ("q1", "q2", None) for r in results)
+    assert all(r.current_question_id == "q1" for r in results if not isinstance(r, Exception))
 
 
 # --- evaluator context regression: a follow-up answer must be evaluated against the
@@ -737,7 +893,11 @@ async def test_regression_A_original_answer_evaluation_receives_original_questio
     await service.plan_repo.add(_make_plan())
     interview_id, _ = await service.start("job-1")
 
-    await service.submit_answer(interview_id, DETAILED_ANSWER)
+    await service.submit_answer(
+        interview_id,
+        DETAILED_ANSWER,
+        (await service.get_state(interview_id)).current_turn_id,
+    )
 
     assert len(llm.calls) == 1
     assert _question_line(llm.calls[0]) == "QUESTION: Q1?"
@@ -750,8 +910,16 @@ async def test_regression_B_follow_up_answer_evaluation_receives_follow_up_quest
     await service.plan_repo.add(_make_plan())
     interview_id, _ = await service.start("job-1")
 
-    await service.submit_answer(interview_id, "I balanced two competing concerns.")
-    await service.submit_answer(interview_id, "40ms before, 12ms after.")
+    await service.submit_answer(
+        interview_id,
+        "I balanced two competing concerns.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
+    await service.submit_answer(
+        interview_id,
+        "40ms before, 12ms after.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
 
     assert len(llm.calls) == 2
     assert _question_line(llm.calls[1]) == f"QUESTION: {follow_up_text}"
@@ -764,8 +932,16 @@ async def test_regression_C_follow_up_evaluation_does_not_receive_the_parent_que
     await service.plan_repo.add(_make_plan())
     interview_id, _ = await service.start("job-1")
 
-    await service.submit_answer(interview_id, "I balanced two competing concerns.")
-    await service.submit_answer(interview_id, "40ms before, 12ms after.")
+    await service.submit_answer(
+        interview_id,
+        "I balanced two competing concerns.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
+    await service.submit_answer(
+        interview_id,
+        "40ms before, 12ms after.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
 
     # The first call (the original turn) legitimately used the root text - only the second
     # (follow-up) call must not repeat it.
@@ -782,8 +958,16 @@ async def test_regression_D_root_question_id_is_still_preserved():
     await service.plan_repo.add(_make_plan())
     interview_id, _ = await service.start("job-1")
 
-    await service.submit_answer(interview_id, "I balanced two competing concerns.")
-    result = await service.submit_answer(interview_id, "40ms before, 12ms after.")
+    await service.submit_answer(
+        interview_id,
+        "I balanced two competing concerns.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
+    result = await service.submit_answer(
+        interview_id,
+        "40ms before, 12ms after.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
 
     original_turn, follow_up_turn = result.history
     assert original_turn.get("root_question_id") == "q1"
@@ -798,8 +982,16 @@ async def test_regression_E_history_still_has_distinct_ids_and_texts():
     await service.plan_repo.add(_make_plan())
     interview_id, _ = await service.start("job-1")
 
-    await service.submit_answer(interview_id, "I balanced two competing concerns.")
-    result = await service.submit_answer(interview_id, "40ms before, 12ms after.")
+    await service.submit_answer(
+        interview_id,
+        "I balanced two competing concerns.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
+    result = await service.submit_answer(
+        interview_id,
+        "40ms before, 12ms after.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
 
     original_turn, follow_up_turn = result.history
     assert original_turn["question_id"] != follow_up_turn["question_id"]
@@ -828,8 +1020,16 @@ async def test_regression_F_report_grouping_still_works():
     await service.plan_repo.add(plan)
     interview_id, _ = await service.start("job-1")
 
-    await service.submit_answer(interview_id, "I balanced two competing concerns.")
-    result = await service.submit_answer(interview_id, "40ms before, 12ms after.")
+    await service.submit_answer(
+        interview_id,
+        "I balanced two competing concerns.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
+    result = await service.submit_answer(
+        interview_id,
+        "40ms before, 12ms after.",
+        (await service.get_state(interview_id)).current_turn_id,
+    )
 
     evaluations = build_question_evaluations(plan, result)
     assert len(evaluations) == 1  # one summary for q1, not two
@@ -850,9 +1050,21 @@ async def test_regression_G_no_follow_up_interview_behaves_exactly_as_before():
     await service.plan_repo.add(_make_plan())
     interview_id, _ = await service.start("job-1")
 
-    await service.submit_answer(interview_id, DETAILED_ANSWER)
-    await service.submit_answer(interview_id, DETAILED_ANSWER)
-    finished = await service.submit_answer(interview_id, DETAILED_ANSWER)
+    await service.submit_answer(
+        interview_id,
+        DETAILED_ANSWER,
+        (await service.get_state(interview_id)).current_turn_id,
+    )
+    await service.submit_answer(
+        interview_id,
+        DETAILED_ANSWER,
+        (await service.get_state(interview_id)).current_turn_id,
+    )
+    finished = await service.submit_answer(
+        interview_id,
+        DETAILED_ANSWER,
+        (await service.get_state(interview_id)).current_turn_id,
+    )
 
     assert finished.status == InterviewStatus.COMPLETED
     assert [_question_line(c) for c in llm.calls] == [
@@ -872,13 +1084,25 @@ async def test_regression_H_concurrency_behavior_preserved_with_correct_evaluato
     interview_id, _ = await service.start("job-1")
 
     results = await asyncio.gather(
-        service.submit_answer(interview_id, "I balanced two competing concerns."),
-        service.submit_answer(interview_id, "40ms before, 12ms after."),
+        service.submit_answer(
+            interview_id,
+            "I balanced two competing concerns.",
+            (await service.get_state(interview_id)).current_turn_id,
+        ),
+        service.submit_answer(
+            interview_id,
+            "40ms before, 12ms after.",
+            (await service.get_state(interview_id)).current_turn_id,
+        ),
+        return_exceptions=True,
     )
     final = await service.get_state(interview_id)
+    assert sum(isinstance(r, StaleInterviewTurn) for r in results) == 1
+    assert len(final.history) == 1
     assert len(set(final.asked_question_ids)) == len(final.asked_question_ids)
-    assert all(r.current_question_id in ("q1", "q2", None) for r in results)
+    assert all(r.current_question_id == "q1" for r in results if not isinstance(r, Exception))
     # Whichever call landed on the follow-up turn, it must have used the follow-up's own text,
     # never the root's - the lock serializes execution, so exactly one of the two scripted
     # calls corresponds to the follow-up and must show the correct context.
-    assert any(_question_line(c) == f"QUESTION: {follow_up_text}" for c in llm.calls)
+    await service.submit_answer(interview_id, "40ms before, 12ms after.", final.current_turn_id)
+    assert _question_line(llm.calls[-1]) == f"QUESTION: {follow_up_text}"

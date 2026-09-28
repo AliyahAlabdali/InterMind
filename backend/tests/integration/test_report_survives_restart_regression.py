@@ -27,7 +27,7 @@ from httpx import ASGITransport, AsyncClient
 from app.api.deps import get_onet_kb
 from app.domain.interview import InterviewStatus
 from app.knowledge.onet_kb import OnetKnowledgeBase
-from tests.conftest import FIXTURES, recruiter_credentials
+from tests.conftest import FIXTURES, answer_payload, recruiter_credentials
 
 FIXTURE_KB_PATH = FIXTURES / "onet_kb_fixture.jsonl"
 JD = "Backend Software Engineer\nPython and Git experience required. Critical thinking a must."
@@ -77,7 +77,12 @@ async def _completed_interview(client) -> tuple[str, str]:
         if state.get("status") == InterviewStatus.COMPLETED.value:
             break
         response = await client.post(
-            f"/interviews/{interview_id}/answers", json={"answer": answer}, headers=headers
+            f"/interviews/{interview_id}/answers", json=await answer_payload(
+                client,
+                f"/interviews/{interview_id}/answers",
+                {"answer": answer},
+                headers,
+            ), headers=headers
         )
         assert response.status_code == 200, response.text
         state = response.json()
@@ -132,35 +137,24 @@ async def test_the_candidate_table_still_shows_a_completed_interview_after_a_res
     assert row["recommendation"] is not None
 
 
-async def test_an_interview_with_no_report_and_no_state_is_not_claimed_to_be_complete(
-    app, recruiter
-):
-    """The fallback must not over-claim: without a stored report there is nothing durable
-    saying the interview finished, so it still lists as not started rather than complete."""
+async def test_active_interview_is_not_claimed_complete_after_cache_loss(app, recruiter):
+    """Cache loss preserves the active snapshot without claiming completion."""
     job_id = (await recruiter.post("/jobs", json={"job_description": JD})).json()["id"]
     await recruiter.post(f"/jobs/{job_id}/interview-plan")
     started = (await recruiter.post("/interviews", json={"job_id": job_id})).json()
-
     _forget_graph_state(app)
-
     listing = await recruiter.get(f"/jobs/{job_id}/interviews")
-
-    row = next(
-        r for r in listing.json() if r["interview_id"] == started["interview_id"]
-    )
-    assert row["status"] == InterviewStatus.NOT_STARTED.value
+    row = next(r for r in listing.json() if r["interview_id"] == started["interview_id"])
+    assert row["status"] == InterviewStatus.IN_PROGRESS.value
     assert row["overall_score"] is None
 
 
 async def test_an_unfinished_interview_still_reports_409_rather_than_a_report(app, recruiter):
-    """The completion gate is unchanged for the normal path: no stored report means the graph
-    is still the authority, and an in-progress interview has no report to serve."""
+    """The completion gate still rejects a report for an active interview."""
     job_id = (await recruiter.post("/jobs", json={"job_description": JD})).json()["id"]
     await recruiter.post(f"/jobs/{job_id}/interview-plan")
     started = (await recruiter.post("/interviews", json={"job_id": job_id})).json()
-
     response = await recruiter.get(f"/interviews/{started['interview_id']}/report")
-
     assert response.status_code == 409
 
 

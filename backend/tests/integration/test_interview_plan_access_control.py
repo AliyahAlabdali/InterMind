@@ -24,7 +24,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.api.deps import get_onet_kb
 from app.knowledge.onet_kb import OnetKnowledgeBase
-from tests.conftest import FIXTURES, recruiter_credentials
+from tests.conftest import FIXTURES, answer_payload, recruiter_credentials
 
 FIXTURE_KB_PATH = FIXTURES / "onet_kb_fixture.jsonl"
 JD_A = "Backend Software Engineer\nPython and Git experience required. Critical thinking a must."
@@ -232,7 +232,12 @@ async def test_the_candidate_interview_flow_still_works_end_to_end(tenants, anon
     plan = await anonymous.get(f"/jobs/{a.job_id}/interview-plan", headers=headers)
     answer = await anonymous.post(
         f"/interviews/{a.interview_id}/answers",
-        json={"answer": "I built a Python service and versioned every schema migration."},
+        json=await answer_payload(
+            anonymous,
+            f"/interviews/{a.interview_id}/answers",
+            {"answer": "I built a Python service and versioned every schema migration."},
+            headers,
+        ),
         headers=headers,
     )
 

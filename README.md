@@ -73,7 +73,7 @@ what InterMind understood, before anything is built on top of it.
   supporting evidence, requirement assessments and a generated narrative.
 - **Persistent application records.** PostgreSQL stores recruiter accounts, jobs, plans, candidate
   and interview records, generated reports and activity entries. In-memory repositories support
-  credential-free local development; live interview graph state remains in memory.
+  credential-free local development; accepted interview state is durable when PostgreSQL is configured.
 
 ## How the adaptive interview works
 
@@ -264,7 +264,7 @@ Run the checks from their indicated directories; test totals are intentionally n
 | Frontend lint | `frontend/` | `npm run lint` |
 | Frontend build | `frontend/` | `npm run build` |
 
-Backend API tests use in-memory repositories and a fake LLM. Coverage includes the interview graph,
+Most backend API tests use in-memory repositories and a fake LLM. The durable-interview suite initializes its own local PostgreSQL cluster to test migrations, recovery and row locking; it never uses a configured database. Coverage includes the interview graph,
 scoring, access control and tenant isolation. Frontend tests cover UI flows, Speech integration
 behavior and legal-route scrolling. These suites do not establish live PostgreSQL, model-provider
 or Azure Speech availability; provider interactions are mocked.
@@ -273,10 +273,19 @@ or Azure Speech availability; provider interactions are mocked.
 
 InterMind currently focuses on the core autonomous interview workflow. A few areas could be strengthened further:
 
-- **Session recovery:** Active interview progress and recruiter sessions are kept in memory. If the backend restarts, users may need to sign in again and an active interview would need to be restarted.
+- **Session recovery:** Accepted answers, evaluations, progress, pending turns and completion are saved in PostgreSQL before success is returned. Active interviews resume from their last accepted turn after restart. Recruiter sessions remain in memory, so recruiters must sign in again. An unsent browser draft is not stored by the backend.
 - **Report saving:** Generated reports are stored in PostgreSQL and remain available after restarts. Reports are currently created when interview results are first accessed, rather than immediately when the interview ends.
-- **Account features:** Recruiters have separate, protected workspaces. Features such as password recovery, email verification, shared team workspaces, and login rate limiting are not currently included.
-- **Database testing:** The automated test suite covers the application extensively, but PostgreSQL repositories and migrations are not yet tested against a live PostgreSQL instance.
+- **Account features:** Recruiters have separate, protected workspaces. Features such as password recovery, email verification, and shared team workspaces are not currently included. Sign-in has a deployment-wide rate limit, rather than a per-visitor limit.
+- **Database testing:** The durable-interview suite tests an additive migration, snapshot transactions, recovery and concurrency against an isolated local PostgreSQL cluster. It does not connect to the deployed database.
+
+### Interview durability and Speech credential limits
+
+Apply the new Alembic revision (`f3a821d9c604`) before running this backend: from `backend/`, run `python -m alembic upgrade head` in the deployment environment. It adds a nullable JSONB snapshot to interview sessions. Existing reports remain readable; old sessions whose graph evidence was already lost cannot be reconstructed by a migration.
+
+Answer requests include the exact `turn_id` shown by the server. Stale or duplicate submissions receive HTTP 412 without consuming another question; completed interviews receive 409. PostgreSQL serializes turn acceptance and report generation. A crash before a report is stored can require repeating its narrative call; cached reports are reused.
+
+Speech issuance requires a recoverable active interview, fails closed for unavailable state, and rejects completion. Issuance budgets do **not** cap audio or character consumption after a credential is issued. Browser credentials authorize direct Azure Speech calls, independently of InterMind's candidate token. Key-exchanged credentials are valid for ten minutes; managed-identity credentials follow their actual Entra expiry, which the API uses for its renewal hint. An issued credential can remain usable after interview completion. Hard consumption quotas would require a different provider boundary; no such guarantee is claimed here.
+
 
 ## Documentation
 

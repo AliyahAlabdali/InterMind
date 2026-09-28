@@ -172,16 +172,29 @@ async def _get_or_generate_report(
     plan_repo: InterviewPlanRepository,
     report_repo: InterviewReportRepository,
     report_service: ReportGenerationService,
+    request: Request | None = None,
+    recruiter_id: str = "",
 ) -> InterviewReport:
-    try:
-        return await report_repo.get(interview_id)
-    except InterviewReportNotFound:
-        pass
-
-    state = await session_service.get_state(interview_id)
-    plan = await plan_repo.get(state.job_id)
-    report = await report_service.generate(interview_id=interview_id, plan=plan, state=state)
-    return await report_repo.add(report)
+    # Same session row lock as answer acceptance: one cache miss may generate at a time,
+    # including across processes. A process crash before storing may require regeneration.
+    async with session_service.locks.lock_for(interview_id):
+        async with session_service.session_repo.locked(interview_id):
+            try:
+                return await report_repo.get(interview_id)
+            except InterviewReportNotFound:
+                pass
+            state = await session_service.get_state(interview_id)
+            if state.status != InterviewStatus.COMPLETED:
+                raise InterviewNotCompleted(interview_id)
+            if request is not None:
+                limit_report(request, recruiter_id)
+            plan = await plan_repo.get(state.job_id)
+            report = await report_service.generate(
+                interview_id=interview_id,
+                plan=plan,
+                state=state,
+            )
+            return await report_repo.add(report)
 
 
 @router.post(
@@ -261,7 +274,7 @@ async def submit_answer(
     # The answer itself is already size-bounded by SubmitAnswerRequest.
     limit_answer(request, interview_id)
 
-    state = await service.submit_answer(interview_id, payload.answer)
+    state = await service.submit_answer(interview_id, payload.answer, payload.turn_id)
     candidate = await _get_candidate_for_session(session_repo, candidate_repo, interview_id)
     await _record_answer_activity(
         activity_repo=activity_repo,
@@ -323,11 +336,8 @@ async def get_interview_report(
     # reported as not found, exactly like an unknown id.
     await session_repo.get_for_recruiter(interview_id, recruiter_id)
 
-    # A stored report is itself durable proof that this interview completed - one is only ever
-    # written after the completion gate below. Serving it before consulting the graph is what
-    # keeps a finished interview's report readable across a restart: LangGraph checkpoints to an
-    # in-memory saver, so after one its `aget_state` has nothing for this thread id and the gate
-    # used to raise InterviewStateUnavailable (500) even when PostgreSQL still held the report.
+    # Stored reports remain readable even for legacy sessions without a durable snapshot.
+    # Ownership was checked above, before either cached data or completion is consulted.
     try:
         return await report_repo.get(interview_id)
     except InterviewReportNotFound:
@@ -339,14 +349,14 @@ async def get_interview_report(
 
     # Only the cache-miss path is budgeted. A stored report is returned above without ever
     # reaching here, so re-reading a report a recruiter already generated is never limited.
-    limit_report(request, recruiter_id)
-
     return await _get_or_generate_report(
         interview_id=interview_id,
         session_service=session_service,
         plan_repo=plan_repo,
         report_repo=report_repo,
         report_service=report_service,
+        request=request,
+        recruiter_id=recruiter_id,
     )
 
 
@@ -387,10 +397,8 @@ async def list_job_interviews(
     for session in sessions:
         candidate = await _get_candidate_for_session(session_repo, candidate_repo, session.id)
 
-        # An interview's *record* is durable (PostgreSQL) but its live graph state is not: the
-        # LangGraph checkpointer is in-memory, so a restart leaves rows whose state is gone.
-        # One such session must not take down the whole candidate table - the recruiter still
-        # needs to see who was invited. It is listed with its last durable status instead.
+        # A migrated legacy session may have neither a durable snapshot nor recoverable
+        # evidence. Keep the candidate table readable without fabricating completion.
         stored_report: InterviewReport | None = None
         try:
             status = (await session_service.get_state(session.id)).status
@@ -428,21 +436,18 @@ async def list_job_interviews(
             # arriving on a later load. Returning 429 for the whole listing would let one job
             # with many freshly completed interviews take down the candidate table.
             try:
-                limit_report(request, recruiter_id)
-            except RateLimitExceeded:
-                logger.info(
-                    "report_generation_budget_exhausted interview_id=%s - listing without a "
-                    "score",
-                    session.id,
-                )
-            else:
                 report = await _get_or_generate_report(
                     interview_id=session.id,
                     session_service=session_service,
                     plan_repo=plan_repo,
                     report_repo=report_repo,
                     report_service=report_service,
+                    request=request,
+                    recruiter_id=recruiter_id,
                 )
+            except RateLimitExceeded:
+                logger.info("report_generation_budget_exhausted interview_id=%s", session.id)
+            else:
                 overall_score = report.overall_score
                 recommendation = report.recommendation
 

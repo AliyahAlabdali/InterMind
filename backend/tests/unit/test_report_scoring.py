@@ -523,32 +523,17 @@ def test_scoring_is_unaffected_by_unassessed_required_targets():
 
 
 def test_competency_score_is_mean_of_its_questions():
-    plan = _plan(
-        [
-            _question("q1", QuestionCategory.TECHNOLOGY, "Python"),
-            _question("q2", QuestionCategory.TECHNOLOGY, "Python"),
+    from app.domain.report import QuestionEvaluationSummary
+    evaluations = [
+        QuestionEvaluationSummary(
+            question_id=question_id, target_id="python", target="Python", question="Q?",
+            candidate_answer="A", category=QuestionCategory.TECHNOLOGY,
+            score=score, strengths=[strength], evidence=[evidence],
+        )
+        for question_id, score, strength, evidence in [
+            ("q1", .6, "s1", "e1"), ("q2", 1.0, "s2", "e2"),
         ]
-    )
-    state = InterviewState(
-        job_id="job-1",
-        status=InterviewStatus.COMPLETED,
-        asked_question_ids=["q1", "q2"],
-        history=[
-            {
-                "question_id": "q1",
-                "question": "Q1?",
-                "answer": "a1",
-                "evaluation": _evaluation(0.6, "advance", strengths=["s1"], evidence=["e1"]),
-            },
-            {
-                "question_id": "q2",
-                "question": "Q2?",
-                "answer": "a2",
-                "evaluation": _evaluation(1.0, "advance", strengths=["s2"], evidence=["e2"]),
-            },
-        ],
-    )
-    evaluations = build_question_evaluations(plan, state)
+    ]
     competencies = build_competency_assessments(evaluations)
     assert len(competencies) == 1
     assert competencies[0].name == "Python"

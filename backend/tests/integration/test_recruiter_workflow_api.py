@@ -13,7 +13,7 @@ import pytest
 
 from app.api.deps import get_onet_kb
 from app.knowledge.onet_kb import OnetKnowledgeBase
-from tests.conftest import FIXTURES
+from tests.conftest import FIXTURES, answer_payload
 
 FIXTURE_KB_PATH = FIXTURES / "onet_kb_fixture.jsonl"
 
@@ -97,11 +97,21 @@ async def test_dashboard_shows_correct_status_counts(client):
     completed_id = await _start_candidate(client, job_id, "Ahmed Ali", "ahmed@example.com")
 
     await client.post(
-        f"/interviews/{in_progress_id}/answers", json={"answer": DETAILED_ANSWER}
+        f"/interviews/{in_progress_id}/answers", json=await answer_payload(
+            client,
+            f"/interviews/{in_progress_id}/answers",
+            {"answer": DETAILED_ANSWER},
+            None,
+        )
     )
     for _ in question_ids:
         await client.post(
-            f"/interviews/{completed_id}/answers", json={"answer": DETAILED_ANSWER}
+            f"/interviews/{completed_id}/answers", json=await answer_payload(
+                client,
+                f"/interviews/{completed_id}/answers",
+                {"answer": DETAILED_ANSWER},
+                None,
+            )
         )
 
     body = (await client.get(f"/jobs/{job_id}/interviews")).json()
@@ -117,7 +127,12 @@ async def test_recruiter_can_directly_access_a_completed_candidates_report(clien
     interview_id = await _start_candidate(client, job_id, "Ahmed Ali", "ahmed@example.com")
     for _ in question_ids:
         resp = await client.post(
-            f"/interviews/{interview_id}/answers", json={"answer": DETAILED_ANSWER}
+            f"/interviews/{interview_id}/answers", json=await answer_payload(
+                client,
+                f"/interviews/{interview_id}/answers",
+                {"answer": DETAILED_ANSWER},
+                None,
+            )
         )
     assert resp.json()["finished"] is True
 
@@ -209,7 +224,12 @@ async def test_candidate_facing_endpoints_never_expose_recruiter_only_fields(cli
 
     answer_body = (
         await client.post(
-            f"/interviews/{interview_id}/answers", json={"answer": DETAILED_ANSWER}
+            f"/interviews/{interview_id}/answers", json=await answer_payload(
+                client,
+                f"/interviews/{interview_id}/answers",
+                {"answer": DETAILED_ANSWER},
+                None,
+            )
         )
     ).json()
     assert forbidden_keys.isdisjoint(answer_body.keys())

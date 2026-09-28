@@ -130,8 +130,6 @@ This is account sign-in, not an identity platform. It does **not** provide:
 - MFA, SSO, or OAuth
 - per-recruiter audit trails beyond the activity feed
 - persistent sessions across restarts or across processes
-- **rate limiting on the login endpoint.** There is currently no throttling of password guesses.
-  scrypt makes each attempt cost real CPU, which is a meaningful brake but is not brute-force
-  protection. Do not describe the endpoint as protected against brute force.
+- **Per-visitor login throttling.** Sign-in has a deployment-wide admission limit, which is not a per-client brute-force defense. Its counters reset on process restart.
 
 Each of those is future production work, not a gap in the current milestone's stated scope.

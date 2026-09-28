@@ -21,6 +21,7 @@ export interface InterviewState {
   status: InterviewStatus
   finished: boolean
   turn_index: number
+  current_turn_id: string | null
   current_question_id: string | null
   current_question_text: string | null
   current_question_is_follow_up: boolean

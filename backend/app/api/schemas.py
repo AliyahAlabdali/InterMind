@@ -137,6 +137,7 @@ class StartInterviewRequest(BaseModel):
 
 
 class SubmitAnswerRequest(BaseModel):
+    turn_id: str = Field(min_length=32, max_length=32, pattern=r"^[0-9a-f]{32}$")
     answer: str = Field(
         min_length=1,
         max_length=MAX_ANSWER_CHARS,
@@ -182,6 +183,7 @@ class InterviewResponse(BaseModel):
     status: InterviewStatus
     finished: bool
     turn_index: int
+    current_turn_id: str | None
     current_question_id: str | None = Field(
         description=(
             "The current TARGET's id - stable across a follow-up (never repointed to the "
@@ -261,6 +263,7 @@ class InterviewResponse(BaseModel):
             status=state.status,
             finished=state.status == InterviewStatus.COMPLETED,
             turn_index=state.turn_index,
+            current_turn_id=state.current_turn_id,
             current_question_id=state.current_question_id,
             current_question_text=state.current_question_text,
             current_question_is_follow_up=is_follow_up,

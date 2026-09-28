@@ -177,15 +177,18 @@ def build_competency_assessments(
 
     A target is normally backed by exactly one question (``InterviewPlannerService`` asks one
     question per selected competency/technology/task), but this aggregates correctly even if
-    more than one question ever targets the same name. ``score`` is the mean of that target's
-    scored questions, or ``None`` if none were scored - never guessed.
+    more than one question ever targets the same stable identity/category. ``score`` is the
+    mean of that target's scored questions, or ``None`` if none were scored - never guessed.
     """
-    by_target: OrderedDict[str, list[QuestionEvaluationSummary]] = OrderedDict()
+    by_target: OrderedDict[tuple, list[QuestionEvaluationSummary]] = OrderedDict()
     for qe in question_evaluations:
-        by_target.setdefault(qe.target, []).append(qe)
+        # Category is part of identity. Legacy summaries lacking target_id use the name
+        # within that category, preserving aggregation without merging different categories.
+        key = (qe.category, qe.target_id or qe.target)
+        by_target.setdefault(key, []).append(qe)
 
     assessments: list[CompetencyAssessment] = []
-    for target, evaluations in by_target.items():
+    for evaluations in by_target.values():
         scored = [e.score for e in evaluations if e.score is not None]
         score = round(sum(scored) / len(scored), _SCORE_DECIMALS) if scored else None
 
@@ -198,7 +201,7 @@ def build_competency_assessments(
         )
         assessments.append(
             CompetencyAssessment(
-                name=target,
+                name=evaluations[0].target,
                 category=evaluations[0].category,
                 score=score,
                 evidence_type=evidence_type,

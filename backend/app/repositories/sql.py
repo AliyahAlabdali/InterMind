@@ -17,6 +17,8 @@ Two rules hold throughout:
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -171,6 +173,22 @@ class SqlCandidateRepository(_SessionScoped):
 
 
 class SqlInterviewSessionRepository(_SessionScoped):
+    @asynccontextmanager
+    async def locked(self, interview_id: str):
+        async with self._sessions() as session, session.begin():
+            # NO KEY UPDATE serializes snapshot writers but permits the KEY SHARE lock
+            # acquired by a report's foreign-key insert in its own transaction.
+            row = await session.scalar(
+                select(InterviewSessionRow)
+                .where(InterviewSessionRow.id == interview_id)
+                .with_for_update(key_share=True)
+            )
+            if row is None:
+                raise InterviewNotFound(interview_id)
+            record = _interview_session(row)
+            yield record
+            row.runtime_snapshot = record.runtime_snapshot
+
     async def add(self, session_record: InterviewSession) -> InterviewSession:
         async with self._sessions() as session:
             session.add(
@@ -179,6 +197,7 @@ class SqlInterviewSessionRepository(_SessionScoped):
                     job_id=session_record.job_id,
                     candidate_id=session_record.candidate_id or "",
                     access_token=session_record.access_token,
+                    runtime_snapshot=session_record.runtime_snapshot,
                     created_at=session_record.created_at,
                 )
             )
@@ -310,5 +329,6 @@ def _interview_session(row: InterviewSessionRow) -> InterviewSession:
         job_id=row.job_id,
         candidate_id=row.candidate_id,
         access_token=row.access_token,
+        runtime_snapshot=row.runtime_snapshot,
         created_at=row.created_at,
     )

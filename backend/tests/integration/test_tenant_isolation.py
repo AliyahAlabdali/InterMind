@@ -22,7 +22,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.api.deps import get_onet_kb
 from app.knowledge.onet_kb import OnetKnowledgeBase
-from tests.conftest import FIXTURES, recruiter_credentials
+from tests.conftest import FIXTURES, answer_payload, recruiter_credentials
 
 FIXTURE_KB_PATH = FIXTURES / "onet_kb_fixture.jsonl"
 JD_A = "Backend Software Engineer\nPython and Git experience required. Critical thinking a must."
@@ -91,12 +91,22 @@ async def test_the_activity_feed_shows_only_the_recruiters_own_interviews(tenant
     # Give both feeds something to carry.
     await a.client.post(
         f"/interviews/{a.interview_id}/answers",
-        json={"answer": "I built a Python service and versioned every schema migration."},
+        json=await answer_payload(
+            a.client,
+            f"/interviews/{a.interview_id}/answers",
+            {"answer": "I built a Python service and versioned every schema migration."},
+            {"Authorization": f"Bearer {a.candidate_token}"},
+        ),
         headers={"Authorization": f"Bearer {a.candidate_token}"},
     )
     await b.client.post(
         f"/interviews/{b.interview_id}/answers",
-        json={"answer": "I built SQL pipelines and tuned the slow queries."},
+        json=await answer_payload(
+            b.client,
+            f"/interviews/{b.interview_id}/answers",
+            {"answer": "I built SQL pipelines and tuned the slow queries."},
+            {"Authorization": f"Bearer {b.candidate_token}"},
+        ),
         headers={"Authorization": f"Bearer {b.candidate_token}"},
     )
 
@@ -161,7 +171,12 @@ async def test_a_recruiter_cannot_answer_into_the_others_interview(tenants):
     a, b = tenants
 
     response = await b.client.post(
-        f"/interviews/{a.interview_id}/answers", json={"answer": "not mine to give"}
+        f"/interviews/{a.interview_id}/answers", json=await answer_payload(
+            b.client,
+            f"/interviews/{a.interview_id}/answers",
+            {"answer": "not mine to give"},
+            None,
+        )
     )
 
     assert response.status_code == 404

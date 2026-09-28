@@ -131,9 +131,8 @@ class CandidateRow(Base):
 class InterviewSessionRow(Base):
     """One candidate's interview. ``access_token`` is the candidate's own credential.
 
-    The interview's *progress* still lives in the LangGraph checkpointer, which is unchanged and
-    remains in-memory: this row is the durable record that the interview exists, which job it
-    belongs to, and who may open it.
+    ``runtime_snapshot`` stores the accepted graph state and pending turn. LangGraph's
+    checkpointer is a disposable execution cache; accepted evidence lives in this row.
     """
 
     __tablename__ = "interview_sessions"
@@ -145,6 +144,7 @@ class InterviewSessionRow(Base):
     candidate_id: Mapped[str] = mapped_column(IdStr, nullable=False, default="")
     #: Opaque per-interview candidate credential. Indexed only by id; never looked up by token.
     access_token: Mapped[str] = mapped_column(String(64), nullable=False)
+    runtime_snapshot: Mapped[dict | None] = mapped_column(JsonDoc, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
     )

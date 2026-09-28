@@ -25,6 +25,7 @@ export function useSpeechOutput(context?: SpeechOutputContext) {
   const [level, setLevel] = useState(0)
   const sessionRef = useRef<SpeechOutputSession | null>(null)
   const watchdogRef = useRef(0)
+  const generationRef = useRef(0)
 
   // Read through a ref so `speak` keeps a stable identity: it is an effect dependency in the
   // interview screen, and a new function on every render would re-speak the same question.
@@ -50,6 +51,7 @@ export function useSpeechOutput(context?: SpeechOutputContext) {
   }, [clearWatchdog])
 
   const cancel = useCallback(() => {
+    generationRef.current += 1
     sessionRef.current?.cancel()
     settle()
   }, [settle])
@@ -58,12 +60,13 @@ export function useSpeechOutput(context?: SpeechOutputContext) {
     (text: string) => {
       if (!text.trim() || !speechOutput.isSupported()) return
       sessionRef.current?.cancel()
+      const generation = ++generationRef.current
       clearWatchdog()
       setIsSpeaking(true)
 
       // Cleared by `onStart`. If nothing ever starts - the silent-drop case - this is what
       // releases the UI instead of leaving it speaking forever.
-      watchdogRef.current = window.setTimeout(settle, START_TIMEOUT_MS)
+      watchdogRef.current = window.setTimeout(cancel, START_TIMEOUT_MS)
 
       // Narration is an enhancement, and this is called from a render effect: a provider that
       // throws synchronously would unmount the interview screen and take the question with it.
@@ -72,10 +75,10 @@ export function useSpeechOutput(context?: SpeechOutputContext) {
         sessionRef.current = speechOutput.speak(
           text,
           {
-            onStart: clearWatchdog,
-            onEnd: settle,
-            onError: settle,
-            onLevel: setLevel,
+            onStart: () => { if (generationRef.current === generation) clearWatchdog() },
+            onEnd: () => { if (generationRef.current === generation) settle() },
+            onError: () => { if (generationRef.current === generation) settle() },
+            onLevel: (value) => { if (generationRef.current === generation) setLevel(value) },
           },
           contextRef.current,
         )
@@ -83,13 +86,15 @@ export function useSpeechOutput(context?: SpeechOutputContext) {
         settle()
       }
     },
-    [clearWatchdog, settle],
+    [cancel, clearWatchdog, settle],
   )
 
   // Never let a question keep talking after the candidate has navigated away.
   useEffect(
     () => () => {
+      generationRef.current += 1
       if (watchdogRef.current) window.clearTimeout(watchdogRef.current)
+      sessionRef.current?.cancel()
       speechOutput.cancelAll()
     },
     [],

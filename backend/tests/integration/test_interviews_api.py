@@ -8,7 +8,7 @@ from app.domain.interview_plan import GeneratedQuestion, GeneratedQuestionSet
 from app.knowledge.onet_kb import OnetKnowledgeBase
 from app.llm.fake_client import FakeLLMClient
 from app.repositories.ports import InterviewSession
-from tests.conftest import FIXTURES
+from tests.conftest import FIXTURES, answer_payload
 
 FIXTURE_KB_PATH = FIXTURES / "onet_kb_fixture.jsonl"
 
@@ -69,7 +69,12 @@ async def test_short_answer_triggers_one_follow_up_then_advances(client):
     interview_id = start.json()["interview_id"]
 
     follow_up = await client.post(
-        f"/interviews/{interview_id}/answers", json={"answer": SHORT_ANSWER}
+        f"/interviews/{interview_id}/answers", json=await answer_payload(
+            client,
+            f"/interviews/{interview_id}/answers",
+            {"answer": SHORT_ANSWER},
+            None,
+        )
     )
     assert follow_up.status_code == 200
     follow_up_body = follow_up.json()
@@ -77,7 +82,12 @@ async def test_short_answer_triggers_one_follow_up_then_advances(client):
     assert follow_up_body["current_question_is_follow_up"] is True
 
     advanced = await client.post(
-        f"/interviews/{interview_id}/answers", json={"answer": DETAILED_ANSWER}
+        f"/interviews/{interview_id}/answers", json=await answer_payload(
+            client,
+            f"/interviews/{interview_id}/answers",
+            {"answer": DETAILED_ANSWER},
+            None,
+        )
     )
     assert advanced.status_code == 200
     advanced_body = advanced.json()
@@ -93,9 +103,19 @@ async def test_regression_5_api_response_history_contains_both_turns_correctly(c
     start = await client.post("/interviews", json={"job_id": job_id})
     interview_id = start.json()["interview_id"]
 
-    await client.post(f"/interviews/{interview_id}/answers", json={"answer": SHORT_ANSWER})
+    await client.post(f"/interviews/{interview_id}/answers", json=await answer_payload(
+        client,
+        f"/interviews/{interview_id}/answers",
+        {"answer": SHORT_ANSWER},
+        None,
+    ))
     advanced = await client.post(
-        f"/interviews/{interview_id}/answers", json={"answer": DETAILED_ANSWER}
+        f"/interviews/{interview_id}/answers", json=await answer_payload(
+            client,
+            f"/interviews/{interview_id}/answers",
+            {"answer": DETAILED_ANSWER},
+            None,
+        )
     )
     body = advanced.json()
 
@@ -122,7 +142,12 @@ async def test_detailed_answers_complete_the_interview(client):
     body = start.json()
     for _ in question_ids:
         resp = await client.post(
-            f"/interviews/{interview_id}/answers", json={"answer": DETAILED_ANSWER}
+            f"/interviews/{interview_id}/answers", json=await answer_payload(
+                client,
+                f"/interviews/{interview_id}/answers",
+                {"answer": DETAILED_ANSWER},
+                None,
+            )
         )
         assert resp.status_code == 200
         body = resp.json()
@@ -143,12 +168,22 @@ async def test_two_short_answers_advance_after_one_follow_up(client):
     interview_id = start.json()["interview_id"]
 
     first = await client.post(
-        f"/interviews/{interview_id}/answers", json={"answer": SHORT_ANSWER}
+        f"/interviews/{interview_id}/answers", json=await answer_payload(
+            client,
+            f"/interviews/{interview_id}/answers",
+            {"answer": SHORT_ANSWER},
+            None,
+        )
     )
     assert first.json()["current_question_id"] == question_ids[0]
 
     second = await client.post(
-        f"/interviews/{interview_id}/answers", json={"answer": SHORT_ANSWER}
+        f"/interviews/{interview_id}/answers", json=await answer_payload(
+            client,
+            f"/interviews/{interview_id}/answers",
+            {"answer": SHORT_ANSWER},
+            None,
+        )
     )
     second_body = second.json()
     # Only one follow-up is allowed per question; a second weak answer still advances - to a
@@ -163,7 +198,12 @@ async def test_get_unknown_interview_returns_404(client):
 
 
 async def test_submit_answer_to_unknown_interview_returns_404(client):
-    resp = await client.post("/interviews/does-not-exist/answers", json={"answer": "hi"})
+    resp = await client.post("/interviews/does-not-exist/answers", json=await answer_payload(
+        client,
+        "/interviews/does-not-exist/answers",
+        {"answer": "hi"},
+        None,
+    ))
     assert resp.status_code == 404
 
 
@@ -174,12 +214,22 @@ async def test_submit_answer_after_completion_returns_409(client):
 
     for _ in question_ids:
         resp = await client.post(
-            f"/interviews/{interview_id}/answers", json={"answer": DETAILED_ANSWER}
+            f"/interviews/{interview_id}/answers", json=await answer_payload(
+                client,
+                f"/interviews/{interview_id}/answers",
+                {"answer": DETAILED_ANSWER},
+                None,
+            )
         )
     assert resp.json()["finished"] is True
 
     again = await client.post(
-        f"/interviews/{interview_id}/answers", json={"answer": DETAILED_ANSWER}
+        f"/interviews/{interview_id}/answers", json=await answer_payload(
+            client,
+            f"/interviews/{interview_id}/answers",
+            {"answer": DETAILED_ANSWER},
+            None,
+        )
     )
     assert again.status_code == 409
 
@@ -190,46 +240,56 @@ async def test_whitespace_only_answer_rejected_with_422(client, blank):
     start = await client.post("/interviews", json={"job_id": job_id})
     interview_id = start.json()["interview_id"]
 
-    resp = await client.post(f"/interviews/{interview_id}/answers", json={"answer": blank})
+    resp = await client.post(f"/interviews/{interview_id}/answers", json=await answer_payload(
+        client,
+        f"/interviews/{interview_id}/answers",
+        {"answer": blank},
+        None,
+    ))
     assert resp.status_code == 422
 
 
-async def test_duplicate_sequential_submission_does_not_crash(client):
+async def test_duplicate_and_stale_submission_never_answers_next_question(client):
     job_id, question_ids = await _create_job_with_plan(client)
-    start = await client.post("/interviews", json={"job_id": job_id})
-    interview_id = start.json()["interview_id"]
-
-    first = await client.post(
-        f"/interviews/{interview_id}/answers", json={"answer": DETAILED_ANSWER}
-    )
+    start = (await client.post("/interviews", json={"job_id": job_id})).json()
+    iid = start["interview_id"]
+    original = {"answer": DETAILED_ANSWER, "turn_id": start["current_turn_id"]}
+    first = await client.post(f"/interviews/{iid}/answers", json=original)
     assert first.status_code == 200
     assert first.json()["current_question_id"] == question_ids[1]
+    for answer in (DETAILED_ANSWER, "A different stale answer"):
+        stale = await client.post(f"/interviews/{iid}/answers", json={**original, "answer": answer})
+        assert stale.status_code == 412
+    assert len((await client.get(f"/interviews/{iid}")).json()["history"]) == 1
+    next_answer = await client.post(f"/interviews/{iid}/answers", json={
+        "answer": DETAILED_ANSWER, "turn_id": first.json()["current_turn_id"],
+    })
+    assert next_answer.status_code == 200
+    assert next_answer.json()["current_question_id"] == question_ids[2]
 
-    # A duplicate/retried submission is simply treated as the answer to the now-current
-    # question - it must not crash or corrupt state.
-    second = await client.post(
-        f"/interviews/{interview_id}/answers", json={"answer": DETAILED_ANSWER}
-    )
-    assert second.status_code == 200
-    assert second.json()["current_question_id"] == question_ids[2]
-    assert second.json()["asked_question_ids"] == question_ids[:3]
+
+async def test_missing_turn_identity_is_rejected(client):
+    job_id, _ = await _create_job_with_plan(client)
+    start = (await client.post("/interviews", json={"job_id": job_id})).json()
+    response = await client.post(f"/interviews/{start['interview_id']}/answers",
+                                 json={"answer": DETAILED_ANSWER})
+    assert response.status_code == 422
+    assert (await client.get(f"/interviews/{start['interview_id']}")).json()["history"] == []
 
 
-async def test_concurrent_submissions_over_http_do_not_corrupt_state(client):
+async def test_concurrent_submissions_over_http_reject_duplicate(client):
     job_id, question_ids = await _create_job_with_plan(client)
-    start = await client.post("/interviews", json={"job_id": job_id})
-    interview_id = start.json()["interview_id"]
-
+    start = (await client.post("/interviews", json={"job_id": job_id})).json()
+    iid = start["interview_id"]
+    payload = {"answer": DETAILED_ANSWER, "turn_id": start["current_turn_id"]}
     responses = await asyncio.gather(
-        client.post(f"/interviews/{interview_id}/answers", json={"answer": DETAILED_ANSWER}),
-        client.post(f"/interviews/{interview_id}/answers", json={"answer": DETAILED_ANSWER}),
+        client.post(f"/interviews/{iid}/answers", json=payload),
+        client.post(f"/interviews/{iid}/answers", json=payload),
     )
-    assert all(r.status_code == 200 for r in responses)
-
-    final = await client.get(f"/interviews/{interview_id}")
-    asked = final.json()["asked_question_ids"]
-    assert asked == question_ids[:3]
-    assert len(set(asked)) == len(asked)
+    assert sorted(r.status_code for r in responses) == [200, 412]
+    final = (await client.get(f"/interviews/{iid}")).json()
+    assert final["asked_question_ids"] == question_ids[:2]
+    assert len(final["history"]) == 1
 
 
 async def test_orphaned_interview_session_returns_sanitized_500(app, client):

@@ -101,6 +101,26 @@ describe("falling back when Azure narration fails", () => {
 })
 
 describe("the interview never gets stuck mid-sentence", () => {
+  it("retires the pending provider on timeout and ignores its late callbacks", () => {
+    vi.spyOn(browserSpeechOutput, "cancelAll").mockImplementation(() => {})
+    let pending: SpeechOutputHandlers | undefined
+    const cancel = vi.fn()
+    vi.spyOn(browserSpeechOutput, "isSupported").mockReturnValue(true)
+    vi.spyOn(browserSpeechOutput, "speak").mockImplementation((_text, handlers) => {
+      pending = handlers
+      return { cancel }
+    })
+    const { result, unmount } = renderHook(() => useSpeechOutput())
+    act(() => result.current.speak("Old question"))
+    act(() => vi.advanceTimersByTime(8000))
+    expect(cancel).toHaveBeenCalledOnce()
+    act(() => { pending?.onStart?.(); pending?.onLevel?.(.9) })
+    expect(result.current.isSpeaking).toBe(false)
+    expect(result.current.level).toBe(0)
+    act(() => result.current.speak("New question"))
+    unmount()
+    expect(cancel).toHaveBeenCalledTimes(2)
+  })
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => {
     vi.useRealTimers()

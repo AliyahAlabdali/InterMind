@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime
 from typing import Protocol
 from uuid import uuid4
@@ -150,9 +151,14 @@ class InterviewSession(BaseModel):
     candidate_id: str = ""
     access_token: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    runtime_snapshot: dict | None = Field(default=None, repr=False)
 
 
 class InterviewSessionRepository(Protocol):
+    def locked(self, interview_id: str) -> AbstractAsyncContextManager[InterviewSession]:
+        """Serialize a session transaction; commit its snapshot only on successful exit."""
+        ...
+
     async def add(self, session: InterviewSession) -> InterviewSession:
         """Persist ``session`` and return it."""
         ...

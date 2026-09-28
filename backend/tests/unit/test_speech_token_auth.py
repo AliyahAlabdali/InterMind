@@ -20,8 +20,10 @@ is also what keeps these tests runnable on a machine with no Azure sign-in.
 from __future__ import annotations
 
 import asyncio
+import time
 
 import pytest
+from azure.core.credentials import AccessToken
 
 from app.core.config import Settings
 from app.core.exceptions import ConfigurationError, SpeechServiceUnavailable
@@ -47,11 +49,11 @@ class FakeEntra:
         self._fail = fail
         self.calls = 0
 
-    async def token(self) -> str:
+    async def token(self) -> AccessToken:
         self.calls += 1
         if self._fail:
             raise SpeechServiceUnavailable("Managed identity could not acquire a Speech token")
-        return self._token
+        return AccessToken(self._token, int(time.time()) + 3600)
 
 
 def _settings(**overrides) -> Settings:
@@ -162,9 +164,18 @@ async def test_the_entra_access_token_is_not_exposed_on_its_own():
     assert set(payload) == {"region", "host", "language", "expires_in_seconds"}
 
 
-async def test_the_token_is_short_lived():
+async def test_managed_identity_reports_its_actual_expiry():
     token = await SpeechTokenService(_managed_identity_settings(), entra=FakeEntra()).issue()
-    assert 0 < token.expires_in_seconds <= 600
+    assert 3530 <= token.expires_in_seconds <= 3540
+
+
+async def test_expired_entra_credential_is_not_issued():
+    class ExpiredEntra:
+        async def token(self):
+            return AccessToken(ENTRA_TOKEN, int(time.time()) - 1)
+
+    with pytest.raises(SpeechServiceUnavailable):
+        await SpeechTokenService(_managed_identity_settings(), entra=ExpiredEntra()).issue()
 
 
 @pytest.mark.parametrize("host", [f"https://{CUSTOM_HOST}/", f"https://{CUSTOM_HOST}", CUSTOM_HOST])
@@ -233,7 +244,7 @@ class FakeCredential:
         if self.fail:
             raise RuntimeError("ManagedIdentityCredential authentication failed: tenant abc-123")
         self.scopes.append(scopes)
-        return type("AccessToken", (), {"token": ENTRA_TOKEN, "expires_on": 0})()
+        return AccessToken(ENTRA_TOKEN, int(time.time()) + 3600)
 
     def close(self) -> None:
         self.closed = True
@@ -243,7 +254,7 @@ async def test_the_provider_requests_the_cognitive_services_scope():
     credential = FakeCredential()
     provider = EntraTokenProvider(credential_factory=lambda: credential)
 
-    assert await provider.token() == ENTRA_TOKEN
+    assert (await provider.token()).token == ENTRA_TOKEN
     assert credential.scopes == [(ENTRA_SCOPE,)]
 
 

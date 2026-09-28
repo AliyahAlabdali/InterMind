@@ -24,6 +24,7 @@ from app.core.exceptions import (
     OccupationNotFound,
     RecruiterEmailTaken,
     SpeechServiceUnavailable,
+    StaleInterviewTurn,
 )
 from app.core.rate_limit import RateLimitExceeded
 
@@ -128,6 +129,13 @@ def register_exception_handlers(app: FastAPI) -> None:
         _: Request, exc: InterviewNotCompleted
     ) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(StaleInterviewTurn)
+    async def _handle_stale_turn(_: Request, exc: StaleInterviewTurn) -> JSONResponse:
+        return JSONResponse(
+            status_code=412,
+            content={"detail": "This question has already changed. Reload the current question."},
+        )
 
     @app.exception_handler(InterviewStateUnavailable)
     async def _handle_interview_state_unavailable(

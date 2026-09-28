@@ -33,10 +33,11 @@ export function submitAnswer(
   interviewId: string,
   answer: string,
   candidateToken: string,
+  turnId: string,
 ): Promise<InterviewState> {
   return apiPost<InterviewState>(
     `/interviews/${encodeURIComponent(interviewId)}/answers`,
-    { answer },
+    { answer, turn_id: turnId },
     { token: candidateToken },
   )
 }

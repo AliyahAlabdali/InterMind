@@ -10,8 +10,11 @@ No test touches a real Azure subscription; the token endpoint is faked at the HT
 
 from __future__ import annotations
 
+import time
+
 import httpx
 import pytest
+from azure.core.credentials import AccessToken
 from fastapi import Depends
 from httpx import ASGITransport, AsyncClient
 
@@ -40,8 +43,8 @@ CUSTOM_HOST = "intermind-speech-aliyah.cognitiveservices.azure.com"
 class FakeEntra:
     """Stands in for the App Service managed identity - never contacts Azure."""
 
-    async def token(self) -> str:
-        return FAKE_ENTRA_TOKEN
+    async def token(self) -> AccessToken:
+        return AccessToken(FAKE_ENTRA_TOKEN, int(time.time()) + 3600)
 
 
 def _managed_identity_settings(**overrides) -> Settings:
@@ -278,7 +281,7 @@ async def test_managed_identity_issues_a_token_addressed_to_the_custom_domain(ap
     assert body["region"] is None
     assert body["token"] == f"aad#{RESOURCE_ID}#{FAKE_ENTRA_TOKEN}"
     assert body["language"] == "en-US"
-    assert 0 < body["expires_in_seconds"] <= 600
+    assert 3530 <= body["expires_in_seconds"] <= 3540
 
 
 async def test_managed_identity_response_carries_no_key(app, client):
@@ -318,7 +321,7 @@ async def test_an_identity_failure_is_a_sanitized_503(app, client):
     """A missing role assignment must leave the candidate typing, not staring at a 500."""
 
     class FailingEntra:
-        async def token(self) -> str:
+        async def token(self) -> AccessToken:
             raise SpeechServiceUnavailable("Managed identity could not acquire a Speech token")
 
     settings = _managed_identity_settings()

@@ -2,8 +2,8 @@
 
 Frontend on **Vercel**, backend on **Azure**, database on **Azure Database for PostgreSQL**.
 
-Nothing here has been provisioned and no URLs are real — this is the list of what to configure,
-written against the architecture as built.
+This documents the Vercel/Azure/PostgreSQL deployment. Configuration examples are placeholders;
+verify the actual platform configuration separately.
 
 ---
 
@@ -184,8 +184,7 @@ curl https://intermind-api.azurewebsites.net/health
 ### Azure Speech
 
 Production authenticates to Azure AI Speech with the App Service's **managed identity**. No
-Speech key is stored anywhere; the backend mints a short-lived token per microphone press and
-the browser never sees a credential that outlives one answer. Implementation and reasoning:
+Speech resource key reaches the browser. The backend issues an Azure bearer credential only for an active interview. Its Azure lifetime is independent of an answer or interview completion; issuance limits are not audio-consumption limits. Implementation and reasoning:
 `backend/app/services/speech_token.py`.
 
 Setup, once:
@@ -337,19 +336,19 @@ Account and data survive a restart.   ← PostgreSQL
 Sessions do not.                      ← in-memory; you sign in again
 ```
 
-An interview that was *mid-answer* across the restart loses its live state — LangGraph's
-checkpointer is in-memory. Its record survives and the recruiter still sees the candidate; the
-candidate would need to be re-invited to complete it. Persisting in-flight interview state is
-future work.
+Accepted answers, evaluations, pending questions and completion now survive in PostgreSQL.
+The graph's in-memory checkpointer is an execution cache reconstructed from the last accepted
+snapshot. A browser draft not yet submitted remains client-side. Apply the additive migration
+before starting this backend: from `backend/`, `python -m alembic upgrade head`. This does not
+recover evidence already lost from sessions created by the old implementation.
 
 ---
 
 ## Known limitations at this milestone
 
 - **Single backend process.** In-memory sessions; scale out needs a shared session store.
-- **In-flight interviews do not survive a restart** (above).
-- **No login rate limiting.** scrypt makes each attempt cost real CPU, which is a brake, not
-  brute-force protection. Do not describe it as protected.
+- **Unsubmitted answers are not persisted by the backend.** Accepted interview evidence is durable.
+- **Login admission is limited deployment-wide.** There is no per-visitor throttle; counters reset on process restart.
 - **No email verification and no password reset** — there is no mail infrastructure. Do not add
   a "Forgot password?" link until there is.
 - **One account per person, no teams, no roles, no audit trail.**

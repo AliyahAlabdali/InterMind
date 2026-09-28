@@ -1,4 +1,4 @@
-"""Mints short-lived Azure AI Speech credentials for the candidate's browser.
+"""Issues Azure AI Speech bearer credentials for the candidate's browser.
 
 Why this exists
 ---------------
@@ -6,7 +6,7 @@ The browser Speech SDK needs a credential to open its recognition websocket, but
 be given the Speech resource key: anything shipped to a browser is public. Azure's documented
 answer is an *authorization token* - a short-lived value the SDK accepts in place of a key - so
 this service holds the secret (or the identity) server-side and hands out tokens that expire in
-minutes.
+their Azure-issued lifetime.
 
 Two credential paths, two different browser targets
 ---------------------------------------------------
@@ -31,19 +31,23 @@ Caching
 -------
 The Entra credential is created once per process (see :class:`EntraTokenProvider`) because
 ``azure-identity`` caches and refreshes the access token inside the credential object - a fresh
-credential per request would mean an IMDS round trip on every microphone press. The Speech
-authorization token itself is not cached: it is only minted when a candidate presses the
-microphone, which is rare enough that a cache would add invalidation risk for no real saving,
-and a per-request token keeps the blast radius of a leaked token to one answer.
+credential per request would mean an IMDS round trip on every microphone press. The SDK may
+reuse the Entra token until its actual expiry; a new issuance is
+not a new candidate-specific credential. Key-exchanged tokens last ten minutes. Neither
+credential is bound to an answer or a consumption quota. InterMind controls issuance, not
+subsequent direct Azure calls; the browser caches output credentials only in memory.
+
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import TYPE_CHECKING, Any, Protocol
 
 import httpx
+from azure.core.credentials import AccessToken
 from pydantic import BaseModel
 
 from app.core.config import Settings
@@ -64,8 +68,10 @@ ENTRA_SCOPE = "https://cognitiveservices.azure.com/.default"
 class SpeechToken(BaseModel):
     """What the browser needs to construct a SpeechConfig - and nothing more.
 
-    Deliberately carries no key, no identity and no candidate details. ``token`` is short-lived
-    and scoped to the Speech resource only.
+    Deliberately carries no key, no identity and no candidate details. ``token`` authorizes
+    Azure calls until its provider-issued expiry. The composite Speech
+    credential names the configured resource; Entra privileges derive from the identity
+    role assignments, not from the candidate or interview.
 
     Exactly one of ``host`` and ``region`` is the browser's connection target, and the frontend
     prefers ``host``: an Entra-issued token is only valid against the resource's custom domain,
@@ -83,7 +89,7 @@ class SpeechToken(BaseModel):
 class SupportsEntraToken(Protocol):
     """The one thing this service needs from a credential, so tests can supply their own."""
 
-    async def token(self) -> str: ...
+    async def token(self) -> AccessToken: ...
 
 
 class EntraTokenProvider:
@@ -123,7 +129,7 @@ class EntraTokenProvider:
         # `az login`, which is what lets managed-identity auth be tested outside Azure at all.
         return DefaultAzureCredential()
 
-    async def token(self) -> str:
+    async def token(self) -> AccessToken:
         async with self._lock:
             try:
                 if self._credential is None:
@@ -139,7 +145,7 @@ class EntraTokenProvider:
                 raise SpeechServiceUnavailable(
                     "Managed identity could not acquire a Speech token"
                 ) from exc
-        return access_token.token
+        return access_token
 
     async def aclose(self) -> None:
         """Release the credential's own HTTP resources. Safe to call when never used."""
@@ -170,7 +176,7 @@ class SpeechTokenService:
         self._entra = entra
 
     async def issue(self) -> SpeechToken:
-        """Return a short-lived authorization token for the browser Speech SDK.
+        """Return an authorization token with provider-derived expiry for the browser Speech SDK.
 
         Raises:
             ConfigurationError: speech is not configured coherently on this deployment.
@@ -206,17 +212,21 @@ class SpeechTokenService:
             )
 
         entra_token = await self._entra.token()
+        lifetime = int(entra_token.expires_on - time.time()) - 60
+        if lifetime <= 0:
+            raise SpeechServiceUnavailable("Speech credential is expired or too close to expiry")
 
         return SpeechToken(
             # The browser SDK has no TokenCredential overload, so an Entra token reaches it
             # through an authorization token in this documented composite form; the service side
             # unpacks the resource id to route the request.
-            token=f"aad#{resource_id}#{entra_token}",
+            token=f"aad#{resource_id}#{entra_token.token}",
             host=host,
             # Region is deliberately omitted: with managed identity the browser connects by host,
             # and sending a region the frontend must then ignore invites the wrong one to be used.
             region=None,
             language=settings.azure_speech_language,
+            expires_in_seconds=lifetime,
         )
 
     # --- resource key (local development) --------------------------------------------------

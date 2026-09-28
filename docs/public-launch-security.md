@@ -47,12 +47,12 @@ rather than assumed, on one specific ground: **this backend is already single-pr
 design, and in several places that are far more load-bearing than a rate limit.**
 
 - Recruiter sessions live in memory (`app.api.recruiter_session`).
-- The LangGraph checkpointer that holds live interview state is in memory
-  (`app.api.deps.get_interview_graph`).
-- The interview lock registry is in memory (`app.services.interview_session`).
+- Accepted interview state is in PostgreSQL; the LangGraph checkpointer is a recoverable
+  execution cache.
+- Rate-limit counters remain in memory (`app.core.rate_limit`).
 
-A second instance would therefore break sign-in and break interviews long before it weakened a
-rate limit. The documented deployment pins `--workers 1` for exactly this reason (see
+A second instance would split recruiter sign-in state and weaken the deployment-wide rate limits.
+PostgreSQL row locking protects accepted interview state across processes. The deployment pins `--workers 1` for exactly this reason (see
 [deployment.md](deployment.md)). So the limiter introduces **no new deployment constraint** — it
 inherits one that is already there and already documented.
 
@@ -240,8 +240,7 @@ assert that a long realistic job description and a long realistic answer are sti
 ## 4. Azure Speech credential issuance
 
 The Speech resource key has never left the backend and still does not: the browser receives a
-short-lived authorization token minted from it, which expires in minutes
-(`app.services.speech_token`). Under managed identity — the production path — no key exists at
+bearer credential minted from it, valid for ten minutes. Managed-identity credentials instead follow their actual Entra expiry (`app.services.speech_token`). Under managed identity — the production path — no key exists at
 all. This was already correct and is now covered by regression tests rather than only by design.
 
 What changed is the gate order on `GET /interviews/{interview_id}/speech-token`:
@@ -254,11 +253,14 @@ What changed is the gate order on `GET /interviews/{interview_id}/speech-token`:
    409, the same status `POST .../answers` already returns for a finished interview.
 3. **Budget** — per interview, and only after the first two pass.
 
-An interview whose live state is *unavailable* is deliberately **not** refused. That state is
-the in-memory LangGraph checkpoint, so it is gone after a restart; treating "cannot tell" as
-"completed" would newly break voice input for an interview merely running on a restarted
-process. Such an interview cannot submit answers either, and issuance stays bounded by the
-per-interview budget, so allowing it costs at most a handful of short-lived tokens.
+An interview whose durable state is unavailable is refused before contacting Azure. Accepted
+completion survives restart, so a finished interview cannot regain eligibility through cache loss.
+Issuance is serialized with answer acceptance and responses are marked `Cache-Control: no-store`.
+
+These limits count credential issuance only. An issued bearer credential permits direct Azure
+Speech use until its real expiry, even after the interview completes. It is not bound to one
+candidate, turn, answer, audio duration or character quota by Azure. InterMind does not enforce
+hard consumption limits while browser SDKs hold direct credentials.
 
 No Azure credential, setting or network configuration was changed.
 
@@ -307,11 +309,9 @@ can drift, so re-check them after any infrastructure change:
 Deliberately out of scope here, and none of them a public-launch blocker on their own:
 
 - Candidate-token hashing at rest, and token expiry/revocation.
-- Durable interview state (the LangGraph checkpointer is in memory).
 - A data retention and deletion framework.
 - Security headers and a content security policy.
-- Shared state for horizontal scale — sessions, interview state and rate-limit counters
-  together. Scaling beyond one process or instance requires a shared limiter; until then the
+- Shared state for horizontal scale — recruiter sessions and rate-limit counters together. Scaling beyond one process or instance requires a shared limiter; until then the
   counters are per-process and reset on restart.
 - Per-visitor rate limiting, via a verified trusted-proxy design (which hop is trusted, which
   forwarded entry is authoritative, and proof a client cannot forge it) or protection at the

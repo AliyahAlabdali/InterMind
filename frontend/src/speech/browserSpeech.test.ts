@@ -19,6 +19,15 @@ function handlers(overrides: Partial<SpeechInputHandlers> = {}): SpeechInputHand
   }
 }
 
+it("does not play a retired question when the voice catalogue arrives after cancelAll", async () => {
+  const synth = installFakeSynthesis([])
+  browserSpeechOutput.speak("Retired question", {})
+  browserSpeechOutput.cancelAll()
+  synth.setVoicesLater([makeVoice("Samantha", "en-US")])
+  await Promise.resolve()
+  expect(synth.spoken).toHaveLength(0)
+})
+
 describe("browserSpeechInput.start lifecycle", () => {
   beforeEach(() => {
     installFakeRecognition()

@@ -83,6 +83,10 @@ class InterviewAlreadyCompleted(DomainError):
         self.interview_id = interview_id
 
 
+class StaleInterviewTurn(DomainError):
+    """The submitted turn is no longer the pending turn; no answer was consumed."""
+
+
 class InterviewNotCompleted(DomainError):
     """The interview has not finished yet; no report can be generated for it."""
 

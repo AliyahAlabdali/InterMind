@@ -85,6 +85,7 @@ export const speechInput: SpeechInputProvider = selectInputProvider(speechProvid
  * completely usable; narration is an enhancement and is never allowed to block anything.
  */
 export function withBrowserFallback(primary: SpeechOutputProvider): SpeechOutputProvider {
+  const active = new Set<() => void>()
   return {
     id: `${primary.id}+fallback`,
 
@@ -103,11 +104,11 @@ export function withBrowserFallback(primary: SpeechOutputProvider): SpeechOutput
         return browserSpeechOutput.speak(text, handlers, context)
       }
 
-      let session: SpeechOutputSession | null = null
+      let fallback: SpeechOutputSession | null = null
       let cancelled = false
       let fellBack = false
 
-      session = primary.speak(
+      const session = primary.speak(
         text,
         {
           ...handlers,
@@ -116,21 +117,24 @@ export function withBrowserFallback(primary: SpeechOutputProvider): SpeechOutput
             // would re-enter here and loop.
             if (cancelled || fellBack) return
             fellBack = true
-            session = browserSpeechOutput.speak(text, handlers, context)
+            fallback = browserSpeechOutput.speak(text, handlers, context)
           },
         },
         context,
       )
 
-      return {
-        cancel() {
-          cancelled = true
-          session?.cancel()
-        },
+      const cancel = () => {
+        cancelled = true
+        active.delete(cancel)
+        session.cancel()
+        fallback?.cancel()
       }
+      active.add(cancel)
+      return { cancel }
     },
 
     cancelAll() {
+      for (const cancel of [...active]) cancel()
       primary.cancelAll()
       browserSpeechOutput.cancelAll()
     },

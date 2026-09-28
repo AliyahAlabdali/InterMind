@@ -144,6 +144,11 @@ async def require_candidate_access(
     # job keeps the intended behaviour (a recruiter can see what their candidate sees) and
     # removes the cross-tenant hole. Candidate tokens are unaffected and are still checked
     # exactly as before, below.
+    token = _extract_bearer_token(authorization)
+    if token:
+        session = await session_repo.get(interview_id)
+        if _tokens_match(token, session.access_token):
+            return
     recruiter_session = store.resolve(session_cookie)
     if recruiter_session is not None:
         await session_repo.get_for_recruiter(interview_id, recruiter_session.recruiter_id)
@@ -196,11 +201,6 @@ async def require_interview_plan_access(
         app.core.exceptions.JobNotFound: a signed-in recruiter asked for a job they do not own.
         app.core.exceptions.AccessDenied: no usable credential was presented.
     """
-    recruiter_session = store.resolve(session_cookie)
-    if recruiter_session is not None:
-        await job_repo.get_for_recruiter(job_id, recruiter_session.recruiter_id)
-        return PlanAudience.RECRUITER
-
     token = _extract_bearer_token(authorization)
     if token:
         # Compared against this job's own interviews only. `list_by_job` on an unknown job is an
@@ -209,5 +209,10 @@ async def require_interview_plan_access(
         for session in await session_repo.list_by_job(job_id):
             if _tokens_match(token, session.access_token):
                 return PlanAudience.CANDIDATE
+
+    recruiter_session = store.resolve(session_cookie)
+    if recruiter_session is not None:
+        await job_repo.get_for_recruiter(job_id, recruiter_session.recruiter_id)
+        return PlanAudience.RECRUITER
 
     raise AccessDenied("Recruiter sign-in or this interview's access token is required.")

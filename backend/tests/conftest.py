@@ -55,6 +55,18 @@ async def signup(client, email: str = TEST_RECRUITER_EMAIL):
     return response
 
 
+async def answer_payload(client, url: str, payload: dict, headers=None) -> dict:
+    """Existing API scenarios submit the currently observed turn, as the browser does.
+
+    Dedicated stale/missing-turn regressions send explicit raw payloads instead of using
+    this helper. Failed reads use an invalid turn so authorization/validation tests can
+    still exercise the answer endpoint itself.
+    """
+    response = await client.get(url.removesuffix("/answers"), headers=headers)
+    turn = response.json().get("current_turn_id") if response.status_code == 200 else None
+    return {**payload, "turn_id": turn or "0" * 32}
+
+
 @pytest.fixture
 async def client(app):
     """An HTTP client already registered and signed in as a recruiter.

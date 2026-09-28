@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
+
 from app.core.exceptions import (
     CandidateNotFound,
     InterviewNotFound,
@@ -109,6 +112,7 @@ class InMemoryInterviewPlanRepository:
 class InMemoryInterviewSessionRepository:
     def __init__(self, jobs: InMemoryJobRepository | None = None) -> None:
         self._sessions: dict[str, InterviewSession] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
         # Ownership is derived through the session's job, exactly as the SQL repository joins
         # to `jobs`. Optional so a test can build a bare session store; without it,
         # `get_for_recruiter` denies everything rather than guessing.
@@ -117,6 +121,13 @@ class InMemoryInterviewSessionRepository:
     async def add(self, session: InterviewSession) -> InterviewSession:
         self._sessions[session.id] = session
         return session
+
+    @asynccontextmanager
+    async def locked(self, interview_id: str):
+        async with self._locks.setdefault(interview_id, asyncio.Lock()):
+            record = (await self.get(interview_id)).model_copy(deep=True)
+            yield record
+            self._sessions[interview_id] = record
 
     async def get(self, interview_id: str) -> InterviewSession:
         try:
