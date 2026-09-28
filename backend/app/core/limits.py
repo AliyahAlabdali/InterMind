@@ -46,18 +46,24 @@ class Limit:
 # at :59 and the whole next one at :01. Failed attempts consume their admission too, or a wrong
 # password would be free to retry.
 #
-# Every bucket an unauthenticated caller can key (``*_ip``) has a ``*_global`` companion. That
-# pairing is what bounds the limiter's memory: once a global ceiling is reached the request is
-# refused *before* any new per-identity key is recorded, so distinct source addresses cannot
-# keep creating keys (see app.core.rate_limit.RateLimiter.check).
+# Sign-up and sign-in are budgeted **deployment-wide**, not per caller. They have no
+# authenticated identity to key on, and this deployment has no trustworthy per-visitor identity
+# either: browser traffic reaches the API through a proxy, so every request arrives at the
+# application carrying the same link-local proxy address. A per-address bucket would have
+# throttled every visitor as one while describing itself as per-visitor protection, so it is
+# not offered. See docs/public-launch-security.md.
+#
+# Every other bucket is keyed by an identity the request actually proves - the signed-in
+# recruiter's account, or the interview a candidate's token is scoped to - and each carries a
+# deployment-wide companion. Those identities cannot be minted freely: accounts are bounded by
+# the sign-up ceiling and interviews by the invite ceiling, which is what keeps the limiter's
+# key space bounded (see app.core.rate_limit.RateLimiter.check).
 LIMITS: dict[str, tuple[Limit, ...]] = {
     # Account creation. Costs a scrypt hash and creates durable state.
-    "signup_ip": (Limit(5, 3600),),
     "signup_global": (Limit(50, 3600), Limit(100, 86400)),
-    # Sign-in. Keyed by source address and never by email: keying on the submitted address
-    # would make the limiter itself an account-existence oracle, which is exactly what the
-    # uniform login response in app.api.routes.auth exists to prevent.
-    "login_ip": (Limit(10, 600),),
+    # Sign-in. Never keyed by the submitted email: a budget that trips only for addresses that
+    # exist would be exactly the account-existence oracle the uniform login response in
+    # app.api.routes.auth exists to prevent.
     "login_global": (Limit(100, 600),),
     # LLM-backed job-description analysis, per signed-in recruiter.
     "job_recruiter": (Limit(10, 3600), Limit(30, 86400)),

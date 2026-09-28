@@ -18,9 +18,9 @@ admitting, then failing on the next would let a refused request still spend the 
 **Bounded memory.** Two mechanisms. Expired windows are swept on every call, so a key stops
 existing once its events age out. And because admission is refused *before* anything is
 recorded, a bucket whose global ceiling is already reached cannot have new per-identity keys
-created under it - which is what stops an attacker cycling source addresses from growing the
-dictionary. :data:`MAX_TRACKED_KEYS` is a backstop under both, so the table is bounded even if a
-future caller introduces a bucket with no global companion.
+created under it - so a caller cycling identities cannot keep growing the dictionary.
+:data:`MAX_TRACKED_KEYS` is a backstop under both, so the table is bounded even if a future
+caller introduces a bucket with no global companion.
 
 **Concurrency safety.** The lock is a plain ``threading.Lock``: every operation here is
 synchronous and short, nothing is awaited while it is held, and the process genuinely has other
@@ -73,7 +73,7 @@ class RateLimiter:
         ``identity`` is the caller this budget is counted against.
 
         Neither the identity nor any submitted value is logged or included in the exception -
-        the identity can be a source address or an account id, and this type is raised on a
+        the identity can be an account id or an interview id, and this type is raised on a
         path that ends in a response body.
 
         Raises:

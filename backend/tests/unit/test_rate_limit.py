@@ -54,69 +54,69 @@ def _budget(name: str) -> Limit:
 
 
 def test_admits_up_to_the_configured_count_then_refuses(limiter):
-    budget = _budget("login_ip")
+    budget = _budget("report_recruiter")
     for _ in range(budget.count):
-        limiter.check(("login_ip", "10.0.0.1"))
+        limiter.check(("report_recruiter", "recruiter-a"))
 
     with pytest.raises(RateLimitExceeded):
-        limiter.check(("login_ip", "10.0.0.1"))
+        limiter.check(("report_recruiter", "recruiter-a"))
 
 
 def test_identities_do_not_share_a_budget(limiter):
-    budget = _budget("login_ip")
+    budget = _budget("report_recruiter")
     for _ in range(budget.count):
-        limiter.check(("login_ip", "10.0.0.1"))
+        limiter.check(("report_recruiter", "recruiter-a"))
 
     # A different caller is unaffected by the first one's exhausted budget.
-    limiter.check(("login_ip", "10.0.0.2"))
+    limiter.check(("report_recruiter", "recruiter-b"))
 
 
 def test_the_window_rolls_rather_than_resetting_on_a_boundary(limiter, clock):
     """Admissions come back one at a time, as each individual event ages out - not all at once
     on a boundary, which is what a fixed bucket would do and what lets a caller spend two full
     budgets back to back across one."""
-    budget = _budget("login_ip")
+    budget = _budget("report_recruiter")
     start = clock.now
     # Spaced a second apart, so they do not all expire at the same instant.
     for _ in range(budget.count):
-        limiter.check(("login_ip", "10.0.0.1"))
+        limiter.check(("report_recruiter", "recruiter-a"))
         clock.advance(1)
 
     # Budget spent, and every event still inside its window.
     with pytest.raises(RateLimitExceeded):
-        limiter.check(("login_ip", "10.0.0.1"))
+        limiter.check(("report_recruiter", "recruiter-a"))
 
     # Advance to exactly the moment the *oldest* event ages out, and no further.
     clock.now = start + budget.seconds
-    limiter.check(("login_ip", "10.0.0.1"))
+    limiter.check(("report_recruiter", "recruiter-a"))
 
     # Precisely one admission was returned: the second-oldest event has not expired yet.
     with pytest.raises(RateLimitExceeded):
-        limiter.check(("login_ip", "10.0.0.1"))
+        limiter.check(("report_recruiter", "recruiter-a"))
 
 
 def test_retry_after_is_positive_and_within_the_window(limiter):
-    budget = _budget("login_ip")
+    budget = _budget("report_recruiter")
     for _ in range(budget.count):
-        limiter.check(("login_ip", "10.0.0.1"))
+        limiter.check(("report_recruiter", "recruiter-a"))
 
     with pytest.raises(RateLimitExceeded) as excinfo:
-        limiter.check(("login_ip", "10.0.0.1"))
+        limiter.check(("report_recruiter", "recruiter-a"))
 
     assert 0 < excinfo.value.retry_after <= budget.seconds
 
 
 def test_the_exception_carries_no_identity(limiter):
     """Its message reaches a response body, so it must not describe who was limited."""
-    budget = _budget("login_ip")
+    budget = _budget("report_recruiter")
     for _ in range(budget.count):
-        limiter.check(("login_ip", "198.51.100.7"))
+        limiter.check(("report_recruiter", "recruiter-secret-id"))
 
     with pytest.raises(RateLimitExceeded) as excinfo:
-        limiter.check(("login_ip", "198.51.100.7"))
+        limiter.check(("report_recruiter", "recruiter-secret-id"))
 
-    assert "198.51.100.7" not in str(excinfo.value)
-    assert "login_ip" not in str(excinfo.value)
+    assert "recruiter-secret-id" not in str(excinfo.value)
+    assert "report_recruiter" not in str(excinfo.value)
 
 
 # --- atomicity --------------------------------------------------------------------------------
@@ -124,29 +124,29 @@ def test_the_exception_carries_no_identity(limiter):
 
 def test_a_refused_call_consumes_nothing(limiter, clock):
     """All-or-nothing: a request refused by its second budget must not have spent its first."""
-    for _ in range(LIMITS["signup_global"][0].count):
-        limiter.check(("signup_global", "all"))
+    for _ in range(LIMITS["job_global"][0].count):
+        limiter.check(("job_global", "all"))
 
-    # A fresh address against an exhausted global ceiling: refused.
+    # A fresh identity against an exhausted global ceiling: refused.
     with pytest.raises(RateLimitExceeded):
-        limiter.check(("signup_ip", "203.0.113.5"), ("signup_global", "all"))
+        limiter.check(("job_recruiter", "recruiter-c"), ("job_global", "all"))
 
-    # That address's own budget was not charged, so it still has its full allowance - proven by
+    # That identity's own budget was not charged, so it still has its full allowance - proven by
     # draining it exactly ``count`` times before it refuses.
-    for _ in range(LIMITS["signup_ip"][0].count):
-        limiter.check(("signup_ip", "203.0.113.5"))
+    for _ in range(LIMITS["job_recruiter"][0].count):
+        limiter.check(("job_recruiter", "recruiter-c"))
     with pytest.raises(RateLimitExceeded):
-        limiter.check(("signup_ip", "203.0.113.5"))
+        limiter.check(("job_recruiter", "recruiter-c"))
 
 
 def test_naming_one_bucket_twice_spends_it_once(limiter):
     """De-duplication: repeating a bucket must not charge it twice."""
-    budget = _budget("login_ip")
+    budget = _budget("report_recruiter")
     for _ in range(budget.count):
-        limiter.check(("login_ip", "10.0.0.1"), ("login_ip", "10.0.0.1"))
+        limiter.check(("report_recruiter", "recruiter-a"), ("report_recruiter", "recruiter-a"))
 
     with pytest.raises(RateLimitExceeded):
-        limiter.check(("login_ip", "10.0.0.1"))
+        limiter.check(("report_recruiter", "recruiter-a"))
 
 
 def test_an_unknown_bucket_is_loud_rather_than_unlimited(limiter):
@@ -159,13 +159,13 @@ def test_an_unknown_bucket_is_loud_rather_than_unlimited(limiter):
 
 
 def test_cycling_identities_cannot_grow_the_table_without_bound(limiter):
-    """The core anti-abuse property: an attacker rotating source addresses is stopped by the
-    global ceiling *before* a new per-address key is recorded, so the table stops growing even
-    though every request arrives from a previously unseen identity."""
+    """The core anti-abuse property: a caller cycling identities is stopped by the global
+    ceiling *before* a new per-identity key is recorded, so the table stops growing even though
+    every request arrives under a previously unseen identity."""
     attempts = 5_000
     for attempt in range(attempts):
         try:
-            limiter.check(("signup_ip", f"198.51.100.{attempt}"), ("signup_global", "all"))
+            limiter.check(("job_recruiter", f"recruiter-{attempt}"), ("job_global", "all"))
         except RateLimitExceeded:
             break
     else:  # pragma: no cover - would mean the global ceiling never engaged
@@ -173,22 +173,22 @@ def test_cycling_identities_cannot_grow_the_table_without_bound(limiter):
 
     # One key per (bucket, identity, window), bounded by the global budget rather than by how
     # many identities were tried.
-    ceiling = LIMITS["signup_global"][0].count * len(LIMITS["signup_ip"]) + len(
-        LIMITS["signup_global"]
+    ceiling = LIMITS["job_global"][0].count * len(LIMITS["job_recruiter"]) + len(
+        LIMITS["job_global"]
     )
     assert len(limiter._events) <= ceiling
     assert len(limiter._events) < attempts
 
 
 def test_expired_keys_are_removed_entirely(limiter, clock):
-    limiter.check(("login_ip", "10.0.0.1"))
+    limiter.check(("report_recruiter", "recruiter-a"))
     assert limiter._events
 
-    clock.advance(_budget("login_ip").seconds + 1)
-    limiter.check(("login_ip", "10.0.0.2"))
+    clock.advance(_budget("report_recruiter").seconds + 1)
+    limiter.check(("report_recruiter", "recruiter-b"))
 
-    # The first address's key is gone, not merely emptied.
-    assert all(key[1] != "10.0.0.1" for key in limiter._events)
+    # The first identity's key is gone, not merely emptied.
+    assert all(key[1] != "recruiter-a" for key in limiter._events)
 
 
 def test_the_backstop_refuses_new_identities_but_not_tracked_ones(limiter, clock):
@@ -220,7 +220,7 @@ def test_concurrent_callers_never_exceed_the_budget():
     Uses the real clock; the assertion is about how many callers got through, not about time.
     """
     limiter = RateLimiter()
-    budget = _budget("login_ip")
+    budget = _budget("report_recruiter")
     attempts = budget.count * 8
     admitted: list[int] = []
     tally = threading.Lock()
@@ -229,7 +229,7 @@ def test_concurrent_callers_never_exceed_the_budget():
     def attempt() -> None:
         start.wait()
         try:
-            limiter.check(("login_ip", "10.0.0.1"))
+            limiter.check(("report_recruiter", "recruiter-a"))
         except RateLimitExceeded:
             return
         with tally:

@@ -148,8 +148,9 @@ async def recruiter_signup(
     The account is **not** marked verified, because nothing has verified it - there is no email
     delivery in this product. See docs/recruiter-auth.md.
     """
-    # Before the scrypt hash and before the write. Keyed by source address with a global
-    # ceiling (see app.api.abuse), because there is no account to key on yet.
+    # Before the scrypt hash and before the write. Charged against the deployment-wide ceiling
+    # (see app.api.abuse): there is no account to key on yet, and no trustworthy per-visitor
+    # identity either, so this is a cost control rather than per-client protection.
     limit_signup(request)
 
     email = normalize_email(payload.email)
@@ -186,10 +187,11 @@ async def recruiter_login(
     verification runs when the email is unknown, so an unregistered address is not measurably
     faster to reject than a wrong password.
     """
-    # Charged before the lookup and keyed only by source address - never by the submitted
-    # email. A per-email budget would trip only for addresses that exist, turning the limiter
-    # into the account-existence oracle this endpoint's uniform response exists to prevent.
-    # Every attempt is counted, successful or not, so a wrong password is not free to retry.
+    # Charged before the lookup, against the deployment-wide ceiling, and never keyed by the
+    # submitted email: a per-email budget would trip only for addresses that exist, turning the
+    # limiter into the account-existence oracle this endpoint's uniform response exists to
+    # prevent. Every attempt is counted, successful or not, so a wrong password is not free to
+    # retry - but this is not per-client brute-force protection; see app.api.abuse.
     limit_login(request)
 
     recruiter = await recruiters.get_by_email(payload.email)

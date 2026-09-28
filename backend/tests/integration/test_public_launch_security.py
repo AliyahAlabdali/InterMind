@@ -16,6 +16,8 @@ weaken have their own suites (``test_tenant_isolation.py``, ``test_access_contro
 
 from __future__ import annotations
 
+from collections import deque
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -174,13 +176,50 @@ async def test_a_candidate_token_does_not_unlock_the_detail_route(app, client):
 # =================================================================================================
 
 
-async def test_signup_is_rate_limited_by_source_address(anonymous):
-    budget = LIMITS["signup_ip"][0].count
-    for index in range(budget):
-        response = await anonymous.post(
+def _window(bucket: str, seconds: int):
+    """The configured budget for ``bucket``'s window of ``seconds``."""
+    return next(limit for limit in LIMITS[bucket] if limit.seconds == seconds)
+
+
+def _spend(app, bucket: str, seconds: int, count: int) -> None:
+    """Pre-charge ``count`` admissions against **one specific window** of ``bucket``.
+
+    Two reasons this writes the window's own key rather than calling ``check``:
+
+    * ``check`` charges every window a bucket has, so filling the daily ceiling through it would
+      exhaust the hourly one first and the two could never be told apart.
+    * Sign-up and sign-in cost a real scrypt hash (~300ms), so draining a 50- or 100-request
+      ceiling entirely over HTTP would add most of a minute to the suite and prove nothing more.
+
+    Each test below brings a window to its edge this way and then crosses it with **real HTTP
+    requests**, so what is asserted is still the route's own binding to that bucket.
+    """
+    limiter = app.state.rate_limiter
+    limiter._events[(bucket, "all", seconds)] = deque([limiter._clock()] * count)
+
+
+def _charged(app, bucket: str, seconds: int) -> int:
+    """How many admissions that window has recorded."""
+    return len(app.state.rate_limiter._events.get((bucket, "all", seconds), ()))
+
+
+async def test_signup_is_rate_limited_deployment_wide(app, anonymous):
+    """Sign-up is budgeted for the whole deployment, not per visitor.
+
+    That is deliberate, and documented: in the deployed topology every request reaches the
+    application through a proxy carrying one link-local address, so there is no per-visitor
+    identity to key on (see docs/public-launch-security.md). This asserts the ceiling that does
+    exist, and that it is the hourly ``signup_global`` one.
+    """
+    hourly = _window("signup_global", 3600)
+    _spend(app, "signup_global", 3600, hourly.count - 2)
+
+    # Real requests across the boundary: the last two admissions, then the refusal.
+    for index in range(2):
+        admitted = await anonymous.post(
             "/auth/recruiter/signup", json=recruiter_credentials(f"s{index}@intermind.test")
         )
-        assert response.status_code == 201, response.text
+        assert admitted.status_code == 201, admitted.text
 
     refused = await anonymous.post(
         "/auth/recruiter/signup", json=recruiter_credentials("one-too-many@intermind.test")
@@ -188,6 +227,34 @@ async def test_signup_is_rate_limited_by_source_address(anonymous):
 
     assert refused.status_code == 429
     assert int(refused.headers["retry-after"]) > 0
+
+
+async def test_signup_has_a_separate_daily_ceiling(app, anonymous):
+    """The daily window is independently binding: exhausting it refuses sign-up even with the
+    hourly window untouched."""
+    daily = _window("signup_global", 86400)
+    _spend(app, "signup_global", 86400, daily.count)
+
+    refused = await anonymous.post(
+        "/auth/recruiter/signup", json=recruiter_credentials("daily@intermind.test")
+    )
+
+    assert refused.status_code == 429
+    # The hourly window really was left alone - this is the daily ceiling doing the refusing.
+    assert _charged(app, "signup_global", 3600) < _window("signup_global", 3600).count
+
+
+async def test_signup_is_not_limited_per_visitor(app, anonymous):
+    """The correction itself, pinned: there is no per-caller sign-up bucket any more.
+
+    Before this, ``signup_ip`` was keyed by ``request.client.host``. In production that value is
+    a single proxy address for every visitor, so the bucket throttled unrelated people against
+    each other at 5/hour while presenting itself as per-visitor protection. Its absence is the
+    behaviour under test - a future reintroduction must come with a verified per-visitor
+    identity, not with the transport peer address.
+    """
+    assert "signup_ip" not in LIMITS
+    assert "login_ip" not in LIMITS
 
 
 async def test_login_is_rate_limited_and_stays_uniform_about_account_existence(app, anonymous):
@@ -198,12 +265,8 @@ async def test_login_is_rate_limited_and_stays_uniform_about_account_existence(a
         "/auth/recruiter/signup", json=recruiter_credentials("real@intermind.test")
     )
 
-    budget = LIMITS["login_ip"][0].count
-    for _ in range(budget):
-        await anonymous.post(
-            "/auth/recruiter/login",
-            json={"email": "real@intermind.test", "password": "wrong-password"},
-        )
+    ten_minutes = _window("login_global", 600)
+    _spend(app, "login_global", 600, ten_minutes.count)
 
     known = await anonymous.post(
         "/auth/recruiter/login",
@@ -219,18 +282,19 @@ async def test_login_is_rate_limited_and_stays_uniform_about_account_existence(a
     assert unknown.json() == known.json()
 
 
-async def test_a_successful_login_is_counted_too(anonymous):
+async def test_a_successful_login_is_counted_too(app, anonymous):
     """Otherwise a valid credential would be an unlimited way to drive the session store."""
     await anonymous.post(
         "/auth/recruiter/signup", json=recruiter_credentials("real@intermind.test")
     )
 
-    budget = LIMITS["login_ip"][0].count
-    for _ in range(budget):
-        response = await anonymous.post(
-            "/auth/recruiter/login", json=recruiter_credentials("real@intermind.test")
-        )
-        assert response.status_code == 200, response.text
+    ten_minutes = _window("login_global", 600)
+    _spend(app, "login_global", 600, ten_minutes.count - 1)
+
+    admitted = await anonymous.post(
+        "/auth/recruiter/login", json=recruiter_credentials("real@intermind.test")
+    )
+    assert admitted.status_code == 200, admitted.text
 
     refused = await anonymous.post(
         "/auth/recruiter/login", json=recruiter_credentials("real@intermind.test")
@@ -385,18 +449,16 @@ async def test_report_generation_is_budgeted_on_the_candidate_listing_too(app, c
     assert rows[0]["overall_score"] is None, "no report should have been generated"
 
 
-async def test_a_429_carries_no_detail_about_which_budget_was_hit(anonymous):
-    for index in range(LIMITS["signup_ip"][0].count):
-        await anonymous.post(
-            "/auth/recruiter/signup", json=recruiter_credentials(f"s{index}@intermind.test")
-        )
+async def test_a_429_carries_no_detail_about_which_budget_was_hit(app, anonymous):
+    _spend(app, "signup_global", 3600, _window("signup_global", 3600).count)
 
     refused = await anonymous.post(
         "/auth/recruiter/signup", json=recruiter_credentials("extra@intermind.test")
     )
 
+    assert refused.status_code == 429
     assert refused.json() == {"detail": "Too many requests. Please try again later."}
-    for revealing in ("signup_ip", "signup_global", "bucket", "127.0.0.1"):
+    for revealing in ("signup_global", "bucket", "limit", "quota"):
         assert revealing not in refused.text
 
 

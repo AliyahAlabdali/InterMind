@@ -9,7 +9,7 @@ before deciding whether they may act at all would let anyone exhaust a legitimat
 allowance by guessing ids.
 
 The one exception is sign-up and sign-in, which have no authenticated identity to key on by
-definition; those are keyed by source address with a global companion (see
+definition; those are charged only against their deployment-wide ceiling (see
 :func:`limit_signup` / :func:`limit_login`).
 
 Identity selection
@@ -18,19 +18,30 @@ Each budget is counted against whoever actually causes the cost, so one caller's
 constrains another's:
 
 - recruiter-initiated LLM work (job analysis, planning, reports, invitations) - the signed-in
-  recruiter's account id, from the session, never from the request body;
+  recruiter's account id, taken from the session, never from the request body;
 - the candidate loop (answers, Speech credentials) - the interview id, which is what a
-  candidate's own access token is scoped to;
-- unauthenticated auth endpoints - the transport source address, plus a global ceiling.
+  candidate's own access token is scoped to.
 
-What is deliberately *not* used as a key
-----------------------------------------
-``X-Forwarded-For`` and ``X-Real-IP`` are never read. They are caller-supplied headers, so
-trusting them here would turn the per-address budget into a free-form key an attacker sets to a
-new value on every request - both a bypass and an unbounded source of dictionary keys. Only the
-ASGI transport's own peer address is used. Behind a proxy that collapses many clients onto one
-address this shares a bucket, which is conservative rather than a bypass; the global ceilings
-are what actually bound cost in that case. See ``docs/public-launch-security.md``.
+Sign-up and sign-in: deployment-wide, not per visitor
+-----------------------------------------------------
+These two have no authenticated identity to key on, and this deployment has no trustworthy
+per-visitor identity to substitute. Browser traffic reaches the API through a proxy, so every
+request arrives at the application carrying the same link-local proxy address in
+``request.client.host``. Keying on it would have put every visitor in one bucket while
+describing itself as per-visitor protection - throttling unrelated people against each other
+and reporting a guarantee that did not exist.
+
+So both are charged only against their deployment-wide ceiling. That is a real cost control and
+an honest one; it is **not** per-client brute-force protection, and nothing here should be read
+as providing it. See ``docs/public-launch-security.md`` for the runtime evidence and for what
+per-visitor limiting would require.
+
+No forwarding header is read
+----------------------------
+``X-Forwarded-For``, ``X-Real-IP`` and ``Forwarded`` are never consulted, here or anywhere else
+in the application. They are caller-supplied, so trusting one would let an attacker choose its
+own bucket on every request - both a bypass and an unbounded source of dictionary keys. Reading
+them safely needs a verified trusted-proxy design, which is a deliberate non-goal of this pass.
 """
 
 from __future__ import annotations
@@ -39,41 +50,33 @@ from fastapi import Request
 
 from app.core.rate_limit import RateLimiter
 
-#: Stand-in identity for a request with no transport peer address (ASGI allows ``client`` to be
-#: absent). Shares one bucket, which is the conservative reading.
-_UNKNOWN_CLIENT = "unknown"
-
 
 def get_rate_limiter(request: Request) -> RateLimiter:
     """The application's single limiter instance (created in ``app.main.create_app``)."""
     return request.app.state.rate_limiter
 
 
-def _client_identity(request: Request) -> str:
-    """The transport peer address. Never a caller-supplied header - see the module docstring."""
-    return request.client.host if request.client else _UNKNOWN_CLIENT
-
-
 # --- Unauthenticated -------------------------------------------------------------------------
 
 
 def limit_signup(request: Request) -> None:
-    """Budget account creation: a scrypt hash plus durable state, on an open endpoint."""
-    identity = _client_identity(request)
-    get_rate_limiter(request).check(("signup_ip", identity), ("signup_global", "all"))
+    """Budget account creation deployment-wide: a scrypt hash plus durable state, on an open
+    endpoint. Not a per-visitor limit - see the module docstring."""
+    get_rate_limiter(request).check(("signup_global", "all"))
 
 
 def limit_login(request: Request) -> None:
-    """Budget sign-in attempts.
+    """Budget sign-in attempts deployment-wide.
 
-    Keyed by source address and **never by the submitted email**. Keying on the email would
-    make the limiter an account-existence oracle - a rate limit that only trips for registered
-    addresses reveals exactly what the uniform "Incorrect email or password" response in
+    **Never keyed by the submitted email.** A budget that tripped only for registered addresses
+    would reveal exactly what the uniform "Incorrect email or password" response in
     ``app.api.routes.auth`` exists to hide. Every attempt is counted whether it succeeds or
-    fails, so the response a caller sees is unchanged by whether the account exists.
+    fails, so what a caller observes never depends on whether the account exists.
+
+    Not a per-visitor limit, and therefore not per-client brute-force protection - see the
+    module docstring for why none is available in this topology.
     """
-    identity = _client_identity(request)
-    get_rate_limiter(request).check(("login_ip", identity), ("login_global", "all"))
+    get_rate_limiter(request).check(("login_global", "all"))
 
 
 # --- Recruiter-authenticated ------------------------------------------------------------------
