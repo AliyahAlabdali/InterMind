@@ -10,7 +10,7 @@ import { apiGet, apiPost } from "./client"
  *
  * The backend verifies the password against the scrypt hash stored for that registered
  * recruiter account - a real credential check, not an email field bolted onto a shared key. See
- * `app/core/security.py` and `docs/recruiter-auth.md`.
+ * `backend/app/core/security.py` and `docs/recruiter-auth.md`.
  */
 
 export interface RecruiterSessionState {

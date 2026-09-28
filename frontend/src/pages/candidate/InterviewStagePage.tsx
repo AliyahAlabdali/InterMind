@@ -112,7 +112,7 @@ export function InterviewStagePage() {
 
   const jobId = interview?.job_id
   // Read with this interview's own access token: the endpoint is recruiter-owner scoped, and a
-  // candidate reaches it only for the job they are actually interviewing for (app/api/auth.py).
+  // candidate reaches it only for the job they are actually interviewing for (backend/app/api/auth.py).
   const planFetcher = useCallback(
     () => getCandidateInterviewPlan(jobId!, token ?? ""),
     [jobId, token],

@@ -1,7 +1,7 @@
 import { apiGet, apiPost } from "./client"
 import type { CandidateInterviewPlan, InterviewPlan } from "../types"
 
-// Both endpoints are recruiter-owner scoped on the backend (see app/api/auth.py). The two
+// Both endpoints are recruiter-owner scoped on the backend (see backend/app/api/auth.py). The two
 // functions below carry the recruiter session cookie and are for workspace screens only.
 
 export function createInterviewPlan(jobId: string): Promise<InterviewPlan> {

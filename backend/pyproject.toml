@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "autonomous-ai-interviewer"
+name = "intermind"
 version = "0.1.0"
 description = "InterMind: an adaptive AI interviewer that turns a job description into role-specific coverage targets, conducts the interview as a LangGraph loop, and produces an evidence-based report"
 requires-python = ">=3.11"
@@ -40,8 +40,10 @@ dev = [
     "httpx>=0.27",
     "ruff>=0.5",
 ]
-# Retained so documented `pip install -e ".[azure]"` commands keep working. azure-identity is
-# now a plain runtime dependency, so this extra adds nothing.
+# A compatibility alias, not a real extra. azure-identity is a plain runtime dependency (see
+# `[project.dependencies]`), so `pip install -e ".[azure]"` installs nothing beyond `-e .`. No
+# documentation references it any more; it is kept only so an older bookmarked command does not
+# start failing. Safe to drop once nothing is invoking it.
 azure = [
     "azure-identity>=1.17",
 ]

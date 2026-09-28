@@ -30,12 +30,6 @@ export const rise: Variants = {
   exit: { opacity: 0, y: -8, transition: transition.quick },
 }
 
-/** Same, but sized for a whole section rather than a line of text. */
-export const riseSection: Variants = {
-  hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: transition.emphasis },
-}
-
 export const fade: Variants = {
   hidden: { opacity: 0 },
   visible: { opacity: 1, transition: transition.state },
@@ -61,10 +55,4 @@ export const questionSwap: Variants = {
   hidden: { opacity: 0, y: 14, filter: "blur(4px)" },
   visible: { opacity: 1, y: 0, filter: "blur(0px)", transition: transition.emphasis },
   exit: { opacity: 0, y: -14, filter: "blur(4px)", transition: transition.state },
-}
-
-/** A target flipping to "assessed", or evidence landing. One beat, then still. */
-export const evidenceLand: Variants = {
-  hidden: { opacity: 0, scale: 0.96 },
-  visible: { opacity: 1, scale: 1, transition: transition.emphasis },
 }

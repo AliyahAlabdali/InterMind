@@ -61,7 +61,7 @@ def create_app() -> FastAPI:
         if credentials is not None:
             await credentials.aclose()
 
-    app = FastAPI(title="Autonomous AI Interviewer", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="InterMind", version="0.1.0", lifespan=lifespan)
 
     # Explicit origins from configuration, never a wildcard - see Settings.allowed_origins.
     # In production the app is same-origin with its API (Vercel rewrites /api to this backend),

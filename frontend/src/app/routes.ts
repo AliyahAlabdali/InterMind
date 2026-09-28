@@ -23,6 +23,3 @@ export const LOGIN = "/login"
 
 /** Recruiter registration. Flat, beside `/login`, for the same reason. */
 export const SIGNUP = "/signup"
-
-/** Public landing page. */
-export const HOME = "/"

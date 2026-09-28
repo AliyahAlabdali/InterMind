@@ -63,7 +63,7 @@ export interface InterviewPlan {
  * `GET /jobs/{jobId}/interview-plan` returns the full `InterviewPlan` to the recruiter who owns
  * the job and this to a candidate holding that interview's access token. The rest of the plan is
  * the recruiter's assessment strategy (requirement level, priority, provenance, O*NET grounding)
- * and is deliberately not sent to the person being assessed. See `app/api/auth.py`.
+ * and is deliberately not sent to the person being assessed. See `backend/app/api/auth.py`.
  */
 export interface CandidateInterviewPlan {
   job_id: string

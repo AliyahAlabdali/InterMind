@@ -13,7 +13,7 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api"
  * production bundle - so the shared recruiter secret was readable in `dist/assets/*.js` by
  * anyone who loaded the site, including every candidate. Recruiter requests now authenticate
  * with an `HttpOnly` session cookie that the browser cannot read and that carries no copy of
- * the underlying credential. See `app/api/recruiter_session.py`.
+ * the underlying credential. See `backend/app/api/recruiter_session.py`.
  *
  * `token` below is for **candidate** access tokens only - a per-interview credential the
  * candidate legitimately holds, in their own link.

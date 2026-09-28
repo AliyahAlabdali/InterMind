@@ -17,7 +17,7 @@ export interface CoverageSummary {
  * Counted from `history` - the turns that actually produced evidence - rather than from
  * `asked_question_ids`. The distinction matters because a target can be assessed without ever
  * being asked: when an answer to one question also establishes another target, the graph
- * records a `cross_target` turn for it (see `app/services/cross_target_evidence.py`) and closes
+ * records a `cross_target` turn for it (see `backend/app/services/cross_target_evidence.py`) and closes
  * it out. Those targets never enter `asked_question_ids`, so counting asked questions reported
  * an interview as less complete than it was - the report said every required area was reached
  * while this indicator was still showing one of three.

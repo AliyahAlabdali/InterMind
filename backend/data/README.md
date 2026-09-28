@@ -11,7 +11,7 @@ A fresh clone therefore has the knowledge base, but not the raw data or the othe
 | Directory | Contents |
 |---|---|
 | `raw/` | Untouched source downloads, exactly as obtained. Currently the O\*NET 31.0 text database under `raw/onet/db_31_0_text/`. Git-ignored. |
-| `processed/` | Artifacts derived from `raw/`. Currently `processed/onet/`, holding `onet_kb.jsonl`, `occupation_index.csv` and `onet_kb_meta.json`. Git-ignored **except `onet_kb.jsonl`**. |
+| `processed/` | Artifacts derived from `raw/`. Currently `processed/onet/`, holding `onet_kb.jsonl`, `occupation_index.csv`, `onet_kb_meta.json` and a generated `README.md`. Git-ignored **except `onet_kb.jsonl`**, so everything else here appears only after the notebook runs. |
 
 ## How it is built and read
 
@@ -24,8 +24,10 @@ backend/data/raw/onet  --->  notebooks/ONET_knowledge_base_pipeline.ipynb  ---> 
 
 The pipeline is a notebook, run manually end to end. The notebook lives at the repository root,
 outside `backend/`, and resolves this directory by searching upward for `backend/pyproject.toml`.
-It is the only thing that writes to `processed/`, which is why `processed/onet/README.md` says
-not to hand-edit those files.
+It is the only thing that writes to `processed/`, and it also generates a
+`processed/onet/README.md` alongside the artifacts saying not to hand-edit them. That generated
+README is git-ignored like the rest of `processed/onet/`, so it appears only after you run the
+notebook — a fresh clone will not have it.
 
 **The application reads `processed/` directly.** `backend/app/core/config.py` defines
 `DEFAULT_ONET_KB_PATH` relative to the package location — `parents[2] / "data" / "processed" /

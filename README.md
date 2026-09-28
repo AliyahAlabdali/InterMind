@@ -283,7 +283,15 @@ InterMind currently focuses on the core autonomous interview workflow. A few are
 
 Built by **Aliyah Alabdali**.
 
-[GitHub](https://github.com/AliyahAlabdali) · [LinkedIn](https://www.linkedin.com/in/aliyah-alabdali-5ba599274/) · [Portfolio](https://aliyahalabdali.github.io)
+<p>
+  <a href="https://github.com/AliyahAlabdali" title="Aliyah Alabdali on GitHub"><img src="docs/assets/icon-github.svg" alt="Aliyah Alabdali on GitHub" width="20" height="20"></a>
+  &nbsp;&nbsp;
+  <a href="https://www.linkedin.com/in/aliyah-alabdali-5ba599274/" title="Aliyah Alabdali on LinkedIn"><img src="docs/assets/icon-linkedin.svg" alt="Aliyah Alabdali on LinkedIn" width="20" height="20"></a>
+  &nbsp;&nbsp;
+  <a href="https://aliyahalabdali.github.io" title="Aliyah Alabdali's Portfolio"><img src="docs/assets/icon-globe.svg" alt="Aliyah Alabdali's Portfolio" width="20" height="20"></a>
+  &nbsp;&nbsp;
+  <a href="mailto:AliyahAlabdali24@gmail.com" title="Email Aliyah Alabdali"><img src="docs/assets/icon-email.svg" alt="Email Aliyah Alabdali" width="20" height="20"></a>
+</p>
 
 <sub>O\*NET data is published by the U.S. Department of Labor and is redistributed here under
 their terms of use; `backend/data/processed/onet/onet_kb.jsonl` is derived from O\*NET 31.0. The hero laptop model is by <a href="https://sketchfab.com/3d-models/realistic-3d-laptop-model-high-quality-design-920fe8eceaf748a5b9ddd53385519322">Taohid Animation</a>, used under CC BY 4.0.</sub>
