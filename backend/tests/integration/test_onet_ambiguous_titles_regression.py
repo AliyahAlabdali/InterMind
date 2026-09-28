@@ -48,6 +48,14 @@ pytestmark = pytest.mark.skipif(
 #: that several occupations can be reasonable for the same job description.
 COMPUTER = "15"
 ENGINEERING = "17"
+
+#: O*NET's Robotics Engineers. Singled out because exactly one task in the whole 1016-occupation
+#: corpus names computer vision - *"Design robotic systems, such as automatic vehicle control,
+#: autonomous vehicles, advanced displays, advanced sensing, robotic platforms, computer vision,
+#: or telematics systems."* - which is enough to make it the top match for any computer-vision
+#: job description, robotics or not. Whether that is a *defensible* match depends entirely on
+#: whether the job description mentions robots.
+ROBOTICS_ENGINEERS = "17-2199.08"
 BUSINESS = "13"
 MANAGEMENT = "11"
 SCIENCE = "19"
@@ -119,10 +127,29 @@ class Role:
     #: Minimum fraction of variants that must be grounded. ``0.0`` means abstention is
     #: acceptable; a positive value is an over-abstention guard.
     min_grounded: float
+    #: Occupations this particular job description must never be grounded on, even though
+    #: their SOC family is otherwise allowed.
+    #:
+    #: A SOC major group is a coarse instrument. Family 17 ("Architecture and Engineering")
+    #: legitimately covers Robotics Engineers for a robotics job description and is equally
+    #: legitimate for Computer Hardware Engineers - so the family alone cannot say whether a
+    #: given occupation suits a *given* job description. Production showed why that matters: a
+    #: pure computer-vision role was grounded on Robotics Engineers, and the family check
+    #: passed it silently.
+    #:
+    #: Kept per-Role rather than global, because the same occupation is right for one JD and
+    #: wrong for another - compare ``COMPUTER_VISION`` with ``COMPUTER_VISION_ROBOTICS`` below.
+    #: This is an expectation about a job description, not a ban on an occupation.
+    forbidden_codes: frozenset[str] = frozenset()
 
 
-def _role(spec: JobSpec, families: set[str], min_grounded: float) -> Role:
-    return Role(spec, frozenset(families), min_grounded)
+def _role(
+    spec: JobSpec,
+    families: set[str],
+    min_grounded: float,
+    forbidden: set[str] | None = None,
+) -> Role:
+    return Role(spec, frozenset(families), min_grounded, frozenset(forbidden or ()))
 
 
 # --------------------------------------------------------------------------------------
@@ -144,6 +171,28 @@ COMPUTER_VISION = _role(
     ),
     {COMPUTER, ENGINEERING},
     0.0,  # O*NET 31.0 has no computer-vision occupation; abstention is the honest answer
+    forbidden={ROBOTICS_ENGINEERS},
+)
+
+#: The counterpart control. Same discipline, but the job description is explicitly about robots
+#: - so grounding on Robotics Engineers here is correct, and `forbidden` is deliberately empty.
+#: Without this, `forbidden` above would only be tested in the suppressing direction and could
+#: quietly harden into "computer vision may never touch robotics".
+COMPUTER_VISION_ROBOTICS = _role(
+    job_spec(
+        "Computer Vision Engineer",
+        "The Computer Vision Engineer will build perception systems for autonomous mobile "
+        "robots, covering navigation, obstacle avoidance and multi-sensor fusion.",
+        ["Python", "Deep Learning", "OpenCV", "PyTorch", "ROS", "Sensor Fusion", "SLAM",
+         "Point Clouds", "LiDAR", "Camera Calibration", "Robot Perception", "Navigation"],
+        ["Build perception pipelines for autonomous mobile robots.",
+         "Implement SLAM, navigation and obstacle avoidance from camera and LiDAR data.",
+         "Calibrate cameras and fuse sensor data for robot localization.",
+         "Integrate perception modules with robot control systems."],
+        preferred=["C++", "Embedded Systems"],
+    ),
+    {COMPUTER, ENGINEERING},
+    0.75,
 )
 
 CLOUD_ARCHITECT = _role(
@@ -342,6 +391,7 @@ DATA_SCIENTIST = _role(
 
 ROLES: dict[str, Role] = {
     "Computer Vision Engineer": COMPUTER_VISION,
+    "Computer Vision Engineer (robotics)": COMPUTER_VISION_ROBOTICS,
     "Cloud Architect": CLOUD_ARCHITECT,
     "Network Engineer": NETWORK_ENGINEER,
     "Cybersecurity Engineer": CYBERSECURITY,
@@ -377,16 +427,26 @@ async def test_grounding_never_claims_an_out_of_domain_occupation(planner, role_
     role's defensible families never is - that is the sentence a recruiter reads.
     """
     role = ROLES[role_name]
-    offenders = set()
+    wrong_family = set()
+    forbidden = set()
     for spec in variants(role.spec):
         grounded, code, title = await _ground(planner, spec)
-        if grounded and code[:2] not in role.allowed_families:
-            offenders.add(f"{title} ({code})")
+        if not grounded:
+            continue
+        if code[:2] not in role.allowed_families:
+            wrong_family.add(f"{title} ({code})")
+        if code in role.forbidden_codes:
+            forbidden.add(f"{title} ({code})")
 
-    assert not offenders, (
-        f"{role_name} was grounded on out-of-domain occupation(s) {sorted(offenders)} and "
+    assert not wrong_family, (
+        f"{role_name} was grounded on out-of-domain occupation(s) {sorted(wrong_family)} and "
         f"presented as a confident match; allowed SOC families are "
         f"{sorted(role.allowed_families)}."
+    )
+    assert not forbidden, (
+        f"{role_name} was grounded on {sorted(forbidden)} and presented as a confident match. "
+        "That occupation's SOC family is allowed in general, but this job description does not "
+        "support it - see this Role's forbidden_codes for why."
     )
 
 
