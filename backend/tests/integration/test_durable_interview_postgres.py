@@ -10,6 +10,7 @@ import shutil
 import socket
 import subprocess
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
@@ -82,7 +83,7 @@ def migration(name):
 
 @pytest.fixture
 async def sql_engine(isolated_postgres):
-    engine = create_async_engine(isolated_postgres)
+    engine = create_async_engine(isolated_postgres, pool_timeout=.5)
     async with engine.begin() as connection:
         def upgrade(sync):
             # Isolate each test in its own schema; the cluster itself is already disposable.
@@ -233,3 +234,42 @@ async def test_concurrent_report_generation_across_separate_graphs(sql_engine):
     ])
     assert calls == 1
     assert first == second
+
+
+async def test_parallel_reports_do_not_starve_the_connection_pool(sql_engine):
+    from app.api.routes.interviews import _get_or_generate_report
+    from app.llm.fake_client import FakeLLMClient
+    from app.services.report_generation import ReportGenerationService
+    from app.services.report_narrative import ReportNarrativeService
+    service, job_id, _, sessions = await sql_service(sql_engine)
+    interviews = []
+    for _ in range(15):
+        service.graph = _make_service().graph
+        iid, state = await service.start(job_id)
+        for _ in range(3):
+            state = await service.submit_answer(iid, DETAILED_ANSWER, state.current_turn_id)
+        interviews.append(iid)
+
+    class ScheduledSessionRepository(SqlInterviewSessionRepository):
+        @asynccontextmanager
+        async def locked(self, iid):
+            async with super().locked(iid) as record:
+                # Model requests acquiring their row locks before another async query runs.
+                # This is ordinary legal scheduling, not a larger/smaller production pool.
+                await asyncio.sleep(.1)
+                yield record
+
+    # Warm the default 5+10 pool to remove connection-establishment timing from the proof.
+    connections = await asyncio.gather(*(sql_engine.connect() for _ in range(15)))
+    await asyncio.gather(*(connection.close() for connection in connections))
+    service.session_repo = ScheduledSessionRepository(sessions)
+    reports = SqlInterviewReportRepository(sessions)
+    generator = ReportGenerationService(narrative=ReportNarrativeService(llm=FakeLLMClient()))
+    results = await asyncio.gather(*[
+        _get_or_generate_report(
+            interview_id=iid, session_service=service, plan_repo=service.plan_repo,
+            report_repo=reports, report_service=generator,
+        ) for iid in interviews
+    ], return_exceptions=True)
+    failures = [type(result).__name__ for result in results if isinstance(result, Exception)]
+    assert len(failures) == 0, failures

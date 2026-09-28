@@ -101,6 +101,10 @@ class InterviewLockRegistry:
 
     def __init__(self) -> None:
         self._locks: dict[str, asyncio.Lock] = {}
+        # The configured engine uses SQLAlchemy's default 5+10 connection pool. A report
+        # or Speech operation holds its session row while another repository reads data.
+        # Leave room for those reads instead of letting lock holders fill the entire pool.
+        self.transactions = asyncio.Semaphore(4)
 
     def lock_for(self, interview_id: str) -> asyncio.Lock:
         return self._locks.setdefault(interview_id, asyncio.Lock())
@@ -198,7 +202,7 @@ class InterviewSessionService:
         durable compare/advance/commit across processes. A stale or exact duplicate is rejected
         (412), never applied to the next question. Completion remains 409.
         """
-        async with self.locks.lock_for(interview_id):
+        async with self.locks.lock_for(interview_id), self.locks.transactions:
             async with self.session_repo.locked(interview_id) as session:
                 current = self._saved_state(session)
                 if current.status == InterviewStatus.COMPLETED:

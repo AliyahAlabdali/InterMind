@@ -177,7 +177,7 @@ async def _get_or_generate_report(
 ) -> InterviewReport:
     # Same session row lock as answer acceptance: one cache miss may generate at a time,
     # including across processes. A process crash before storing may require regeneration.
-    async with session_service.locks.lock_for(interview_id):
+    async with session_service.locks.lock_for(interview_id), session_service.locks.transactions:
         async with session_service.session_repo.locked(interview_id):
             try:
                 return await report_repo.get(interview_id)

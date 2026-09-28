@@ -69,7 +69,7 @@ async def issue_speech_token(
 
     # Serialize issuance with completion, so a concurrent final answer cannot finish
     # between eligibility validation and credential acquisition.
-    async with sessions.locks.lock_for(interview_id):
+    async with sessions.locks.lock_for(interview_id), sessions.locks.transactions:
         async with sessions.session_repo.locked(interview_id):
             await _reject_if_completed(sessions, interview_id)
             limit_speech_token(request, interview_id)
