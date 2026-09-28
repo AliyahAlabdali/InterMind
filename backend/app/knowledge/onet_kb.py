@@ -45,6 +45,41 @@ def _load_records(path: Path) -> list[dict]:
     return records
 
 
+def _occupation_matching_text(record: OccupationRecord) -> str:
+    """The text an occupation is matched *against*, rebuilt from its structured fields.
+
+    Deliberately not ``record.search_text``. That field is the notebook's
+    ``title + description + Skills + Technologies`` string, and it has two measured problems
+    as a retrieval corpus:
+
+    * **It omits ``core_tasks``.** The query side sends the JD's full responsibilities, so the
+      richest part of a job description had nothing comparable to match against. Core tasks
+      are present for 923 of 1016 occupations and roughly double the occupation-specific text.
+    * **It includes O*NET's generic Skills, which carry no signal.** There are exactly ten
+      distinct skill names in the whole corpus (Active Listening, Reading Comprehension,
+      Critical Thinking, ...) and each appears in 89.6% of occupations - the same block
+      repeated. They cannot discriminate between two occupations, and they dilute the terms
+      that can.
+
+    Technologies stay: 3671 distinct names at a 0.10% median prevalence make them the most
+    occupation-specific evidence in the record (PyTorch and TensorFlow, for instance, are
+    listed by two occupations and one respectively).
+
+    Rebuilt at load time from fields the record already carries, so the tracked
+    ``onet_kb.jsonl`` artifact is not regenerated and ``search_text`` keeps its documented
+    meaning for any other consumer.
+    """
+    technologies = " ".join(t.technology for t in record.technologies)
+    tasks = " ".join(record.core_tasks)
+    parts = [
+        record.title,
+        record.description,
+        f"Technologies: {technologies}." if technologies else "",
+        tasks,
+    ]
+    return " ".join(p for p in parts if p).strip()
+
+
 def _jobspec_to_query_text(job_spec: JobSpec) -> str:
     """Mirror the search_text shape built in the notebook, so query and corpus share a format.
 
@@ -105,7 +140,7 @@ class OnetKnowledgeBase:
 
         self._vectorizer = TfidfVectorizer(stop_words="english", ngram_range=(1, 2), min_df=1)
         self._matrix = self._vectorizer.fit_transform(
-            self._records[code].search_text for code in self._order
+            _occupation_matching_text(self._records[code]) for code in self._order
         )
 
         # How many distinct occupations list each technology name - see
