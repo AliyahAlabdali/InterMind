@@ -25,12 +25,12 @@ Relevant modules:
 
 | Concern | Where |
 |---|---|
-| Recruiter model, email normalisation, password policy | `app/domain/recruiter.py` |
-| Password hashing and verification | `app/core/security.py` |
-| Signup / login / logout / session status | `app/api/routes/auth.py` |
-| Account storage | `app/repositories/ports.py`, `in_memory.py`, `sql.py` |
-| Session store | `app/api/recruiter_session.py` |
-| Authorization dependencies | `app/api/auth.py` |
+| Recruiter model, email normalisation, password policy | `backend/app/domain/recruiter.py` |
+| Password hashing and verification | `backend/app/core/security.py` |
+| Signup / login / logout / session status | `backend/app/api/routes/auth.py` |
+| Account storage | `backend/app/repositories/ports.py`, `in_memory.py`, `sql.py` |
+| Session store | `backend/app/api/recruiter_session.py` |
+| Authorization dependencies | `backend/app/api/auth.py` |
 | Route guard and sign-in page | `frontend/src/app/RequireRecruiter.tsx`, `frontend/src/pages/RecruiterLoginPage.tsx` |
 
 ## Accounts and persistence

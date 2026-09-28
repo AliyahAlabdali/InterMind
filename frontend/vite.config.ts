@@ -16,7 +16,7 @@ import { defineConfig, loadEnv } from 'vite'
  * Strict cookie, no cross-site request can carry the session, so there is nothing for a forged
  * request to ride on and no separate CSRF token scheme is needed. A deployment that splits the
  * frontend and API across different sites would break that property and would need to revisit
- * both the cookie policy and CSRF - see `app/api/routes/auth.py`.
+ * both the cookie policy and CSRF - see `backend/app/api/routes/auth.py`.
  *
  * `API_PROXY_TARGET` points the proxy at a backend on another host/port; it is a dev-server
  * setting and is never exposed to browser code (no `VITE_` prefix).

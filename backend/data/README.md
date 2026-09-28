@@ -16,19 +16,22 @@ A fresh clone therefore has the knowledge base, but not the raw data or the othe
 ## How it is built and read
 
 ```
-data/raw/onet  --->  notebooks/ONET_knowledge_base_pipeline.ipynb  --->  data/processed/onet
-                                                                              |
-                                                                              v
-                                                             app/knowledge/onet_kb.py
+backend/data/raw/onet  --->  notebooks/ONET_knowledge_base_pipeline.ipynb  --->  backend/data/processed/onet
+                                                                                              |
+                                                                                              v
+                                                                         backend/app/knowledge/onet_kb.py
 ```
 
-The pipeline is a notebook, run manually end to end. It is the only thing that writes to
-`processed/`, which is why `data/processed/onet/README.md` says not to hand-edit those files.
+The pipeline is a notebook, run manually end to end. The notebook lives at the repository root,
+outside `backend/`, and resolves this directory by searching upward for `backend/pyproject.toml`.
+It is the only thing that writes to `processed/`, which is why `processed/onet/README.md` says
+not to hand-edit those files.
 
-**The application reads `data/processed/` directly.** `app/core/config.py` defines
-`DEFAULT_ONET_KB_PATH` as `data/processed/onet/onet_kb.jsonl`, overridable with the
-`ONET_KB_PATH` setting, and `app/knowledge/onet_kb.py` loads that file to match a job
-specification against occupations. It reads nothing else here: never `raw/`, and never the CSV
+**The application reads `processed/` directly.** `backend/app/core/config.py` defines
+`DEFAULT_ONET_KB_PATH` relative to the package location — `parents[2] / "data" / "processed" /
+"onet" / "onet_kb.jsonl"`, which is why this directory has to stay a sibling of `backend/app/` —
+overridable with the `ONET_KB_PATH` setting. `backend/app/knowledge/onet_kb.py` loads that file
+to match a job specification against occupations. It reads nothing else here: never `raw/`, and never the CSV
 index, which exists for inspection rather than for the application.
 
 If the file is missing, interview planning fails with a message naming the notebook to run.

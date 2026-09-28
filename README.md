@@ -99,9 +99,9 @@ flowchart TD
     class DECIDE gate;
 ```
 
-The loop is a LangGraph state machine compiled in `app/agents/interview_graph.py`, suspended on a
-human-in-the-loop `interrupt` at each question to wait for the candidate's answer. Selection applies
-coverage priorities and budget rules; each target allows at most one follow-up.
+The loop is a LangGraph state machine compiled in `backend/app/agents/interview_graph.py`,
+suspended on a human-in-the-loop `interrupt` at each question to wait for the candidate's answer.
+Selection applies coverage priorities and budget rules; each target allows at most one follow-up.
 
 ![The candidate's interview room, part way through a session. The header reads "Senior Backend Engineer" and "6 of 11 areas explored"; the question is labelled "Following up on your answer" and asks for a specific Kubernetes deployment example.](docs/assets/intermind-interview.png)
 
@@ -180,8 +180,8 @@ Azure Speech. Local key-based authorization is also supported with `AZURE_SPEECH
 | Speech | Azure AI Speech; optional browser Web Speech API; typed input |
 | Quality | pytest 9.1, Vitest 5.0, Ruff 0.16, oxlint 1.82 |
 
-Backend deployment versions are pinned in `requirements.txt`; `pyproject.toml` declares minimum
-bounds. Frontend resolved versions are recorded in `frontend/package-lock.json`.
+Backend deployment versions are pinned in `backend/requirements.txt`; `backend/pyproject.toml`
+declares minimum bounds. Frontend resolved versions are recorded in `frontend/package-lock.json`.
 
 ## Getting started
 
@@ -189,7 +189,9 @@ Use **Python 3.11+** and a Node.js version matching **`^22.12.0 || ^24.0.0 || >=
 range required by the locked Vitest version and compatible with the frontend toolchain. PostgreSQL
 is optional locally. The commands below use a POSIX shell; PowerShell equivalents are noted.
 
-Clone the repository, then install the backend from the **repository root**:
+Clone the repository, then install the backend from **`backend/`**. The virtual environment
+lives at the repository root; only the install itself runs from `backend/`, where
+`pyproject.toml` is:
 
 ```bash
 git clone https://github.com/AliyahAlabdali/InterMind.git
@@ -197,6 +199,8 @@ cd InterMind
 
 python -m venv .venv
 source .venv/bin/activate      # PowerShell: .\.venv\Scripts\Activate.ps1
+
+cd backend
 pip install -e ".[dev]"
 ```
 
@@ -207,7 +211,7 @@ cp .env.example .env          # PowerShell: Copy-Item .env.example .env
 Install the frontend and copy its configuration from **`frontend/`**:
 
 ```bash
-cd frontend
+cd ../frontend
 npm ci
 cp .env.example .env          # PowerShell: Copy-Item .env.example .env
 ```
@@ -221,14 +225,15 @@ offline.
 For real model calls, set backend `LLM_PROVIDER=openai` and `OPENAI_API_KEY`. `.env` files are
 git-ignored. Never put a secret in a `VITE_` variable: those values enter the public browser bundle.
 
-**The O\*NET knowledge base ships with the repository.** `data/processed/onet/onet_kb.jsonl` is
-the tracked artifact consumed by the application; deployments use it without rebuilding it. See
-[data/README.md](data/README.md). To regenerate it, place the O\*NET 31.0 text
-database under `data/raw/onet/db_31_0_text/` (git-ignored) and run
+**The O\*NET knowledge base ships with the repository.**
+`backend/data/processed/onet/onet_kb.jsonl` is the tracked artifact consumed by the application;
+deployments use it without rebuilding it. See [backend/data/README.md](backend/data/README.md).
+To regenerate it, place the O\*NET 31.0 text database under
+`backend/data/raw/onet/db_31_0_text/` (git-ignored) and run
 `notebooks/ONET_knowledge_base_pipeline.ipynb` end to end.
 
-For PostgreSQL, set backend `DATABASE_URL`, then run `alembic upgrade head` from the **repository
-root**, with the Python environment active. Without a database URL, local development uses
+For PostgreSQL, set backend `DATABASE_URL`, then run `alembic upgrade head` from **`backend/`**,
+with the Python environment active. Without a database URL, local development uses
 in-memory repositories and logs a warning. Set `REQUIRE_DATABASE=true` in deployments to refuse
 startup when the URL is missing; this does not replace a database connectivity check.
 
@@ -238,7 +243,7 @@ browser stays same-origin with its API.
 
 | Terminal | Working directory | Command |
 | :--- | :--- | :--- |
-| Backend, Python environment active | Repository root | `uvicorn app.main:app --reload` |
+| Backend, Python environment active | `backend/` | `uvicorn app.main:app --reload` |
 | Frontend | `frontend/` | `npm run dev` |
 
 ## Verification
@@ -247,8 +252,8 @@ Run the checks from their indicated directories; test totals are intentionally n
 
 | Check | Working directory | Command |
 | :--- | :--- | :--- |
-| Backend tests | Repository root | `pytest -q` |
-| Backend lint | Repository root | `ruff check .` |
+| Backend tests | `backend/` | `pytest -q` |
+| Backend lint | `backend/` | `ruff check .` |
 | Frontend tests | `frontend/` | `npm test` |
 | Frontend types | `frontend/` | `npm run typecheck` |
 | Frontend lint | `frontend/` | `npm run lint` |
@@ -281,4 +286,4 @@ Built by **Aliyah Alabdali**.
 [GitHub](https://github.com/AliyahAlabdali) · [LinkedIn](https://www.linkedin.com/in/aliyah-alabdali-5ba599274/) · [Portfolio](https://aliyahalabdali.github.io)
 
 <sub>O\*NET data is published by the U.S. Department of Labor and is redistributed here under
-their terms of use; `data/processed/onet/onet_kb.jsonl` is derived from O\*NET 31.0. The hero laptop model is by <a href="https://sketchfab.com/3d-models/realistic-3d-laptop-model-high-quality-design-920fe8eceaf748a5b9ddd53385519322">Taohid Animation</a>, used under CC BY 4.0.</sub>
+their terms of use; `backend/data/processed/onet/onet_kb.jsonl` is derived from O\*NET 31.0. The hero laptop model is by <a href="https://sketchfab.com/3d-models/realistic-3d-laptop-model-high-quality-design-920fe8eceaf748a5b9ddd53385519322">Taohid Animation</a>, used under CC BY 4.0.</sub>

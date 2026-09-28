@@ -30,16 +30,27 @@ jobs:
         run: |
           python -m venv antenv
           source antenv/bin/activate
-          pip install -r requirements.txt
+          pip install -r backend/requirements.txt
                 
-      # By default, when you enable GitHub CI/CD integration through the Azure portal, the platform automatically sets the SCM_DO_BUILD_DURING_DEPLOYMENT application setting to true. This triggers the use of Oryx, a build engine that handles application compilation and dependency installation (e.g., pip install) directly on the platform during deployment. Hence, we exclude the antenv virtual environment directory from the deployment artifact to reduce the payload size. 
+      # By default, when you enable GitHub CI/CD integration through the Azure portal, the platform automatically sets the SCM_DO_BUILD_DURING_DEPLOYMENT application setting to true. This triggers the use of Oryx, a build engine that handles application compilation and dependency installation (e.g., pip install) directly on the platform during deployment.
+      #
+      # `path: backend/` makes that directory the artifact root, so the deployed wwwroot
+      # contains `app/`, `data/`, `alembic/`, `requirements.txt` and `alembic.ini` at its top
+      # level. That is load-bearing in three ways, so it must not be changed back to `.`:
+      #   - Oryx looks for requirements.txt at the wwwroot root and only then falls back to
+      #     pyproject.toml, which it hands to Poetry; this project is setuptools-only, so the
+      #     Poetry path installs nothing and the app dies with ModuleNotFoundError.
+      #   - The App Service startup command is `python -m uvicorn app.main:app`, which resolves
+      #     `app` from the wwwroot root.
+      #   - app/core/config.py derives the O*NET knowledge-base path from the package location,
+      #     so backend/data must ship beside backend/app or every interview-plan request 500s.
+      # It also keeps frontend/, docs/ and notebooks/ out of the Python deployment, and antenv/
+      # is created at the repository root, so it falls outside the artifact with no exclusion.
       - name: Upload artifact for deployment jobs
         uses: actions/upload-artifact@v4
         with:
           name: python-app
-          path: |
-            .
-            !antenv/
+          path: backend/
 
       # 🚫 Opting Out of Oryx Build
       # If you prefer to disable the Oryx build process during deployment, follow these steps:

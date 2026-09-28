@@ -57,9 +57,6 @@ asyncio_mode = "auto"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-# Notebooks have their own style conventions (long print/markdown lines for readability) and
-# aren't part of the app package; lint app/ and tests/ instead.
-extend-exclude = ["notebooks"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
