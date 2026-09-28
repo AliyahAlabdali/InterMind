@@ -127,7 +127,14 @@ export function InterviewStagePage() {
     [plan.data],
   )
 
-  const speech = useSpeechOutput()
+  // The same identity the input provider authorizes with. Azure narration mints its own
+  // short-lived, interview-scoped token from it (see ../../speech/azureSpeechOutput); the
+  // browser fallback ignores it entirely.
+  const speechContext = useMemo(
+    () => ({ interviewId, accessToken: token ?? undefined }),
+    [interviewId, token],
+  )
+  const speech = useSpeechOutput(speechContext)
   const voice = useSpeechInput({
     onFinal: (text) => setAnswer((current) => (current ? `${current} ${text}` : text).trim()),
     // The Azure provider mints a short-lived speech token scoped to this interview and biases

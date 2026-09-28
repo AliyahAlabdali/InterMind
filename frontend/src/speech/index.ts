@@ -1,15 +1,28 @@
 import { azureSpeechInput } from "./azureSpeech"
+import { azureSpeechOutput } from "./azureSpeechOutput"
 import { browserSpeechInput, browserSpeechOutput } from "./browserSpeech"
-import type { SpeechInputProvider, SpeechOutputProvider } from "./types"
+import type {
+  SpeechInputProvider,
+  SpeechOutputContext,
+  SpeechOutputHandlers,
+  SpeechOutputProvider,
+  SpeechOutputSession,
+} from "./types"
 
 /**
  * The single wiring point for speech.
  *
  * ```
- * SpeechInputProvider
- * ├── AzureSpeechProvider    <- production
- * └── BrowserSpeechProvider  <- development / offline only
+ * SpeechInputProvider                     SpeechOutputProvider
+ * ├── azureSpeechInput   <- production    ├── azureSpeechOutput   <- production
+ * └── browserSpeechInput <- dev/offline   └── browserSpeechOutput <- fallback
  * ```
+ *
+ * The two sides treat their fallback differently, on purpose. Input never silently downgrades:
+ * a failing Azure recogniser means the candidate types, because quietly switching to the weaker
+ * engine would hide a production misconfiguration. Output does fall back, because the
+ * alternative is an interviewer that says nothing at all, and a differently-voiced question is
+ * plainly better than a silent one.
  *
  * Azure is the production STT provider: the browser's Web Speech API proved unusable in real
  * Chrome (the microphone opened, no sound was ever detected, and every session timed out with
@@ -54,10 +67,87 @@ function selectInputProvider(name: SpeechProviderName): SpeechInputProvider {
 
 export const speechInput: SpeechInputProvider = selectInputProvider(speechProviderName)
 
-/** Text-to-speech is unchanged - the browser synthesis path is working well. */
-export const speechOutput: SpeechOutputProvider = browserSpeechOutput
+/**
+ * Question narration: Azure first, browser synthesis as the safety net.
+ *
+ * The browser path alone could not give the product one interviewer. Each browser reads from its
+ * own voice catalogue, and the same code chose a normal adult voice in Chrome, Microsoft's
+ * children's voice in Edge, a male voice on iOS, and nothing audible at all on iPhone and iPad.
+ * Naming the voice server-side is what makes every candidate hear the same person.
+ *
+ * The fallback is a real fallback, not a silent downgrade of a misconfiguration: it runs when
+ * synthesis or playback actually fails for *this* question, and each question is retried against
+ * Azure on its own. That differs deliberately from the input side, where falling back would hide
+ * a broken deployment - here the alternative is an interviewer that says nothing, and a
+ * differently-voiced question is plainly better than a silent one.
+ *
+ * Both layers are optional. If both fail the question is still on screen and the interview is
+ * completely usable; narration is an enhancement and is never allowed to block anything.
+ */
+export function withBrowserFallback(primary: SpeechOutputProvider): SpeechOutputProvider {
+  return {
+    id: `${primary.id}+fallback`,
+
+    // Supported if *either* layer can run, so a browser without `speechSynthesis` still gets
+    // Azure narration and a browser where Azure cannot run still gets the fallback.
+    isSupported: () => primary.isSupported() || browserSpeechOutput.isSupported(),
+
+    speak(
+      text: string,
+      handlers: SpeechOutputHandlers,
+      context?: SpeechOutputContext,
+    ): SpeechOutputSession {
+      // Nothing to authorize against means Azure cannot be tried at all; go straight to the
+      // fallback rather than spending a failed request to discover it.
+      if (!primary.isSupported() || !context?.interviewId || !context.accessToken) {
+        return browserSpeechOutput.speak(text, handlers, context)
+      }
+
+      let session: SpeechOutputSession | null = null
+      let cancelled = false
+      let fellBack = false
+
+      session = primary.speak(
+        text,
+        {
+          ...handlers,
+          onError: () => {
+            // One fallback attempt per question. Without this guard a fallback that also fails
+            // would re-enter here and loop.
+            if (cancelled || fellBack) return
+            fellBack = true
+            session = browserSpeechOutput.speak(text, handlers, context)
+          },
+        },
+        context,
+      )
+
+      return {
+        cancel() {
+          cancelled = true
+          session?.cancel()
+        },
+      }
+    },
+
+    cancelAll() {
+      primary.cancelAll()
+      browserSpeechOutput.cancelAll()
+    },
+  }
+}
+
+/**
+ * Selected the same way input is: build-time configuration mirroring the backend's own
+ * SPEECH_PROVIDER. Only the `azure` deployment has a token endpoint to mint from, so the other
+ * modes use browser synthesis directly.
+ */
+export const speechOutput: SpeechOutputProvider =
+  speechProviderName === "azure" ? withBrowserFallback(azureSpeechOutput) : browserSpeechOutput
 
 export * from "./types"
 export { BASELINE_TECHNICAL_PHRASES, buildPhraseList, phraseVariants } from "./phrases"
 export { useSpeechInput } from "./useSpeechInput"
 export { useSpeechOutput } from "./useSpeechOutput"
+export { unlockAudioPlayback } from "./audioUnlock"
+export { INTERVIEWER_VOICE } from "./azureSpeechOutput"

@@ -11,6 +11,7 @@ import { ErrorBanner } from "../../components/ui/ErrorBanner"
 import { Interviewer } from "../../interviewer/Interviewer"
 import { rise, stagger } from "../../design/motion"
 import { useDocumentTitle } from "../../hooks/useDocumentTitle"
+import { unlockAudioPlayback } from "../../speech"
 
 /**
  * The doorway.
@@ -148,7 +149,16 @@ export function CandidateLandingPage() {
         <motion.div variants={rise} className="mt-8">
           <button
             type="button"
-            onClick={() => navigate(`/candidate/interviews/${interviewId}/session`)}
+            onClick={() => {
+              // Spend this tap on unlocking audio output, synchronously and before navigating.
+              // WebKit only lets audio start from inside a gesture, and the interview screen
+              // reads each question on its own, from an effect - never from a tap. Priming here
+              // is what makes narration audible on iPhone and iPad at all. Nothing is heard: the
+              // priming clip is silent (see ../../speech/audioUnlock). The microphone is
+              // unaffected; recording has its own permission and its own gesture.
+              unlockAudioPlayback()
+              navigate(`/candidate/interviews/${interviewId}/session`)
+            }}
             className="inline-flex min-h-[48px] items-center gap-2 rounded-full bg-fg px-7 text-[0.9375rem] font-medium text-canvas transition-colors duration-200 hover:bg-accent"
           >
             {isResuming ? "Continue the interview" : "Begin the interview"}

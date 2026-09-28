@@ -95,9 +95,27 @@ export interface SpeechOutputSession {
   cancel: () => void
 }
 
+/**
+ * What an output provider needs to know about *this* interview in order to authenticate.
+ *
+ * Deliberately the same shape as `SpeechInputContext` minus the phrase list, which only biases
+ * recognition. The browser provider ignores this entirely; the Azure provider uses it to ask our
+ * backend for a short-lived Speech token scoped to this interview, exactly as the input provider
+ * does. Optional, so a provider that needs no credential stays valid.
+ */
+export interface SpeechOutputContext {
+  interviewId?: string
+  /** The candidate's own interview access token, used to authorize the token request. */
+  accessToken?: string
+}
+
 export interface SpeechOutputProvider {
   readonly id: string
   isSupported: () => boolean
-  speak: (text: string, handlers: SpeechOutputHandlers) => SpeechOutputSession
+  speak: (
+    text: string,
+    handlers: SpeechOutputHandlers,
+    context?: SpeechOutputContext,
+  ) => SpeechOutputSession
   cancelAll: () => void
 }

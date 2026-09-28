@@ -148,7 +148,7 @@ describe("pickEnglishVoice", () => {
     expect(pickEnglishVoice(voices)?.name).toBe("Google US English")
   })
 
-  it("is deterministic when voices tie", () => {
+  it("is deterministic regardless of the order the platform lists voices in", () => {
     const voices = [
       makeVoice("Microsoft Zira - English (United States)", "en-US"),
       makeVoice("Microsoft David - English (United States)", "en-US"),
@@ -157,7 +157,20 @@ describe("pickEnglishVoice", () => {
     const first = pickEnglishVoice([...voices])?.name
     const again = pickEnglishVoice([...voices].reverse())?.name
     expect(first).toBe(again)
-    expect(first).toBe("Microsoft David - English (United States)")
+    // Zira, not the alphabetically first David: a known adult female voice outranks the
+    // alphabetical tie-break. Relying on the alphabet alone is what produced a child voice on
+    // Edge and a male voice on iOS - see the catalogue tests below.
+    expect(first).toBe("Microsoft Zira - English (United States)")
+  })
+
+  it("falls back to alphabetical order only when nothing is known about the voices", () => {
+    const voices = [
+      makeVoice("Zephyr", "en-US"),
+      makeVoice("Atlas", "en-US"),
+      makeVoice("Meridian", "en-US"),
+    ]
+    expect(pickEnglishVoice([...voices])?.name).toBe("Atlas")
+    expect(pickEnglishVoice([...voices].reverse())?.name).toBe("Atlas")
   })
 
   it("handles underscore locale forms", () => {

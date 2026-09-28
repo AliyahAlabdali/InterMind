@@ -254,9 +254,56 @@ function normalizeLang(lang: string): string {
 }
 
 /**
- * Deterministic ranking: exact en-US beats other English variants; a network/neural voice beats
- * a local one (they sound markedly better); ties break alphabetically so the same machine always
- * picks the same voice.
+ * Adult voices known to be appropriate for an interviewer, best first.
+ *
+ * Deliberately short. This is not a browser-detection table and must not grow into one: it is a
+ * preference list, and a platform offering none of these still gets a sensible voice from the
+ * generic scoring below. The entries are the standard adult female en-* voices across the
+ * platforms InterMind actually targets - Microsoft neural (Edge), Apple (macOS/iOS), and Chrome.
+ */
+const PREFERRED_ADULT_VOICES = [
+  "aria",
+  "jenny",
+  "michelle",
+  "emma",
+  "ava",
+  "samantha",
+  "google us english",
+  "zira",
+] as const
+
+/**
+ * Voices that must not read an interview question.
+ *
+ * `ana` is Microsoft's **children's** voice (`en-US-AnaNeural`), and it is the reason this list
+ * exists: Edge exposes a dozen en-US neural voices that all score identically, and "Ana" happens
+ * to sort first alphabetically, so a purely alphabetical tie-break handed a professional
+ * interview to a cartoon child voice. `junior` is Apple's equivalent.
+ */
+const AVOIDED_VOICES = ["ana", "junior"] as const
+
+/** Whole-word match, so "Ana" never matches "Ananya" and "ava" never matches "Avatar". */
+function mentions(voiceName: string, term: string): boolean {
+  const name = voiceName.toLowerCase()
+  if (term.includes(" ")) return name.includes(term)
+  return new RegExp(`(^|[^a-z])${term}([^a-z]|$)`).test(name)
+}
+
+/**
+ * Deterministic ranking, in priority order:
+ *
+ * 1. never a known child voice (see `AVOIDED_VOICES`);
+ * 2. a known adult voice, earlier in `PREFERRED_ADULT_VOICES` beating later;
+ * 3. exact en-US over other English variants;
+ * 4. a network/neural voice over a local one (they sound markedly better);
+ * 5. alphabetically, so the same machine always picks the same voice.
+ *
+ * Steps 1 and 2 are the whole fix. Everything else is the original ranking, which was right
+ * about *quality* tiers and wrong only in what it did when they tied - and on a modern neural
+ * catalogue, they tie constantly.
+ *
+ * Preference outranks locale on purpose: an adult en-GB voice is a better interviewer than a
+ * child en-US one, and voice suitability is what this function is actually for.
  */
 export function pickEnglishVoice(
   voices: SpeechSynthesisVoice[],
@@ -267,6 +314,14 @@ export function pickEnglishVoice(
   const scored = english.map((voice) => {
     const lang = normalizeLang(voice.lang)
     let score = 0
+
+    // Large enough to lose to anything else that is remotely suitable, but still selectable:
+    // a child voice reading the question beats silence if the platform offers nothing else.
+    if (AVOIDED_VOICES.some((term) => mentions(voice.name, term))) score -= 1000
+
+    const preference = PREFERRED_ADULT_VOICES.findIndex((term) => mentions(voice.name, term))
+    if (preference >= 0) score += 200 - preference
+
     if (lang === "en-us") score += 100
     else if (lang.startsWith("en-")) score += 50
     // Network voices are the neural ones; local voices are the older SAPI-era engines.
@@ -332,9 +387,7 @@ export const browserSpeechOutput: SpeechOutputProvider = {
       levelTimer = window.setTimeout(pumpLevel, 60)
     }
 
-    // Voices may not be ready yet, so the utterance is queued once they are. `cancel()` works
-    // before that resolves, which is why the cancelled flag exists.
-    void loadVoices().then((voices) => {
+    function startWith(voices: SpeechSynthesisVoice[]) {
       if (cancelled) return
 
       const utterance = new SpeechSynthesisUtterance(text)
@@ -377,7 +430,19 @@ export const browserSpeechOutput: SpeechOutputProvider = {
 
       window.speechSynthesis.cancel()
       window.speechSynthesis.speak(utterance)
-    })
+    }
+
+    // Speak synchronously whenever the voice list is already populated.
+    //
+    // This is not a micro-optimisation. WebKit only starts speech from a synchronous call chain
+    // rooted at a user gesture, and a promise continuation is outside that chain - so routing
+    // every call through `loadVoices().then(...)` meant that on iOS the utterance was dropped
+    // silently even when a gesture was present. iOS ships its voices with the OS, so this
+    // branch is the one it takes. The asynchronous wait remains for Chrome, which genuinely
+    // populates `getVoices()` late, and where no gesture is required in the first place.
+    const ready = window.speechSynthesis.getVoices()
+    if (ready.length > 0) startWith(ready)
+    else void loadVoices().then(startWith)
 
     return {
       cancel() {

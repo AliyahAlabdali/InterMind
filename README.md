@@ -66,8 +66,9 @@ what InterMind understood, before anything is built on top of it.
 - **Targeted follow-ups and cross-target evidence.** Routing rules use structured evaluations to
   decide when to probe further. Model-extracted evidence about another target can resolve it under
   deterministic rules, avoiding a redundant question.
-- **Optional speech input.** Azure transcription is available alongside typed answers; typing
-  remains available when speech is disabled or unavailable.
+- **Spoken interview.** Azure AI Speech reads each question aloud in one pinned adult voice and
+  transcribes spoken answers. Typing and on-screen question text remain available throughout, so
+  the interview is fully usable when speech is disabled or unavailable.
 - **Evidence-based reports.** Per-answer evaluations feed deterministic report aggregation, with
   supporting evidence, requirement assessments and a generated narrative.
 - **Persistent application records.** PostgreSQL stores recruiter accounts, jobs, plans, candidate
@@ -134,7 +135,7 @@ flowchart TD
     CORE -.->|"Model-backed steps"| OAI["OpenAI API"]
     CORE -.->|"Filtered context lookup"| KB["O#42;NET 31.0 / TF-IDF<br/>No extra requirements"]
     API -.->|"Returns short-lived Speech authorization"| WEB
-    WEB -->|"Audio directly"| AZ["Azure AI Speech<br/>Optional transcription"]
+    WEB -->|"Audio directly"| AZ["Azure AI Speech<br/>Question narration & transcription"]
 
     linkStyle default stroke:#6F7FA3,color:black;
     classDef accent fill:#3B3355,stroke:#3B3355,stroke-width:1px,color:#FEFCFD;
@@ -160,13 +161,17 @@ endpoint is intentionally available without recruiter authentication. Candidates
 per-interview token and receive only the plan fields needed for their interview. See
 [docs/recruiter-auth.md](docs/recruiter-auth.md).
 
-**Azure Speech.** Transcription is optional. Set backend `SPEECH_PROVIDER=azure` and frontend
+**Azure Speech.** Speech is optional, and covers both directions: reading questions aloud and
+transcribing spoken answers. Set backend `SPEECH_PROVIDER=azure` and frontend
 `VITE_SPEECH_PROVIDER=azure` together. Production uses managed identity / Entra authorization
 (`AZURE_SPEECH_AUTH=managed_identity`), with the Speech resource identifier and custom-domain host
-configured on the backend. The browser uses the custom-domain WebSocket endpoint and a short-lived
-authorization token obtained through the interview-scoped backend endpoint; audio goes directly to
-Azure Speech. Local key-based authorization is also supported with `AZURE_SPEECH_AUTH=key`,
-`AZURE_SPEECH_KEY` and `AZURE_SPEECH_REGION` set only on the backend. Typed input remains available.
+configured on the backend. The browser obtains a short-lived authorization token through the
+interview-scoped backend endpoint and uses it for both directions; audio goes directly to Azure
+Speech, and the resource key never reaches the browser. Question narration uses one pinned adult
+voice so every candidate hears the same interviewer, with browser speech synthesis as a fallback
+if narration fails. Local key-based authorization is also supported with `AZURE_SPEECH_AUTH=key`,
+`AZURE_SPEECH_KEY` and `AZURE_SPEECH_REGION` set only on the backend. Typed input and on-screen
+question text remain available throughout.
 
 ## Tech stack
 
@@ -177,7 +182,7 @@ Azure Speech. Local key-based authorization is also supported with `AZURE_SPEECH
 | AI and orchestration | LangGraph 1.2, OpenAI SDK 3.6, versioned Markdown prompts, structured Pydantic outputs |
 | Knowledge | O\*NET 31.0 covering 1,016 occupations, scikit-learn 1.9 for TF-IDF and cosine similarity |
 | Persistence | PostgreSQL via SQLAlchemy 2.0 async ORM, asyncpg 0.31, Alembic 1.20 |
-| Speech | Azure AI Speech; optional browser Web Speech API; typed input |
+| Speech | Azure AI Speech for question narration and transcription; browser Web Speech API as fallback; typed input |
 | Quality | pytest 9.1, Vitest 5.0, Ruff 0.16, oxlint 1.82 |
 
 Backend deployment versions are pinned in `backend/requirements.txt`; `backend/pyproject.toml`
