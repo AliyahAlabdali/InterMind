@@ -92,7 +92,7 @@ export function InterviewComposer({
           ref={textareaRef}
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          placeholder={voice.isRecording ? "Listening - just talk" : "Start typing your answer"}
+          placeholder={voice.isRecording ? "Listening. Just talk." : "Start typing your answer"}
           rows={2}
           disabled={locked}
           // Turned off deliberately: an interview answer is the candidate's own words, and a
@@ -150,7 +150,7 @@ export function InterviewComposer({
           </button>
         ) : (
           <p className="max-w-[22rem] px-1 text-xs leading-relaxed text-sky-pale/75">
-            {voice.notice ?? "Answer by typing - that works everywhere."}
+            {voice.notice ?? "Answer by typing. That works everywhere."}
           </p>
         )}
 

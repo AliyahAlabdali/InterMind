@@ -90,7 +90,8 @@ export function WelcomePage() {
             <div className="flex flex-col gap-4">
               <Logo size={24} tone="onDark" />
               <p className="max-w-sm text-sm leading-relaxed text-fg-soft">
-                AI built to conduct the interview, evaluate the depth, and report the truth.
+                AI that conducts the interview, weighs each answer, and reports what the
+                evidence shows.
               </p>
             </div>
 

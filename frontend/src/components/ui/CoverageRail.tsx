@@ -39,7 +39,7 @@ export function CoverageRail({
   if (total <= 0) return null
 
   const ratio = Math.min(Math.max(assessed / total, 0), 1)
-  const readout = label ?? `${assessed} of ${total} areas`
+  const readout = label ?? `${assessed} of ${total} ${total === 1 ? "area" : "areas"}`
 
   return (
     <div className={`flex items-center gap-3 ${className}`}>
@@ -48,7 +48,7 @@ export function CoverageRail({
         aria-valuemin={0}
         aria-valuemax={total}
         aria-valuenow={assessed}
-        aria-label={`${assessed} of ${total} areas explored`}
+        aria-label={`${assessed} of ${total} ${total === 1 ? "area" : "areas"} explored`}
         className="flex h-[5px] min-w-0 flex-1 items-stretch gap-[2px]"
       >
         {total <= MAX_TICKS ? (

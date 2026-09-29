@@ -87,6 +87,9 @@ buckets, but they are different claims about the candidate and must be worded di
 - `weaknesses`: short, specific gaps, phrased as what is missing from the answer - never as a
   claim that the candidate lacks the underlying skill, and never worded more strongly than
   `evidence_type` supports. Never "the candidate lacks/is weak at X" or "is incapable of X".
+  Never "no relevant experience with X was demonstrated" either, for anything but
+  `explicit_lack`: write "the answer did not give evidence of X" or "the answer described Y
+  instead of X", which says what the answer did without asserting what the candidate has.
   Phrase according to `evidence_type`: for `explicit_lack`, it is accurate to say the candidate
   stated they lack the experience (that is what they said); for `claimed_unverified`, say they
   attempted an answer but could not provide verifiable detail (never say they "did not

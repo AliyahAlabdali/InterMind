@@ -38,8 +38,8 @@ export function CompletionScreen() {
         <motion.div variants={rise}>
           <h1 className="type-question text-balance text-white">That's the interview.</h1>
           <p className="mx-auto mt-5 max-w-md leading-relaxed text-sky-pale/75">
-            Thank you for your time. Your answers have gone to the hiring team, along with what
-            InterMind took from them. There's nothing else to do here.
+            Thank you for your time. Your answers and InterMind's assessment have been shared
+            with the hiring team. There's nothing else you need to do here.
           </p>
         </motion.div>
       </motion.div>

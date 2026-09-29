@@ -44,12 +44,12 @@ const STEPS: Step[] = [
   },
   {
     label: "Listen to the answer",
-    body: "Every response is weighed before the system decides what should happen next.",
+    body: "Every answer is weighed before InterMind decides what comes next.",
     state: "listening",
   },
   {
     label: "Follow up",
-    body: "If an answer stops short, InterMind asks a more specific question about that same thing instead of moving on.",
+    body: "If an answer leaves something important unclear, InterMind asks about it before moving on.",
     state: "followUp",
   },
   {
@@ -107,7 +107,7 @@ export function ProcessStage() {
         <div className="max-w-2xl">
           <span className="type-meta text-accent">How it works</span>
           <h2 className="type-section mt-5 text-balance text-fg">
-            From a job description to a written-up interview.
+            From a job description to an interview report.
           </h2>
           <p className="type-body mt-5 text-fg-soft">
             Six steps, start to finish. You provide the role and send a link; InterMind does the
@@ -230,8 +230,8 @@ export function ProcessStage() {
                   >
                     {item.body}
                   </p>
-                  {index === 3 && <div className="adaptive-example mt-7 border-l border-hair-strong pl-5"><span className="type-meta text-accent">An example answer</span><p className="mt-3 text-lg leading-relaxed text-fg-soft">“I versioned every migration.”</p><p className="mt-3 text-sm leading-relaxed text-fg-muted">The next question stays with the candidate’s experience.</p></div>}
-                  {index === 4 && <div className="adaptive-example mt-7 border-l border-hair-strong pl-5"><span className="type-meta text-accent">A follow-up to that answer</span><p className="mt-3 text-lg leading-relaxed text-fg-soft">“What happened when a migration failed?”</p><p className="mt-3 text-sm leading-relaxed text-fg-muted">The answer changed what came next.</p></div>}
+                  {index === 3 && <div className="adaptive-example mt-7 border-l border-hair-strong pl-5"><span className="type-meta text-accent">An example answer</span><p className="mt-3 text-lg leading-relaxed text-fg-soft">“I worked on that project with a team of four.”</p><p className="mt-3 text-sm leading-relaxed text-fg-muted">The answer mentions the team, but not the candidate’s role in it.</p></div>}
+                  {index === 4 && <div className="adaptive-example mt-7 border-l border-hair-strong pl-5"><span className="type-meta text-accent">A follow-up to that answer</span><p className="mt-3 text-lg leading-relaxed text-fg-soft">“What was your role on the team?”</p></div>}
                 </div>
               )
             })}

@@ -145,14 +145,20 @@ function RoleRow({ overview }: { overview: JobOverview }) {
           </h3>
           <p className="type-data mt-1 text-fg-muted">
             {formatSeniority(job.job_spec.seniority)}
-            {targets === null ? " · interview not built yet" : ` · ${total} areas`}
+            {targets === null
+              ? " · interview not built yet"
+              : ` · ${total} ${total === 1 ? "area" : "areas"}`}
           </p>
         </div>
 
         <p className="text-sm text-fg-soft">{roleSummary(overview)}</p>
 
         {candidates.length > 0 && total > 0 ? (
-          <CoverageRail assessed={assessed} total={total} label={`${assessed} of ${total} areas`} />
+          <CoverageRail
+            assessed={assessed}
+            total={total}
+            label={`${assessed} of ${total} ${total === 1 ? "area" : "areas"}`}
+          />
         ) : (
           <span aria-hidden="true" />
         )}
@@ -216,11 +222,11 @@ export function InterviewsPage() {
           <motion.div variants={rise}>
             <EmptyState
               title="No interviews yet"
-              body="InterMind builds an interview from the job description itself - you don't write the questions, and the interview decides what to ask next from what each candidate says."
+              body="Give InterMind a job description. It will read the role, build the interview, and decide what to ask each candidate based on their answers."
               hints={[
-                "Paste a job description and InterMind reads the role.",
-                "Check what it understood, then let it build the interview.",
-                "Send each candidate their own link and watch the evidence arrive.",
+                "Paste the job description.",
+                "Review what InterMind understood.",
+                "Invite a candidate with their private link.",
               ]}
               action={
                 <Button onClick={() => navigate("/interviews/new")}>
@@ -262,7 +268,7 @@ export function InterviewsPage() {
           <div className="flex flex-wrap items-baseline justify-between gap-x-8 gap-y-2 border-b border-hair pb-4">
             <h2 className="type-group text-fg">Recent activity</h2>
             <p className="type-data text-fg-muted">
-              Recorded as it happened, across every interview
+              Recorded as it happens across your interviews
             </p>
           </div>
           <div className="mt-2">

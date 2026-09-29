@@ -335,20 +335,20 @@ def build_areas_to_explore(competencies: list[CompetencyAssessment], limit: int 
 #: into one generic sentence.
 _GAP_NOTE_BY_EVIDENCE_TYPE: dict[AnswerEvidenceType, str] = {
     AnswerEvidenceType.EXPLICIT_LACK: (
-        "The candidate stated they do not have this experience - not independently verified "
-        "beyond their own statement."
+        "The candidate stated they do not have this experience. That is their own statement, "
+        "not independently verified."
     ),
     AnswerEvidenceType.CLAIMED_UNVERIFIED: (
-        "The candidate claimed relevant experience but could not provide detail to verify it - "
-        "worth exploring further."
+        "The candidate claimed relevant experience but could not provide detail to verify it. "
+        "Worth exploring further."
     ),
     AnswerEvidenceType.CONTRADICTORY: (
-        "The candidate's answer contained inconsistent statements about this area - worth "
+        "The candidate's answer contained inconsistent statements about this area. Worth "
         "clarifying directly."
     ),
 }
 _DEFAULT_GAP_NOTE = (
-    "No conclusive evidence was gathered for this area during the interview - worth exploring "
+    "No conclusive evidence was gathered for this area during the interview. Worth exploring "
     "further."
 )
 

@@ -99,8 +99,8 @@ export function CandidateLandingPage() {
             {isResuming ? "Ready to pick up where you left off?" : "You're about to meet your interviewer."}
           </h1>
           <p className="type-copy mt-4 text-fg-soft">
-            This is a real interview, run by InterMind rather than a person. It asks one question
-            at a time and decides what to explore next from what you actually say.
+            This interview is conducted by InterMind rather than a person. It asks one question
+            at a time and decides what to explore next from what you say.
           </p>
         </motion.div>
 

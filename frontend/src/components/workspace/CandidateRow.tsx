@@ -11,7 +11,7 @@ import { CoverageRail } from "../ui/CoverageRail"
 import { ExternalLinkIcon } from "../ui/icons"
 import { candidateLink } from "../../lib/candidateLink"
 import { rise } from "../../design/motion"
-import { formatEvidenceStrength, formatRecommendation } from "../../lib/format"
+import { formatRecommendation } from "../../lib/format"
 import type { CandidateOverview } from "../../hooks/useWorkspaceOverview"
 
 /** How many evidenced areas a row shows before it stops being scannable. */
@@ -61,13 +61,10 @@ export function CandidateRow({ candidate }: { candidate: CandidateOverview }) {
 
         {isCompleted ? (
           <div className="flex min-w-0 flex-wrap items-baseline gap-x-2.5 gap-y-1">
-            {report.data && (
-              <span className="text-sm text-fg">
-                {formatEvidenceStrength(report.data.overall_evidence_strength)}
-              </span>
-            )}
+            {/* One reading of the score, not two: `overall_evidence_strength` bands the same
+                number the assessment label already bands, with different cut points. */}
             {summary.recommendation && (
-              <span className="type-data text-fg-muted">
+              <span className="text-sm text-fg">
                 {formatRecommendation(summary.recommendation)}
               </span>
             )}

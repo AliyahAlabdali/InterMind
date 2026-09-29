@@ -164,7 +164,10 @@ export function InterviewDetailPage() {
             meta={
               <p className="type-data text-fg-muted">
                 {formatSeniority(spec.seniority)}
-                {hasPlan && ` · ${targets.length} areas to explore · ${requiredCount} required`}
+                {hasPlan &&
+                  ` · ${targets.length} ${
+                    targets.length === 1 ? "area" : "areas"
+                  } to explore · ${requiredCount} required`}
                 {candidateOverviews.length > 0 &&
                   ` · ${candidateOverviews.length} ${
                     candidateOverviews.length === 1 ? "candidate" : "candidates"
@@ -215,7 +218,7 @@ export function InterviewDetailPage() {
                     value={candidateEmail}
                     onChange={(e) => setCandidateEmail(e.target.value)}
                     autoComplete="off"
-                    hint="Optional - it only labels the candidate for you."
+                    hint="Optional. It is only used to label the candidate for you."
                   />
                 </div>
                 <div className="mt-6 flex flex-wrap justify-end gap-2">
@@ -245,7 +248,7 @@ export function InterviewDetailPage() {
                 <Check size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-accent" />
                 <span>
                   <span className="font-medium">{newLink.name}</span> is ready to interview. Send
-                  them this link - you can copy it again from their row at any time.
+                  them this link. You can copy it again from their row at any time.
                 </span>
               </p>
               <div className="flex items-center gap-2">
@@ -318,7 +321,6 @@ export function InterviewDetailPage() {
         <motion.div variants={rise} className="shell py-10">
           <OccupationMatchCard
             match={plan.data.occupation_match}
-            alternates={plan.data.alternate_matches}
             onetGroundingUsed={plan.data.onet_grounding_used}
           />
         </motion.div>

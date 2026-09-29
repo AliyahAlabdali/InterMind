@@ -288,8 +288,8 @@ export function NewInterviewPage() {
                   Job description
                 </label>
                 <p className="type-data mt-1.5 text-fg-muted">
-                  Paste it as written - responsibilities and requirements included. You never write
-                  the questions; the interview decides those live, from each candidate's answers.
+                  Paste the full job description, including responsibilities and requirements. You
+                  do not write the questions; InterMind decides what to ask during the interview.
                 </p>
               </div>
 
@@ -306,7 +306,7 @@ export function NewInterviewPage() {
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <p id="jd-length-hint" className="type-data text-fg-muted">
                   {isShort
-                    ? "That looks brief - the more the description says, the better the interview gets."
+                    ? "That looks brief. The more the description says, the better the interview gets."
                     : " "}
                 </p>
                 <Button onClick={handleAnalyze} disabled={!description.trim()}>

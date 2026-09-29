@@ -2,7 +2,7 @@ import { useCallback } from "react"
 import { Link, useParams } from "react-router-dom"
 import { motion } from "motion/react"
 import { ArrowLeft } from "lucide-react"
-import { getInterviewReport, listJobInterviews } from "../../api/interviews"
+import { getInterview, getInterviewReport, listJobInterviews } from "../../api/interviews"
 import { getJobDetail } from "../../api/jobs"
 import { getInterviewPlan } from "../../api/interviewPlans"
 import { useAsyncData } from "../../hooks/useAsyncData"
@@ -11,9 +11,10 @@ import { ErrorBanner } from "../../components/ui/ErrorBanner"
 import { EvidenceTarget } from "../../components/report/EvidenceTarget"
 import { EvidenceMark } from "../../components/report/EvidenceMark"
 import { evidenceKind } from "../../lib/evidence"
-import { QuestionEvaluationList } from "../../components/report/QuestionEvaluationList"
+import { InterviewTranscript } from "../../components/report/InterviewTranscript"
+import { transcriptCounts } from "../../lib/transcript"
 import { rise, stagger } from "../../design/motion"
-import { formatEvidenceStrength, formatRecommendation, formatSeniority } from "../../lib/format"
+import { formatRecommendation, formatSeniority } from "../../lib/format"
 import type { CompletionReason } from "../../types"
 import { useDocumentTitle } from "../../hooks/useDocumentTitle"
 
@@ -54,6 +55,15 @@ export function ReportPage() {
   // choice.
   const sessionsFetcher = useCallback(() => listJobInterviews(jobId!), [jobId])
   const sessions = useAsyncData(sessionsFetcher, [jobId], Boolean(jobId))
+
+  // The conversation itself, for the record below. The report payload deliberately keeps one
+  // entry per requirement (the answer that settled it), so a requirement explored over two turns
+  // appears there once - which is right for scoring and wrong for a transcript. The interview's
+  // own state carries every turn, and a recruiter reaches it with their session (empty candidate
+  // token). Failing this fetch must never take the report down: it is the last section, and
+  // everything above it comes from the report itself.
+  const interviewFetcher = useCallback(() => getInterview(interviewId!, ""), [interviewId])
+  const interview = useAsyncData(interviewFetcher, [interviewId], Boolean(interviewId))
   const candidate = sessions.data?.find((s) => s.interview_id === interviewId)
   // null until the name is known, so the tab never flashes a wrong title.
   useDocumentTitle(candidate ? `${candidate.candidate_name} · Report` : null)
@@ -82,12 +92,19 @@ export function ReportPage() {
   const requiredTotal =
     plan.data?.coverage_targets.filter((t) => t.requirement_level === "required").length ?? 0
   const requiredAssessed = Math.max(requiredTotal - data.unassessed_required_targets.length, 0)
-  // Questions actually put to the candidate. A cross-target row is a requirement the interview
-  // established from an answer to something else, so counting it here claimed the interview had
-  // asked more than it did.
-  const askedCount = data.question_evaluations.filter(
-    (item) => item.assessment_method !== "cross_target",
-  ).length
+
+  // A target established from an answer to a different question has a history entry too, so that
+  // its evidence is attributable - but it was never asked, so it has no place in a transcript.
+  // The report already marks exactly those, by the same id the turn carries.
+  const notAsked = new Set(
+    data.question_evaluations
+      .filter((item) => item.assessment_method === "cross_target")
+      .map((item) => item.question_id),
+  )
+  const targetIds = plan.data?.coverage_targets.map((t) => t.id) ?? []
+  const turns = (interview.data?.history ?? []).filter((turn) => !notAsked.has(turn.question_id))
+  const transcript = transcriptCounts(turns, targetIds)
+  const transcriptUnavailable = !interview.isLoading && turns.length === 0
 
   return (
     <motion.div variants={stagger(0.07)} initial="hidden" animate="visible">
@@ -127,14 +144,13 @@ export function ReportPage() {
           <div className="mt-5 flex flex-wrap items-baseline gap-x-12 gap-y-6">
             <div>
               <p className="type-group text-fg">{formatRecommendation(data.recommendation)}</p>
-              <p className="type-data mt-1.5 text-fg-muted">Recommendation</p>
+              <p className="type-data mt-1.5 text-fg-muted">Evidence assessment</p>
             </div>
-            <div>
-              <p className="type-group text-fg">
-                {formatEvidenceStrength(data.overall_evidence_strength)}
-              </p>
-              <p className="type-data mt-1.5 text-fg-muted">Overall evidence</p>
-            </div>
+            {/* `overall_evidence_strength` is deliberately not shown beside this. It is a second
+                banding of the same score the assessment already reads out, with different cut
+                points, so the two labels disagree in words about one number (0.20 read as
+                "Limited evidence" here and "Insufficient evidence" there). The field stays in the
+                payload for callers that want the band itself. */}
             <div>
               <p className="type-group type-numeric text-fg">{scorePercent}%</p>
               <p className="type-data mt-1.5 text-fg-muted">Weighted score</p>
@@ -150,7 +166,8 @@ export function ReportPage() {
           </div>
 
           <p className="type-copy mt-8 border-t border-hair pt-5 text-sm text-fg-soft">
-            {data.score_basis_note} {COMPLETION_REASON_LABEL[data.completion_reason]}
+            {data.score_basis_note} {COMPLETION_REASON_LABEL[data.completion_reason]} This is an
+            assessment of the interview evidence for you to weigh, not a hiring decision.
           </p>
         </div>
       </motion.section>
@@ -283,12 +300,29 @@ export function ReportPage() {
           <div className="flex flex-col gap-2 border-b border-hair-strong pb-3 lg:flex-row lg:items-end lg:justify-between lg:gap-10">
             <h2 className="type-group text-fg">Interview record</h2>
             <p className="type-data max-w-md text-fg-muted">
-              Everything above is a reading of this. {askedCount}{" "}
-              {askedCount === 1 ? "question was" : "questions were"} asked.
+              {/* No count until the turns are actually in hand, so the page never claims a
+                  number while the history is still loading or missing. */}
+              {turns.length === 0
+                ? "Everything above is a reading of this."
+                : `Everything above is a reading of this. ${transcript.total} ${
+                    transcript.total === 1 ? "question" : "questions"
+                  } asked${
+                    transcript.followUps > 0
+                      ? `, including ${transcript.followUps} follow-${
+                          transcript.followUps === 1 ? "up" : "ups"
+                        }`
+                      : ""
+                  }.`}
             </p>
           </div>
           <div className="mt-6">
-            <QuestionEvaluationList items={data.question_evaluations} />
+            {turns.length > 0 && <InterviewTranscript turns={turns} targetIds={targetIds} />}
+            {transcriptUnavailable && (
+              <p className="text-sm text-fg-muted">
+                The conversation is not available for this interview. The assessment and evidence
+                above were built while it was still on record.
+              </p>
+            )}
           </div>
         </motion.section>
       </div>

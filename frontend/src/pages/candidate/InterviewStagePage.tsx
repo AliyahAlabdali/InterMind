@@ -76,9 +76,9 @@ const COLUMNS =
  */
 function submitFailureMessage(error: unknown): string {
   if (error instanceof ApiError && error.status === 0) {
-    return "We couldn't reach InterMind just then. Your answer is still here - check your connection and send it again."
+    return "We couldn't reach InterMind just then. Your answer is still here. Check your connection and send it again."
   }
-  return "That answer didn't send. It's still here - try sending it again."
+  return "That answer didn't send. It's still here. Try sending it again."
 }
 
 export function InterviewStagePage() {

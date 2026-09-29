@@ -21,11 +21,18 @@ const CATEGORY_LABELS: Record<QuestionCategory, string> = {
   task: "Task",
 }
 
+/**
+ * What the interview evidence came to, not a hiring decision. The stored enum keeps its original
+ * names (`strong_hire` and friends are the persisted, deterministic bands of `overall_score` -
+ * see `derive_recommendation`), and only the words a recruiter reads change: InterMind assesses
+ * evidence for a person to act on, and a label that reads as a verdict contradicts the notice
+ * every candidate is shown before they start.
+ */
 const RECOMMENDATION_LABELS: Record<Recommendation, string> = {
-  strong_hire: "Strong Hire",
-  hire: "Hire",
-  consider: "Consider",
-  no_hire: "No Hire",
+  strong_hire: "Strong evidence",
+  hire: "Good evidence",
+  consider: "Mixed evidence",
+  no_hire: "Limited evidence",
 }
 
 const EVIDENCE_STRENGTH_LABELS: Record<EvidenceStrength, string> = {

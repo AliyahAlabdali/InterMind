@@ -78,8 +78,7 @@ export function ActivityStream() {
   if (activity.data.length === 0) {
     return (
       <p className="max-w-lg py-6 text-sm leading-relaxed text-fg-muted">
-        Nothing yet. This fills in on its own as candidates answer - every question asked, every
-        piece of evidence recorded, every time the interview decides to go deeper.
+        Nothing yet. Candidate activity will appear here as interviews begin.
       </p>
     )
   }

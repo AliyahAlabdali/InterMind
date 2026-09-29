@@ -60,7 +60,7 @@ export function CandidatesPage() {
           <motion.div variants={rise}>
             <EmptyState
               title="No candidates yet"
-              body="Candidates appear here as soon as you invite them, grouped under the role they're interviewing for. Their evidence fills in while they answer - you don't have to wait for them to finish."
+              body="Candidates appear here when you invite them. Their progress and evidence update as they move through the interview."
               action={
                 jobs.length > 0 ? (
                   <Button onClick={() => navigate("/interviews")}>

@@ -24,7 +24,11 @@ recruiter assessment - not a system reporting its own scoring process. Follow th
   specific gap: "The interview did not provide sufficient evidence that the candidate meets
   several required qualifications, particularly Python, Java, RESTful APIs, and SQL" is
   evidence-grounded; "this raises concerns about their ability to do the job" is not - it turns
-  an evidence gap into a capability judgment the interview never established.
+  an evidence gap into a capability judgment the interview never established. This applies to
+  individual requirements as much as to the summary as a whole. Never: "The candidate has no
+  experience with large language models." Always: "The interview did not establish relevant
+  experience with large language models." The first states a fact about the candidate that no
+  interview can prove; the second states what this interview found, which is all you know.
 - Never inflate genuinely strong evidence into a stronger claim than the interview supports.
   Words like "extensive experience", "exceptional", or "outstanding" assert a scale/duration of
   experience the interview - a handful of questions - cannot actually establish; describe what

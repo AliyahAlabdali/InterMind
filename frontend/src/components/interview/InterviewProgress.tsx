@@ -34,7 +34,7 @@ export function InterviewProgress({
   const reducedMotion = usePrefersReducedMotion()
   if (total <= 0) return null
 
-  const label = `${assessed} of ${total} areas explored`
+  const label = `${assessed} of ${total} ${total === 1 ? "area" : "areas"} explored`
   const ratio = Math.min(Math.max(assessed / total, 0), 1)
 
   return (
@@ -80,7 +80,7 @@ export function InterviewProgress({
       <p className="type-stage-meta whitespace-nowrap text-sky-pale/70">
         <span className="hidden sm:inline">{label}</span>
         <span className="sm:hidden">
-          {assessed}/{total} areas
+          {assessed}/{total} {total === 1 ? "area" : "areas"}
         </span>
       </p>
     </div>

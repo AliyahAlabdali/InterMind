@@ -26,24 +26,32 @@ interface Link {
 const LINKS: Link[] = [
   {
     label: "The job asks for",
-    body: "Someone who can keep a database working as the product changes around it.",
+    body: "Someone who takes responsibility for their own part of a team's work.",
   },
   {
     label: "So InterMind asks",
-    body: "How did you handle schema changes as the system grew?",
+    body: "Tell me about a project you worked on with other people.",
   },
   {
     label: "The candidate answers",
-    body: "Versioned every migration, with a rollback path for each one.",
+    body: "I worked on that project with a team of four.",
   },
   {
-    label: "Which shows they have",
-    body: "Done this on a running system, not just read about it",
+    label: "Which leaves unclear",
+    body: "What this person did, as opposed to what the team did.",
+  },
+  {
+    label: "So InterMind follows up",
+    body: "What was your role on the team?",
+  },
+  {
+    label: "And they answer",
+    body: "I owned the data pipeline and wrote the tests for it",
     accent: true,
   },
   {
     label: "So the report records",
-    body: "A score for that requirement, with the answer above attached to it.",
+    body: "A score for that requirement, with their own words attached to it.",
   },
 ]
 
