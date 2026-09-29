@@ -55,25 +55,12 @@ what InterMind understood from it.
 
 ## Features
 
-- **Recruiter accounts and isolated workspaces.** Sign up, sign in and manage owned jobs,
-  interviews and reports through session-based access control.
-- **JD analysis and review.** Inspect the extracted role, seniority and requirements before
-  building the interview plan.
-- **Candidate invitations and sessions.** Share a per-interview access link; candidates enter a
-  guided interview, answer questions and see which areas have been covered.
-- **Runtime question generation.** Each question uses the role, the area being assessed and the
-  conversation so far. A deterministic policy picks the next area from the evidence recorded.
-- **Targeted follow-ups and shared evidence.** Routing rules use structured evaluations to decide
-  when to explore further. Evidence the model extracts about another area can resolve that area
-  under deterministic rules, avoiding a redundant question.
-- **Spoken interview.** Azure AI Speech reads each question aloud in one pinned adult voice and
-  transcribes spoken answers. Typing and on-screen question text remain available throughout, so
-  the interview is fully usable when speech is disabled or unavailable.
-- **Evidence-based reports.** Per-answer evaluations feed deterministic report aggregation, with
-  supporting evidence, requirement assessments and a generated narrative.
-- **Persistent application records.** PostgreSQL stores recruiter accounts, jobs, plans, candidate
-  and interview records, generated reports and activity entries. In-memory repositories support
-  credential-free local development; accepted interview state is durable when PostgreSQL is configured.
+- **Job-aware interview planning.** Extracts the role, requirements and assessment areas from a job description for recruiter review.
+- **Adaptive interviewing.** Generates questions at runtime and decides whether to follow up or move on based on recorded evidence.
+- **Candidate sessions.** Provides shareable interview links with isolated candidate access and persistent progress.
+- **Speech support.** Azure AI Speech narrates questions and transcribes answers, with typed input always available.
+- **Evidence-based reports.** Turns recorded evaluations into requirement assessments, scores and a recruiter-facing report.
+
 
 ## How the adaptive interview works
 
@@ -102,7 +89,7 @@ flowchart TD
 
 The loop is a LangGraph state machine compiled in `backend/app/agents/interview_graph.py`,
 suspended on a human-in-the-loop `interrupt` at each question to wait for the candidate's answer.
-Selection applies coverage priorities and budget rules; each area allows at most one follow-up.
+Selection uses assessment priorities and budget rules; each area allows at most one follow-up.
 
 ![The candidate's interview room, part way through a session. The header reads "Senior Backend Engineer" and "6 of 11 areas explored"; the question is labelled "Following up on your answer" and asks for a specific Kubernetes deployment example.](docs/assets/intermind-interview.png)
 
@@ -111,18 +98,11 @@ than a fixed sequence of questions.
 
 ## Evidence-based evaluation
 
-The evaluation model produces each answer's score, evidence type, strengths, weaknesses, supporting
-evidence and evidence about other areas. Recorded evaluations are then **aggregated
-deterministically** into requirement assessments, an overall score and a recommendation. The report
-model writes the narrative around those results, with a template fallback on model-generation
-failure; its output cannot alter the calculated scores or recommendation.
+Each answer produces structured evidence, strengths, weaknesses and a score. InterMind aggregates these evaluations into requirement assessments and an overall result, then builds the report narrative around them.
 
-![The Evidence section of an interview report, listing each requirement the interview reached with its category and evidence strength, above a legend distinguishing demonstrated, partly shown, claimed, explicitly lacked and nothing established.](docs/assets/intermind-report.png)
+![The completed InterMind report, showing the overall result, recommendation, requirement-level evidence and recruiter-facing assessment.](docs/assets/intermind-report.png)
 
-**Unassessed requirements are excluded from aggregation.** An explicit statement that the candidate
-lacks experience is different: it is recorded evidence and may receive a low score that affects
-the result. The report distinguishes demonstrated ability, partial evidence, claims, explicit lack
-and requirements for which nothing was established.
+Unassessed requirements do not affect the score. Explicit evidence that a candidate lacks a requirement can.
 
 ## Architecture
 
@@ -148,30 +128,9 @@ flowchart TD
     class KB,OAI,AZ ext;
 ```
 
-Storage is chosen at startup: with `DATABASE_URL` set the SQL repositories are wired, and without it
-the in-memory implementations are used and the application logs a warning. Alembic owns the schema
-and the application never creates tables. Production routes `/api` through Vercel to the backend;
-the SPA fallback supports frontend routes. `GET /health` (`/api/health` through the frontend) reports
-liveness and the storage mode selected at startup. **It does not test live database connectivity.**
+Production uses PostgreSQL with an Alembic-managed schema, while local development can use in-memory storage. Vercel serves the frontend and routes `/api` requests to the FastAPI backend on Azure App Service.
 
-**Access model.** Recruiters sign in to an opaque server-side session carried in an
-`HttpOnly; SameSite=Strict` cookie, with passwords stored as `scrypt` hashes. Accounts are unique by
-normalized email address. Recruiter workspace access is isolated by ownership; a reduced public job
-endpoint is intentionally available without recruiter authentication. Candidates use an opaque
-per-interview token and receive only the plan fields needed for their interview. See
-[docs/recruiter-auth.md](docs/recruiter-auth.md).
-
-**Azure Speech.** Speech is optional, and covers both directions: reading questions aloud and
-transcribing spoken answers. Set backend `SPEECH_PROVIDER=azure` and frontend
-`VITE_SPEECH_PROVIDER=azure` together. Production uses managed identity / Entra authorization
-(`AZURE_SPEECH_AUTH=managed_identity`), with the Speech resource identifier and custom-domain host
-configured on the backend. The browser obtains a short-lived authorization token through the
-interview-scoped backend endpoint and uses it for both directions; audio goes directly to Azure
-Speech, and the resource key never reaches the browser. Question narration uses one pinned adult
-voice so every candidate hears the same interviewer, with browser speech synthesis as a fallback
-if narration fails. Local key-based authorization is also supported with `AZURE_SPEECH_AUTH=key`,
-`AZURE_SPEECH_KEY` and `AZURE_SPEECH_REGION` set only on the backend. Typed input and on-screen
-question text remain available throughout.
+**Access and Speech.** Recruiter workspaces are isolated by account ownership, while candidates use an interview-specific access token. Azure AI Speech handles question narration and answer transcription through short-lived authorization issued by the backend. Typed input remains available when Speech is unavailable. See [recruiter authentication](docs/recruiter-auth.md) and [public launch security](docs/public-launch-security.md) for implementation details.
 
 ## Tech stack
 
@@ -190,13 +149,9 @@ declares minimum bounds. Frontend resolved versions are recorded in `frontend/pa
 
 ## Getting started
 
-Use **Python 3.11+** and a Node.js version matching **`^22.12.0 || ^24.0.0 || >=26.0.0`**, the
-range required by the locked Vitest version and compatible with the frontend toolchain. PostgreSQL
-is optional locally. The commands below use a POSIX shell; PowerShell equivalents are noted.
+Requires **Python 3.11+** and Node.js **`^22.12.0 || ^24.0.0 || >=26.0.0`**. PostgreSQL is optional for local development.
 
-Clone the repository, then install the backend from **`backend/`**. The virtual environment
-lives at the repository root; only the install itself runs from `backend/`, where
-`pyproject.toml` is:
+Clone the repository and install the backend:
 
 ```bash
 git clone https://github.com/AliyahAlabdali/InterMind.git
@@ -207,13 +162,10 @@ source .venv/bin/activate      # PowerShell: .\.venv\Scripts\Activate.ps1
 
 cd backend
 pip install -e ".[dev]"
-```
-
-```bash
 cp .env.example .env          # PowerShell: Copy-Item .env.example .env
 ```
 
-Install the frontend and copy its configuration from **`frontend/`**:
+Install the frontend:
 
 ```bash
 cd ../frontend
@@ -221,39 +173,22 @@ npm ci
 cp .env.example .env          # PowerShell: Copy-Item .env.example .env
 ```
 
-`LLM_PROVIDER=fake` enables **credential-free local development** with an in-process model
-substitute. The example Speech settings use `browser`; browser recognition support varies and may
-require network access. For typed-only development, set backend `SPEECH_PROVIDER=disabled` and
-frontend `VITE_SPEECH_PROVIDER=disabled`. This is not a guarantee that the whole application runs
-offline.
+`LLM_PROVIDER=fake` supports credential-free local development. For real model calls, set `LLM_PROVIDER=openai` and `OPENAI_API_KEY`. Never place secrets in `VITE_` variables.
 
-For real model calls, set backend `LLM_PROVIDER=openai` and `OPENAI_API_KEY`. `.env` files are
-git-ignored. Never put a secret in a `VITE_` variable: those values enter the public browser bundle.
+The O\*NET knowledge base is already included in the repository. See [backend/data/README.md](backend/data/README.md) for its source and regeneration process.
 
-**The O\*NET knowledge base ships with the repository.**
-`backend/data/processed/onet/onet_kb.jsonl` is the tracked artifact consumed by the application;
-deployments use it without rebuilding it. See [backend/data/README.md](backend/data/README.md).
-To regenerate it, place the O\*NET 31.0 text database under
-`backend/data/raw/onet/db_31_0_text/` (git-ignored) and run
-`notebooks/ONET_knowledge_base_pipeline.ipynb` end to end.
+For PostgreSQL, set `DATABASE_URL` and run `alembic upgrade head` from `backend/`. Without it, local development uses in-memory storage.
 
-For PostgreSQL, set backend `DATABASE_URL`, then run `alembic upgrade head` from **`backend/`**,
-with the Python environment active. Without a database URL, local development uses
-in-memory repositories and logs a warning. Set `REQUIRE_DATABASE=true` in deployments to refuse
-startup when the URL is missing; this does not replace a database connectivity check.
-
-Then two terminals. The API serves on `http://127.0.0.1:8000` with interactive documentation at
-`/docs`, and the web application on `http://localhost:5173`, proxying `/api` to the backend so the
-browser stays same-origin with its API.
+Start the application in two terminals:
 
 | Terminal | Working directory | Command |
 | :--- | :--- | :--- |
-| Backend, Python environment active | `backend/` | `uvicorn app.main:app --reload` |
+| Backend | `backend/` | `uvicorn app.main:app --reload` |
 | Frontend | `frontend/` | `npm run dev` |
 
-## Verification
+The API runs at `http://127.0.0.1:8000` and the frontend at `http://localhost:5173`.
 
-Run the checks from their indicated directories; test totals are intentionally not pinned here.
+## Verification
 
 | Check | Working directory | Command |
 | :--- | :--- | :--- |
@@ -264,36 +199,22 @@ Run the checks from their indicated directories; test totals are intentionally n
 | Frontend lint | `frontend/` | `npm run lint` |
 | Frontend build | `frontend/` | `npm run build` |
 
-Most backend API tests use in-memory repositories and a fake LLM. The durable-interview suite starts
-its own local PostgreSQL cluster to test migrations, recovery and row locking; it never uses a
-configured database. Coverage includes the interview graph, scoring, access control and tenant
-isolation. Frontend tests cover UI flows, Speech integration behavior and legal-route scrolling.
-These suites do not establish live PostgreSQL, model-provider or Azure Speech availability; provider
-interactions are mocked.
+Tests cover the interview flow, scoring, access control, tenant isolation, UI flows and Speech integration behavior. External provider interactions are mocked and do not verify live service availability.
 
 ## Current limitations
 
-InterMind currently focuses on the core autonomous interview workflow. A few areas could be strengthened further:
+- Recruiter sessions are currently stored in memory, so a backend restart requires recruiters to sign in again.
+- Reports are generated when results are first accessed rather than immediately when an interview ends.
+- Password recovery, email verification and shared team workspaces are not currently included.
+- Speech authorization limits credential issuance, but cannot cap Azure audio consumption after a credential has been issued.
 
-- **Session recovery:** Accepted answers, evaluations, progress, pending turns and completion are saved in PostgreSQL before success is returned. Active interviews resume from their last accepted turn after restart. Recruiter sessions remain in memory, so recruiters must sign in again. An unsent browser draft is not stored by the backend.
-- **Report saving:** Generated reports are stored in PostgreSQL and remain available after restarts. Reports are currently created when interview results are first accessed, rather than immediately when the interview ends.
-- **Account features:** Recruiters have separate, protected workspaces. Features such as password recovery, email verification, and shared team workspaces are not currently included. Sign-in has a deployment-wide rate limit, rather than a per-visitor limit.
-- **Database testing:** The durable-interview suite tests an additive migration, snapshot transactions, recovery and concurrency against an isolated local PostgreSQL cluster. It does not connect to the deployed database.
-
-### Interview durability and Speech credential limits
-
-Apply the new Alembic revision (`f3a821d9c604`) before running this backend: from `backend/`, run `python -m alembic upgrade head` in the deployment environment. It adds a nullable JSONB snapshot to interview sessions. Existing reports remain readable; old sessions whose graph evidence was already lost cannot be reconstructed by a migration.
-
-Answer requests include the exact `turn_id` shown by the server. Stale or duplicate submissions receive HTTP 412 without consuming another question; completed interviews receive 409. PostgreSQL serializes turn acceptance and report generation. A crash before a report is stored can require repeating its narrative call; cached reports are reused.
-
-Speech issuance requires a recoverable active interview, fails closed for unavailable state, and rejects completion. Issuance budgets do **not** cap audio or character consumption after a credential is issued. Browser credentials authorize direct Azure Speech calls, independently of InterMind's candidate token. Key-exchanged credentials are valid for ten minutes; managed-identity credentials follow their actual Entra expiry, which the API uses for its renewal hint. An issued credential can remain usable after interview completion. Hard consumption quotas would require a different provider boundary; no such guarantee is claimed here.
-
+See [public launch security](docs/public-launch-security.md) and [deployment notes](docs/deployment.md) for operational details.
 
 ## Documentation
 
-- [docs/deployment.md](docs/deployment.md) for deployment setup background. The deployed topology is
-  summarized above; use the current configuration files and environment examples alongside it.
-- [docs/recruiter-auth.md](docs/recruiter-auth.md) for the authentication, session and CSRF model.
+- [Deployment](docs/deployment.md)
+- [Recruiter authentication](docs/recruiter-auth.md)
+- [Public launch security](docs/public-launch-security.md)
 
 ## Author
 
