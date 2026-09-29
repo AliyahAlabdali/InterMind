@@ -22,7 +22,7 @@ Adaptive interviews. Evidence-based hiring insight.
 
 </div>
 
-![The InterMind landing page: the headline "Every candidate gets a different interview" beside a 3D laptop running the interview, with transcript, live waveform and competency panels floating around it.](docs/assets/intermind-landing.png)
+![The InterMind landing page: the headline "Every candidate gets a different interview" beside a 3D laptop running the interview, with transcript, live waveform and competency panels floating around it.](docs/assets/intermind-landing-v2.png)
 
 ## What InterMind is
 
@@ -43,7 +43,7 @@ persistence**.
 <summary>Production landing page on mobile</summary>
 
 <p align="center">
-  <img src="docs/assets/intermind-landing-mobile.png" alt="The settled mobile InterMind Hero, with the complete laptop and transcript, live waveform and competency cards." width="360">
+  <img src="docs/assets/intermind-landing-mobile-v2.png" alt="The settled mobile InterMind Hero, with the complete laptop and transcript, live waveform and competency cards." width="360">
 </p>
 
 </details>
