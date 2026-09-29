@@ -63,7 +63,7 @@ _SCORE_DECIMALS = 4
 def build_question_evaluations(
     plan: InterviewPlan, state: InterviewState
 ) -> list[QuestionEvaluationSummary]:
-    """One summary per coverage target the interview has evidence for, using its LAST turn.
+    """One summary per coverage target the interview has evidence for.
 
     A target that received a follow-up has two turns in ``state.history``: the original and
     the follow-up, each with its *own* ``question_id``/``question`` text (see
@@ -72,9 +72,29 @@ def build_question_evaluations(
     is what lets the follow-up's turn still correctly supersede the original's as "the answer
     that actually determined whether the interview advanced" (see
     :class:`QuestionEvaluationSummary`), while the summary itself reports the follow-up's own
-    id/text rather than silently attributing its answer to the original question. A turn
-    without a recorded ``root_question_id`` (older/hand-built state) falls back to grouping by
-    its own ``question_id``, which reproduces the pre-follow-up-identity-fix behaviour exactly.
+    id/text rather than silently attributing its answer to the original question.
+
+    **The last turn is authoritative for the outcome; evidence accumulates across the whole
+    exchange.** ``score``, ``decision``, ``evidence_type``, ``question_id``, ``question`` and
+    ``candidate_answer`` all come from the last turn, unchanged - scoring is never averaged
+    across turns. ``evidence`` and ``strengths`` are the union of every evaluated turn for this
+    target, oldest first and de-duplicated: a fact the candidate established in the main answer
+    does not stop being true because the follow-up asked about something else. Taking only the
+    last turn's lists meant a main answer that named, say, its evaluation metrics vanished from
+    the report while the interview record still showed it, and the narrative - which sees only
+    what is here - could then state the opposite.
+
+    ``weaknesses`` deliberately stay the last turn's alone: they describe what is still open
+    after the final answer, and merging earlier ones would resurface gaps the follow-up closed.
+    That is only coherent because a follow-up is evaluated with the earlier turns of its own
+    exchange in front of it (see ``AnswerEvaluationService.evaluate``'s ``prior_exchange``), so
+    its recorded gaps are what remains open across the whole exchange rather than what one turn
+    happened not to repeat. Reconciling a stale gap here instead is not possible: weaknesses are
+    free text with no link to the evidence they would contradict.
+
+    A turn without a recorded ``root_question_id`` (older/hand-built state) falls back to
+    grouping by its own ``question_id``, which reproduces the pre-follow-up-identity-fix
+    behaviour exactly.
 
     Iterates ``state.history`` (via ``root_question_id`` grouping), not
     ``state.asked_question_ids`` - a real gap found after cross-target evidence
@@ -94,17 +114,22 @@ def build_question_evaluations(
     """
     targets_by_id = {t.id: t for t in plan.coverage_targets}
 
-    last_turn_by_root: OrderedDict[str, dict] = OrderedDict()
+    turns_by_root: OrderedDict[str, list[dict]] = OrderedDict()
     for turn in state.history:
         root_id = turn.get("root_question_id") or turn["question_id"]
-        last_turn_by_root[root_id] = turn
+        turns_by_root.setdefault(root_id, []).append(turn)
 
     summaries: list[QuestionEvaluationSummary] = []
-    for question_id, turn in last_turn_by_root.items():
+    for question_id, turns in turns_by_root.items():
         question = targets_by_id.get(question_id)
         if question is None:
             continue  # a follow-up's own id, not a coverage target - see the docstring
 
+        turn = turns[-1]
+        # Every evaluated turn for this target, oldest first. A blank answer records a turn with
+        # no evaluation at all (see `app.agents.interview_graph.evaluate_answer`), which carries
+        # nothing to accumulate.
+        evaluations = [t["evaluation"] for t in turns if t.get("evaluation")]
         evaluation = turn.get("evaluation")
         score = evaluation["score"] if evaluation else None
         # `.get(...)` rather than `[...]` for `evidence_type`: it's a newer field, so a
@@ -126,8 +151,15 @@ def build_question_evaluations(
                 score=score,
                 decision=EvaluationDecision(evaluation["decision"]) if evaluation else None,
                 evidence_type=AnswerEvidenceType(evidence_type) if evidence_type else None,
-                evidence=evaluation["evidence"] if evaluation else [],
-                strengths=evaluation["strengths"] if evaluation else [],
+                # Established facts accumulate across the exchange, oldest first: a candidate who
+                # named their evaluation metrics in the main answer still named them after a
+                # follow-up went on to ask about implementation. Dropping the earlier turn here
+                # is what let the report state the opposite of what the transcript shows.
+                evidence=flatten_unique(e.get("evidence", []) for e in evaluations),
+                strengths=flatten_unique(e.get("strengths", []) for e in evaluations),
+                # Gaps do NOT accumulate: they are what is still open after the last answer, so
+                # an earlier gap the follow-up went on to close must not reappear as unresolved.
+                # See this function's docstring for the limitation that remains.
                 weaknesses=evaluation["weaknesses"] if evaluation else [],
                 # `.get(...)` with a "direct" default: a normal main-question turn never sets
                 # this key at all (see app.agents.interview_graph.evaluate_answer) - only a

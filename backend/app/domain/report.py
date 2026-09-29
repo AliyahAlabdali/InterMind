@@ -55,13 +55,16 @@ class Recommendation(StrEnum):
 
 
 class QuestionEvaluationSummary(BaseModel):
-    """The final (last-attempt) evaluation of one interview question.
+    """One coverage target's outcome, as settled by the last answer given for it.
 
     A question that received a follow-up has more than one answer turn in the interview
-    history; this summarises only the LAST turn, since that is the answer that actually
-    determined whether the interview advanced (see
-    :func:`app.services.report_scoring.build_question_evaluations`). ``score``/``decision``
-    are ``None`` when that turn was never evaluated (e.g. a blank answer) - never guessed.
+    history. ``score``, ``decision``, ``evidence_type``, ``question_id``, ``question`` and
+    ``candidate_answer`` come from the LAST turn, since that is the answer that actually
+    determined whether the interview advanced, while ``evidence`` and ``strengths`` accumulate
+    across every evaluated turn for the target and ``weaknesses`` stay the last turn's (see
+    :func:`app.services.report_scoring.build_question_evaluations`, which documents why).
+    ``score``/``decision`` are ``None`` when the last turn was never evaluated (e.g. a blank
+    answer) - never guessed.
     """
 
     target_id: str = Field(

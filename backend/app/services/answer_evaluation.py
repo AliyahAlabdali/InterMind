@@ -33,8 +33,19 @@ class AnswerEvaluationService:
         answer: str,
         grounding: str | None = None,
         other_targets: list[tuple[str, str]] = (),
+        prior_exchange: list[tuple[str, str]] = (),
     ) -> AnswerEvaluation:
         """Return a grounded, structured evaluation of ``answer``.
+
+        ``prior_exchange`` (optional, ``(question, answer)`` pairs, oldest first) is what was
+        already asked and answered **about this same coverage target** earlier in this exchange -
+        i.e. the main question and any previous follow-up on it. It is empty for a main
+        question, which therefore produces exactly the input it always did. A follow-up is not
+        an independent answer but a continuation of one assessment, and without this the
+        evaluator judged the follow-up's words alone: a candidate who named their evaluation
+        metrics in the main answer and their implementation in the follow-up got a recorded gap
+        saying no metrics were given, because the turn being evaluated did not repeat them.
+        Never the rest of the interview: other targets' turns are not evidence about this one.
 
         ``other_targets`` (optional, ``(category, target_name)`` pairs) lists the interview's
         other not-yet-assessed coverage targets - see
@@ -55,6 +66,13 @@ class AnswerEvaluationService:
         ]
         if grounding:
             lines.append(f"GROUNDING: {grounding}")
+        # Before OTHER_TARGETS and ANSWER, so the current turn's own question and answer stay
+        # the last things read, and so a main question's input is byte-for-byte what it was.
+        if prior_exchange:
+            lines.append("EARLIER_IN_THIS_EXCHANGE:")
+            for asked, replied in prior_exchange:
+                lines.append(f"- ASKED: {asked.strip()}")
+                lines.append(f"  REPLIED: {replied.strip()}")
         if other_targets:
             lines.append("OTHER_TARGETS:")
             lines.extend(

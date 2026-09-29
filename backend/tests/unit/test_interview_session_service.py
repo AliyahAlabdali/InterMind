@@ -925,7 +925,17 @@ async def test_regression_B_follow_up_answer_evaluation_receives_follow_up_quest
     assert _question_line(llm.calls[1]) == f"QUESTION: {follow_up_text}"
 
 
-async def test_regression_C_follow_up_evaluation_does_not_receive_the_parent_question_text():
+async def test_regression_C_follow_up_is_never_evaluated_as_the_parent_question():
+    """The parent question must never be what a follow-up is scored against.
+
+    This used to assert the parent text appeared nowhere in the follow-up's input, which was the
+    strongest available way to state that at the time. It is now supplied deliberately, inside
+    ``EARLIER_IN_THIS_EXCHANGE``, so a follow-up is judged on what the whole exchange has
+    established rather than on its own words alone (see
+    ``AnswerEvaluationService.evaluate``'s ``prior_exchange``). The contract this test exists for
+    is unchanged and asserted more precisely below: the parent may appear only as prior context,
+    never as the question being answered.
+    """
     follow_up_text = "What were the actual numbers behind that tradeoff?"
     llm = _ScriptedEvaluationClient([_gap_evaluation(follow_up_text), _strong_evaluation()])
     service = _make_service(llm)
@@ -943,11 +953,18 @@ async def test_regression_C_follow_up_evaluation_does_not_receive_the_parent_que
         (await service.get_state(interview_id)).current_turn_id,
     )
 
-    # The first call (the original turn) legitimately used the root text - only the second
-    # (follow-up) call must not repeat it.
+    # The first call (the original turn) legitimately used the root text; the second must be
+    # scored against the follow-up's own phrasing.
     assert _question_line(llm.calls[0]) == "QUESTION: Q1?"
-    assert _question_line(llm.calls[1]) != "QUESTION: Q1?"
-    assert "Q1?" not in llm.calls[1]
+    assert _question_line(llm.calls[1]) == f"QUESTION: {follow_up_text}"
+    # The parent appears only as prior context for this same target, and only there.
+    follow_up_input = llm.calls[1]
+    assert "EARLIER_IN_THIS_EXCHANGE:" in follow_up_input
+    context = follow_up_input[
+        follow_up_input.index("EARLIER_IN_THIS_EXCHANGE:") : follow_up_input.index("ANSWER:")
+    ]
+    assert "Q1?" in context
+    assert "Q1?" not in follow_up_input.replace(context, "")
 
 
 async def test_regression_D_root_question_id_is_still_preserved():

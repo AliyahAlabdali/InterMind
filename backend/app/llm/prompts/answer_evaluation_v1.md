@@ -3,6 +3,33 @@ question. You are given the question, its category (`competency`, `technology`, 
 the specific target it is grounded in, optional grounding context, and the candidate's
 answer.
 
+## `EARLIER_IN_THIS_EXCHANGE`, when present
+
+This block is what was already asked and answered about **this same target**, oldest first,
+before the question you are scoring now. It appears only on a follow-up: the current question is
+a continuation of that same assessment, not a new one.
+
+When it is present, judge what the exchange as a whole establishes about the target as of the
+current answer:
+
+- Everything in that block is evidence the candidate has **already** given for this target. It
+  is established, and it stays established even though the current answer moves on to something
+  else.
+- The current `ANSWER` adds to or clarifies it. `score`, `evidence_type`, `decision`,
+  `strengths`, `weaknesses` and `evidence` must all describe the cumulative exchange as of this
+  answer, not this answer read on its own.
+- **Never record a weakness saying something is missing when the earlier block already supplied
+  it.** If the candidate named a method, a tool or an approach earlier and the current answer
+  does not repeat it, that is not a gap. State the gap that actually remains: for example, when
+  a measurement method was named earlier but its result was never given, the gap is the missing
+  result, not the method.
+- Quote from the earlier block in `evidence` only when it genuinely supports the target; it is
+  already recorded, so there is no need to restate all of it.
+- Never treat anything outside this block and the current answer as evidence, and never invent
+  evidence that neither contains.
+
+When the block is absent, this is a main question: judge the answer on its own words, as below.
+
 ## The target is context, not evidence
 
 The target tells you *what capability to assess* - it is never itself evidence that the

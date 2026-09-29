@@ -343,6 +343,20 @@ def _make_evaluate_answer(evaluator: AnswerEvaluationService):
         ]
         # Latency instrumentation (adaptive-runtime review, item 6) - see `_make_select_target`
         # for the sibling measurements this composes with into one turn's total.
+        # What has already been asked and answered about *this* target, oldest first. Empty on a
+        # main question, so that path is unchanged; on a follow-up it is the main question and
+        # any earlier follow-up on it. `state["history"]` holds only prior turns here - this
+        # turn is appended below, after the evaluation - and the filter is by root id, so no
+        # other coverage target's turns can enter. Cross-target entries are excluded: they were
+        # never asked, so they are not part of an exchange (see `resolve_cross_target_evidence`).
+        prior_exchange = [
+            (t.get("question") or target["target"], t.get("answer") or "")
+            for t in state["history"]
+            if (t.get("root_question_id") or t.get("question_id")) == target["id"]
+            and t.get("assessment_method", "direct") != "cross_target"
+            and (t.get("answer") or "").strip()
+        ]
+
         evaluation_started_at = time.perf_counter()
         raw_result = await evaluator.evaluate(
             # The literal question text is whatever was actually asked for *this* turn - the
@@ -355,6 +369,7 @@ def _make_evaluate_answer(evaluator: AnswerEvaluationService):
             grounding=target.get("grounding"),
             answer=answer,
             other_targets=other_targets,
+            prior_exchange=prior_exchange,
         )
         logger.info(
             "interview_timing phase=answer_evaluation seconds=%.4f target=%s",
