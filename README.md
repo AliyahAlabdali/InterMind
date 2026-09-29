@@ -27,14 +27,14 @@ Adaptive interviews. Evidence-based hiring insight.
 ## What InterMind is
 
 InterMind turns a job description into an adaptive technical interview and an evidence-based
-report. The job description defines **coverage targets**: competencies, technologies and tasks to
-assess. Filtered occupational context from O\*NET helps inform the interview without adding extra
-requirements.
+report. It reads the job description to decide **what the interview should assess**: the
+competencies, technologies and tasks the role needs. Filtered occupational context from O\*NET
+helps inform the interview without adding extra requirements.
 
-The targets exist before the conversation; question wording, target order and follow-up behavior
-adapt at runtime. After each answer, InterMind records structured evidence and decides whether to
-explore a gap or move to another target. Recruiters can trace the resulting assessments back to
-what the candidate said.
+Those assessment areas are set before the conversation starts; question wording, their order and
+follow-up behavior adapt at runtime. After each answer, InterMind records structured evidence and
+decides whether to explore further or move to another area. Recruiters can trace every assessment
+back to what the candidate said.
 
 The application is deployed with a **Vercel frontend, Azure App Service backend and PostgreSQL
 persistence**.
@@ -48,24 +48,24 @@ persistence**.
 
 </details>
 
-![Creating a new interview in the recruiter workspace. The stepper reads "Describe the role, Check what was read, Build the interview", and the page lists what InterMind read out of the job description: the role, its seniority, a short summary, required and preferred skill chips, and competencies.](docs/assets/intermind-new-interview.png)
+Every interview starts with a job description. Before building the interview, the recruiter reviews
+what InterMind understood from it.
 
-An interview starts from a job description and nothing else. Step two is the recruiter reading back
-what InterMind understood, before anything is built on top of it.
+![Creating a new interview in the recruiter workspace. The stepper reads "Describe the role, Check what was read, Build the interview", and the page lists what InterMind read out of the job description: the role, its seniority, a short summary, required and preferred skill chips, and competencies.](docs/assets/intermind-new-interview.png)
 
 ## Features
 
 - **Recruiter accounts and isolated workspaces.** Sign up, sign in and manage owned jobs,
   interviews and reports through session-based access control.
 - **JD analysis and review.** Inspect the extracted role, seniority and requirements before
-  building an interview coverage plan.
+  building the interview plan.
 - **Candidate invitations and sessions.** Share a per-interview access link; candidates enter a
-  guided interview, answer questions and see their coverage progress.
-- **Runtime question generation.** Questions use the role, current target and conversation history.
-  A deterministic selection policy chooses targets from the current coverage state.
-- **Targeted follow-ups and cross-target evidence.** Routing rules use structured evaluations to
-  decide when to probe further. Model-extracted evidence about another target can resolve it under
-  deterministic rules, avoiding a redundant question.
+  guided interview, answer questions and see which areas have been covered.
+- **Runtime question generation.** Each question uses the role, the area being assessed and the
+  conversation so far. A deterministic policy picks the next area from the evidence recorded.
+- **Targeted follow-ups and shared evidence.** Routing rules use structured evaluations to decide
+  when to explore further. Evidence the model extracts about another area can resolve that area
+  under deterministic rules, avoiding a redundant question.
 - **Spoken interview.** Azure AI Speech reads each question aloud in one pinned adult voice and
   transcribes spoken answers. Typing and on-screen question text remain available throughout, so
   the interview is fully usable when speech is disabled or unavailable.
@@ -81,14 +81,14 @@ what InterMind understood, before anything is built on top of it.
 %%{init: {"theme":"base","flowchart":{"rankSpacing":28,"nodeSpacing":36},"themeVariables":{"primaryColor":"#ECEFF6","primaryTextColor":"#000505","primaryBorderColor":"#3B3355","lineColor":"#6F7FA3","edgeLabelBackground":"#ECEFF6","tertiaryTextColor":"#000505","tertiaryColor":"#F6F8FB"}}}%%
 flowchart TD
     JD(["Job description"]) --> ROLE["Understand the role"]
-    ROLE --> PLAN["Build coverage targets"]
+    ROLE --> PLAN["Decide what to assess"]
     PLAN --> ASK["Ask a question"]
     ASK --> EVAL["Evaluate the answer"]
     EVAL --> DECIDE{"What<br/>next?"}
-    DECIDE -->|"Explore a gap"| FU["Ask a targeted<br/>follow-up"]
+    DECIDE -->|"Needs more detail"| FU["Explore further"]
     FU --> EVAL
-    DECIDE -->|"Interview complete"| REP(["Generate an<br/>evidence-based report"])
-    DECIDE -->|"Ready to move on"| NEXT["Choose the next target<br/>using evidence so far"]
+    DECIDE -->|"Interview complete"| REP(["Build the<br/>evidence-based report"])
+    DECIDE -->|"Ready to move on"| NEXT["Choose what to<br/>assess next"]
     NEXT --> ASK
 
     linkStyle default stroke:#6F7FA3,color:black;
@@ -102,17 +102,17 @@ flowchart TD
 
 The loop is a LangGraph state machine compiled in `backend/app/agents/interview_graph.py`,
 suspended on a human-in-the-loop `interrupt` at each question to wait for the candidate's answer.
-Selection applies coverage priorities and budget rules; each target allows at most one follow-up.
+Selection applies coverage priorities and budget rules; each area allows at most one follow-up.
 
 ![The candidate's interview room, part way through a session. The header reads "Senior Backend Engineer" and "6 of 11 areas explored"; the question is labelled "Following up on your answer" and asks for a specific Kubernetes deployment example.](docs/assets/intermind-interview.png)
 
-The follow-up label makes the routing decision visible. The counter tracks coverage targets rather
+The follow-up label makes the routing decision visible. The counter tracks assessment areas rather
 than a fixed sequence of questions.
 
 ## Evidence-based evaluation
 
 The evaluation model produces each answer's score, evidence type, strengths, weaknesses, supporting
-evidence and evidence about other targets. Recorded evaluations are then **aggregated
+evidence and evidence about other areas. Recorded evaluations are then **aggregated
 deterministically** into requirement assessments, an overall score and a recommendation. The report
 model writes the narrative around those results, with a template fallback on model-generation
 failure; its output cannot alter the calculated scores or recommendation.
@@ -129,13 +129,13 @@ and requirements for which nothing was established.
 ```mermaid
 %%{init: {"theme":"base","flowchart":{"rankSpacing":36,"nodeSpacing":36,"wrappingWidth":300},"themeVariables":{"primaryColor":"#ECEFF6","primaryTextColor":"#000505","primaryBorderColor":"#3B3355","lineColor":"#6F7FA3","edgeLabelBackground":"#ECEFF6","tertiaryTextColor":"#000505","tertiaryColor":"#F6F8FB"}}}%%
 flowchart TD
-    WEB["Frontend<br/>React / Vercel"] ==>|"/api"| API["Backend<br/>FastAPI / Azure App Service"]
-    API ==> CORE["InterMind Core<br/><br/>JD analysis & JD-defined coverage planning<br/>Adaptive interview / LangGraph<br/>Evaluation & report scoring"]
-    API -->|"Persistence"| DB[("PostgreSQL<br/>Alembic-managed schema")]
-    CORE -.->|"Model-backed steps"| OAI["OpenAI API"]
-    CORE -.->|"Filtered context lookup"| KB["O#42;NET 31.0 / TF-IDF<br/>No extra requirements"]
-    API -.->|"Returns short-lived Speech authorization"| WEB
-    WEB -->|"Audio directly"| AZ["Azure AI Speech<br/>Question narration & transcription"]
+    WEB["Frontend<br/>React / Vercel"]
+    WEB ==>|"API requests"| API["Backend<br/>FastAPI / Azure App Service"]
+    WEB -.->|"Speech"| AZ["Azure AI Speech<br/>Reads questions aloud,<br/>transcribes answers"]
+    API ==> CORE["InterMind Core<br/><br/>Understand the role<br/>Plan the interview<br/>Adapt questions<br/>Evaluate answers<br/>Build the report"]
+    API -->|"Saves and loads records"| DB[("PostgreSQL<br/>Alembic-managed schema")]
+    CORE -.->|"Model calls"| OAI["OpenAI API"]
+    CORE -.->|"Role context only"| KB["O*NET 31.0<br/>Adds no requirements"]
 
     linkStyle default stroke:#6F7FA3,color:black;
     classDef accent fill:#3B3355,stroke:#3B3355,stroke-width:1px,color:#FEFCFD;
@@ -264,10 +264,12 @@ Run the checks from their indicated directories; test totals are intentionally n
 | Frontend lint | `frontend/` | `npm run lint` |
 | Frontend build | `frontend/` | `npm run build` |
 
-Most backend API tests use in-memory repositories and a fake LLM. The durable-interview suite initializes its own local PostgreSQL cluster to test migrations, recovery and row locking; it never uses a configured database. Coverage includes the interview graph,
-scoring, access control and tenant isolation. Frontend tests cover UI flows, Speech integration
-behavior and legal-route scrolling. These suites do not establish live PostgreSQL, model-provider
-or Azure Speech availability; provider interactions are mocked.
+Most backend API tests use in-memory repositories and a fake LLM. The durable-interview suite starts
+its own local PostgreSQL cluster to test migrations, recovery and row locking; it never uses a
+configured database. Coverage includes the interview graph, scoring, access control and tenant
+isolation. Frontend tests cover UI flows, Speech integration behavior and legal-route scrolling.
+These suites do not establish live PostgreSQL, model-provider or Azure Speech availability; provider
+interactions are mocked.
 
 ## Current limitations
 
