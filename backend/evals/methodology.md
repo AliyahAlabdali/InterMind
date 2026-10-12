@@ -1,17 +1,41 @@
-﻿# Evaluation methodology
+# Evaluation Methodology
 
-These three results use different units and separately versioned records. Frozen inputs and result hashes were verified offline. Raw candidate answers, transcripts, API logs, and internal review files are retained locally and are not part of this public summary.
+InterMind was evaluated across three areas: follow-up decision quality, report evidence support, and backend response latency. Each metric was measured separately using defined test cases and verified results.
 
-## Follow-up F1 — v1.1 recovered
+## 1. Follow-up F1
 
-Ninety prewritten answer cases were matched by case ID to frozen human labels. A positive label meant a follow-up question was warranted. The prediction was **InterMind's final routing decision**, including its follow-up policy, rather than the raw model field. F1 is the harmonic mean of precision and recall: 27 true positives, 3 false positives, 4 false negatives, and 56 true negatives. The labels were completed before paid predictions, although the v1.0 protocol was finalized after labeling. The original final run stopped early; these 90 saved predictions were validated and analyzed under a separate v1.1 recovery method. Per-request model provenance from that incomplete run is unavailable. Cases include repeated question clusters, so they are not 90 independent interviewers or applicants.
+**Result: 0.8852 | 90 test cases**
 
-## Evidence-backed claims — retrospective v1.1a
+InterMind's final follow-up decisions were compared against predefined human labels indicating whether an additional interview question was warranted.
 
-The source-locked inventory contains 245 distinct report assertions from 15 reports covering five authored jobs and strong, mixed, and weak personas. A claim counted as fully supported only when its substantive assertions followed from the full candidate answer without a material omitted qualifier. The published **90.20%** is the pooled descriptive share, 221/245; it is not classification accuracy. The original protocol's equal-report summary is 89.75%, because reports contain different numbers of claims.
+F1 combines precision and recall into a single measure of decision quality. The evaluation used 90 saved predictions from a partially completed run, with the recovery and verification process documented under v1.1.
 
-One human reviewer adopted the final verdicts after AI-assisted review and disagreement re-evaluation. There is no documented independent pre-AI initial human claim review or original initial-claim lock. This retrospective deviation is recorded under v1.1a. Multiple claims from one answer or report are correlated; the 15 scripted reports are not a random applicant sample. The incomplete source run also lacks per-request model provenance. These verdicts do not establish numeric score accuracy or predictive hiring validity.
+The test cases included repeated question groups and do not represent 90 independent applicants.
 
-## P95 response latency — v1.1 targeted advance path
+## 2. Evidence-backed Claims
 
-The live run timed the actual backend answer endpoint, including answer evaluation and next-question generation, through in-process ASGI transport. A predeclared fixture forced the advance path without changing production routing. Three predetermined warm-ups were excluded; the measurement then collected 20 usable requests for each of five jobs, 100 total. All 103 endpoint attempts were recorded. P95 is the 95th ordered duration by the nearest-rank rule, rounded from 3.8335991 seconds to **3.834 seconds**. The result excludes browser rendering and network transit and does not estimate latency across naturally occurring follow-up and terminal paths.
+**Result: 90.20% | 245 claims across 15 reports**
+
+Each report claim was checked against the candidate's complete answer to determine whether the claim was fully supported by the available evidence.
+
+Of 245 claims, 221 were fully supported.
+
+Final judgments were adopted by one human reviewer following AI-assisted assessment. The review was retrospective, and the reports were based on scripted scenarios rather than a random sample of applicants.
+
+This metric measures evidence support, not hiring accuracy.
+
+## 3. P95 Response Latency
+
+**Result: 3.834 seconds | 100 live requests**
+
+Response time was measured at InterMind's backend answer endpoint, covering answer evaluation and next-question generation.
+
+P95 represents the response time at or below which 95% of the measured requests completed.
+
+The test used a controlled advance-question scenario. Browser rendering, network latency, and other interview paths were not included.
+
+## Interpretation
+
+These results describe performance within the evaluated scenarios and should not be interpreted as overall system accuracy or predictive hiring validity.
+
+Additional evaluation details and verified counts are available in the [Results Summary](results_summary.md).
