@@ -1,11 +1,21 @@
-﻿# Verified results summary
+# InterMind Evaluation Results
 
-| Metric | Result | Sample | What it means |
-| --- | ---: | ---: | --- |
-| Follow-up F1, final routed decision | **0.8852** | 90 labeled cases | Agreement with frozen human follow-up decisions, summarized by F1 |
-| Evidence-backed claims, fully supported | **90.20%** | 221/245 claims across 15 reports | Pooled share of reviewed report assertions supported by candidate answers |
-| P95 response latency, server-side advance path | **3.834 s** | 100 live requests, 20 per job | 95th ordered answer-endpoint duration under the fixed fixture |
+A summary of InterMind's performance across follow-up decisions, evidence-backed reporting, and backend response time.
 
-The follow-up result was recovered from validated outputs of an incomplete run under a separate v1.1 method. The claim result uses one human reviewer's AI-assisted, adopted final judgments under a retrospective v1.1a addendum, without a documented independent initial human review. The latency fixture measures backend processing, not browser-perceived speed or natural production-path latency. The five jobs and candidate personas were authored for evaluation, not sampled from real applicants.
+## Verified Performance Metrics
 
-[Measurement details](methodology.md) · [Evaluation overview](README.md)
+| Metric | Result | Evaluation Sample |
+|---|---:|---|
+| **Follow-up F1** | **0.8852** | 90 labeled cases |
+| **Evidence-backed Claims** | **90.20%** | 221 of 245 claims across 15 reports |
+| **P95 Backend Latency** | **3.834 s** | 100 live requests |
+
+## Understanding the Results
+
+- **Follow-up F1:** Measures how well InterMind decides when an additional interview question is needed.
+- **Evidence-backed Claims:** Measures the proportion of report statements fully supported by candidate answers.
+- **P95 Backend Latency:** Indicates that 95% of measured backend requests completed within approximately 3.83 seconds under the tested conditions.
+
+These results reflect controlled evaluations rather than overall hiring accuracy. Details about test design, data sources, review procedures, and limitations are available in the [Evaluation Methodology](methodology.md).
+
+[Evaluation Overview](README.md)
