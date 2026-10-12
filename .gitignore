@@ -17,6 +17,10 @@ __pycache__/
 .venv/
 venv/
 
+# Evaluation runs contain model predictions and candidate-answer text. Keep each local run
+# immutable and out of source control; the blind input template remains versioned.
+backend/evals/results/
+
 # Node
 node_modules/
 dist/
