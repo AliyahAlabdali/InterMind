@@ -1,0 +1,13 @@
+{
+  "version": "1.1",
+  "sha256": {
+    "metrics.json": "178ef5a6ccc61d1950ed426e403607f24ea753209e1e91530015724082256946",
+    "per_report.csv": "fadaded0845b68ff7a83fffb76076aab7ac4a17e933ef27ed101448a327a36ad",
+    "PROTOCOL_v1.1.md": "e328487dab4d394d5d5c8eeb9f849337bfced09526ede7cda98041104982fcba",
+    "RECOVERY_MANIFEST_v1.1.json": "452762e16737933e4ee913e1141e1dc0dbb33bf570e06a8fd507434d743ebac5",
+    "evidence_source_review_frozen.csv": "793220c7e2ade592c6eee712ef330931cf9fa94a3f844175114c682d04f3fb5e",
+    "evidence_source_review.lock.json": "86561b2cf826796272b19d3d169f70a7131d423950eedce1977c72a4422b49ed",
+    "AGGREGATION_METHOD_v1.1.md": "c6bcd6a98df3e24788126e22fa8a0bb09440e89f038a36451b099596cccb0826",
+    "evidence_aggregate.py": "93734c00f9590f2c62ada3a081a7aee1b40c654dfaba0142994011cf0a000d89"
+  }
+}

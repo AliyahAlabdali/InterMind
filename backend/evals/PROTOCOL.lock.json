@@ -1,0 +1,14 @@
+{
+  "version": "1.0",
+  "frozen_at_utc": "2026-10-11T21:38:02.087160+00:00",
+  "files_sha256": {
+    "PROTOCOL.md": "8fccc0834db47334ef7df3cb2a226582ac7438b6f8b758aa499fdec4b0539801",
+    "FOLLOWUP_RUBRIC.md": "301b33f7af553477a2c516cb513fb35dd815dcd7d2d9ae0be925a4720fcb132f",
+    "ADJUDICATION_RUBRIC.md": "fdf92277bf346c1831e1fff25154b075e594a2c0d9fb1be880ffe6949cd3a01f",
+    "datasets/evaluation/followup_cases.py": "74d08af5a5715f86c4d806ce2a7e87ca14c779ab7178560517afb0cf6e2f1f8e",
+    "datasets/evaluation/followup_cases_sample.py": "a99bb929a2fec4aa2bbb186cacfab396a17a7368a7e5cc2146c954b65d8c884b",
+    "datasets/evaluation/personas.py": "ea1a534a538c2cc411044c169613ba4d8cdf24007d0bef52bff45f0be883cede",
+    "datasets/evaluation/personas_sample.py": "02b2d57ca278779971d15023e6dae8f6b01e0103576d8f0e060847f041f75fe6"
+  },
+  "labels_sha256": "5aedb3371a20958cd80e0a9f7a71f359b1edf8c9bc027b70d2196e5e66564238"
+}

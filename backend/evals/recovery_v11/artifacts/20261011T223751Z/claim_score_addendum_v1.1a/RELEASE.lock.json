@@ -1,0 +1,11 @@
+{
+  "version": "1.1a",
+  "status": "released_pending_human_review",
+  "sha256": {
+    "backend/evals/recovery_v11/artifacts/20261011T223751Z/claim_score_addendum_v1.1a/PROVENANCE_MANIFEST.json": "3f5d1795f03fd71cc8e00de4f4b17ed2664fdd8cdd2aa6c81cd73e50c1da3bc5",
+    "backend/evals/recovery_v11/artifacts/20261011T223751Z/claim_score_addendum_v1.1a/scores_band_review_v1.1a.csv": "2fa9eca019b2e1a0d73ff103022add1346d6db572a109325e8aa09216ee47e0b",
+    "backend/evals/recovery_v11/CLAIM_SCORE_VALIDITY_ADDENDUM_v1.1a.md": "715254a31851b52520fc561202cb6f3493caea79b4bf9510d9ca0aa3b195aa14",
+    "backend/evals/recovery_v11/claim_score_addendum.py": "6baeaa2a903a3d392a7c6b1c6a21d9ef2744c1339f7a6df1f74b79ba336a1e30",
+    "backend/evals/recovery_v11/human_review/intermind_final_user_adjudicated_245.csv": "92968f5b181ef619962c9ef8549c15257ee7714b2469c2bbce60f431e1d6a55f"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "version": "1.1",
+  "source_status": "incomplete",
+  "sha256": {
+    "metrics.json": "2bebd0ce645668584fdeab5cde4377b3801e0c38ed61827ebbec44e7675a55fb",
+    "per_job.csv": "4bccc12fce5c7062d46c86520dedce48ce4e01174bc2f381c39c38c137f1213d",
+    "routing_overrides.csv": "3b004f66f0dc98591b843dad6e27b75b156049ab444eff0b111644f9906a7781",
+    "PROTOCOL.md": "8fccc0834db47334ef7df3cb2a226582ac7438b6f8b758aa499fdec4b0539801",
+    "PROTOCOL_v1.1.md": "e328487dab4d394d5d5c8eeb9f849337bfced09526ede7cda98041104982fcba",
+    "followup_blind.frozen.csv": "5aedb3371a20958cd80e0a9f7a71f359b1edf8c9bc027b70d2196e5e66564238",
+    "RECOVERY_MANIFEST_v1.1.json": "452762e16737933e4ee913e1141e1dc0dbb33bf570e06a8fd507434d743ebac5",
+    "progress.jsonl": "5fe42265f709ad9ca71b4e4e9ff8c53e987422f392866e51d2dc7957c955595e",
+    "run_state.json": "6a355aecfeab59cd4bdc5830e72b888bd865ce99920c25f40d4d4af877def09c",
+    "FOLLOWUP_DISCRIMINATION_METHOD_v1.1.md": "906fe918f4339f4f2d3f003d61ea7fa6eceb209dd86fc887e7da88b2270385a2",
+    "followup_discrimination.py": "9cbc61079adf47c22e32e5958f432c53b55008cb21b361505e6972a601c85189",
+    "prior:evidence_review_frozen/evidence_source_review.lock.json": "86561b2cf826796272b19d3d169f70a7131d423950eedce1977c72a4422b49ed",
+    "prior:evidence_fidelity_v1.1/RESULT.lock.json": "834343ef378f57b054aee5c64bf4a54ff8a0a05c86540a9151f27ef3d382758e",
+    "prior:../../../results/20261011T231332Z-v11-preflight/requests.jsonl": "07f477e992f9c20b68b3ebda097430195ec2d9d0c814df384853c7fe061bb264",
+    "prior:../../../results/20261011T231332Z-v11-preflight/api_ledger.sqlite": "edc4d5d9e37dda52df0cc68c7278bb713bd5357ff13b5a7c7a06ac7dd4be6eb2",
+    "prior:../../../results/20261011T231332Z-v11-preflight/usage_summary.json": "12fbacd6b9592cc16b572c315ad7d07cac886edef9f9945bf5f0d297d4b5045b",
+    "prior:../../../results/20261011T231332Z-v11-preflight/run_state.json": "9b34076341e8e13d0342098b1727ca29e1bcb170a339b8079a6bdae280589c93",
+    "prior:../../../results/20261011T231631Z-v11-latency/requests.jsonl": "74353836b12f87375cf194cf0ead131298b341bf4498da52a5c3a39eed9c7cb9",
+    "prior:../../../results/20261011T231631Z-v11-latency/api_ledger.sqlite": "eb66367c90e24749ceea349159d2a0ca1be77e080d0411ea211dc23aadc6bb6f",
+    "prior:../../../results/20261011T231631Z-v11-latency/usage_summary.json": "d05037dcc388e10beb4e967b4db74915a6c8886e787a2bf26555b6ee90e86d8a",
+    "prior:../../../results/20261011T231631Z-v11-latency/run_state.json": "02463c5f4f4a35815a77e87292643640b79a931667f1d9da924e4ea68ec4f10e"
+  }
+}

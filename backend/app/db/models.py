@@ -83,6 +83,37 @@ class RecruiterRow(Base):
     )
 
 
+class RecruiterSessionRow(Base):
+    """Revocable browser session; the opaque cookie is never stored in plaintext."""
+
+    __tablename__ = "recruiter_sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    recruiter_id: Mapped[str] = mapped_column(
+        IdStr, ForeignKey("recruiters.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+
+
+class RateLimitEventRow(Base):
+    """One admitted request in one rolling-window budget."""
+
+    __tablename__ = "rate_limit_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    bucket: Mapped[str] = mapped_column(String(64), nullable=False)
+    identity: Mapped[str] = mapped_column(String(64), nullable=False)
+    window_seconds: Mapped[int] = mapped_column(nullable=False)
+    admitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("ix_rate_limit_events_lookup", "bucket", "identity", "window_seconds", "admitted_at"),
+        Index("ix_rate_limit_events_expiry", "admitted_at"),
+    )
+
+
 class JobRow(Base):
     """An analysed job. The ownership root."""
 

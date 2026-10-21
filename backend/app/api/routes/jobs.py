@@ -59,7 +59,7 @@ async def create_job(
     # caller cannot spend a recruiter's allowance) and before ``analyze`` (so a refused request
     # costs no LLM call). ``payload`` is already size-bounded by AnalyzeJobRequest, which
     # pydantic enforced before this function was entered.
-    limit_job_analysis(request, recruiter_id)
+    await limit_job_analysis(request, recruiter_id)
 
     job_spec = await service.analyze(payload.job_description)
     stored = await repo.add(

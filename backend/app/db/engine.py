@@ -12,8 +12,10 @@ and would give every deploy a different idea of what the database looks like.
 from __future__ import annotations
 
 import logging
+from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 logger = logging.getLogger(__name__)
 
@@ -33,18 +35,31 @@ def normalize_database_url(url: str) -> str:
     return url
 
 
-def create_engine(url: str, *, echo: bool = False) -> AsyncEngine:
+def create_engine(
+    url: str, *, echo: bool = False, pool_mode: str = "default",
+    pool_size: int = 2, max_overflow: int = 0,
+) -> AsyncEngine:
     """Build the process-wide async engine.
 
     ``pool_pre_ping`` because managed PostgreSQL (Azure included) drops idle connections behind
     the pool's back; without it the first request after an idle period fails on a dead socket
     instead of transparently reconnecting.
     """
-    return create_async_engine(
-        normalize_database_url(url),
-        echo=echo,
-        pool_pre_ping=True,
-    )
+    options: dict = {"echo": echo, "pool_pre_ping": True}
+    if pool_mode == "null":
+        options["poolclass"] = NullPool
+        # Transaction poolers can hand the same server connection to another function. Avoid
+        # asyncpg's sequential prepared-statement names colliding across those clients.
+        options["connect_args"] = {
+            "prepared_statement_name_func": lambda: f"__intermind_{uuid4()}__"
+        }
+    elif pool_mode == "small":
+        if pool_size < 1 or max_overflow < 0:
+            raise ValueError("database pool size must be positive and overflow nonnegative")
+        options.update(pool_size=pool_size, max_overflow=max_overflow, pool_timeout=5)
+    elif pool_mode != "default":
+        raise ValueError("unknown database pool mode")
+    return create_async_engine(normalize_database_url(url), **options)
 
 
 def create_session_factory(engine: AsyncEngine) -> async_sessionmaker:

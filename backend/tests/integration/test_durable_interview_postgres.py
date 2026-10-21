@@ -96,6 +96,7 @@ async def sql_engine(isolated_postgres):
                 sync.execute(text("INSERT INTO recruiters VALUES "
                                   "('legacy','legacy@intermind.test','test-hash',now())"))
                 migration("f3a821d9c604_durable_interview_snapshot.py").upgrade()
+                migration("a7d4b9e2c103_serverless_sessions_and_limits.py").upgrade()
             assert sync.scalar(text("SELECT count(*) FROM recruiters WHERE id='legacy'")) == 1
             assert compare_metadata(context, Base.metadata) == []
             assert inspect(sync).get_columns("interview_sessions")[-1]["name"] == "runtime_snapshot"

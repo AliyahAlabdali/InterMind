@@ -1,0 +1,22 @@
+{
+  "version": "1.0",
+  "selection_rule": "For each frozen job and each category (technology, competency, task), choose the target with the lexicographically smallest SHA-256 hex digest of job_id + NUL + category + NUL + target. Review that target for all three personas. Selection used only frozen dataset inputs, before final reports existed.",
+  "dataset_sha256": "ea1a534a538c2cc411044c169613ba4d8cdf24007d0bef52bff45f0be883cede",
+  "targets": [
+    {"job_id": "jd-senior-backend", "category": "technology", "target": "Python"},
+    {"job_id": "jd-senior-backend", "category": "competency", "target": "Security"},
+    {"job_id": "jd-senior-backend", "category": "task", "target": "Queue processing"},
+    {"job_id": "jd-data-engineer", "category": "technology", "target": "Python"},
+    {"job_id": "jd-data-engineer", "category": "competency", "target": "Observability"},
+    {"job_id": "jd-data-engineer", "category": "task", "target": "Warehouse modeling"},
+    {"job_id": "jd-frontend", "category": "technology", "target": "React"},
+    {"job_id": "jd-frontend", "category": "competency", "target": "Testing"},
+    {"job_id": "jd-frontend", "category": "task", "target": "State management"},
+    {"job_id": "jd-platform", "category": "technology", "target": "Networking"},
+    {"job_id": "jd-platform", "category": "competency", "target": "Observability"},
+    {"job_id": "jd-platform", "category": "task", "target": "CI/CD"},
+    {"job_id": "jd-product-analyst", "category": "technology", "target": "SQL"},
+    {"job_id": "jd-product-analyst", "category": "competency", "target": "Prioritization"},
+    {"job_id": "jd-product-analyst", "category": "task", "target": "Metric definition"}
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "version": "1.1-recovered-evidence-review",
+  "source_run_status": "incomplete",
+  "human_reviewer_count": 1,
+  "reviewed_rows": 22,
+  "verdict_counts": {
+    "supported": 22
+  },
+  "sha256": {
+    "evidence_source_review_frozen.csv": "793220c7e2ade592c6eee712ef330931cf9fa94a3f844175114c682d04f3fb5e",
+    "evidence_review.py": "35e0e0f821d594b6171e7bf0b54866c70fbf776268f3c9d67b59166de8f15861",
+    "PROTOCOL_v1.1.md": "e328487dab4d394d5d5c8eeb9f849337bfced09526ede7cda98041104982fcba",
+    "RECOVERY_MANIFEST_v1.1.json": "452762e16737933e4ee913e1141e1dc0dbb33bf570e06a8fd507434d743ebac5"
+  }
+}

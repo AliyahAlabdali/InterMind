@@ -1,0 +1,14 @@
+# This file applies only when backend/ is the Vercel project root.
+# Keep the tracked data/processed/onet/onet_kb.jsonl: the API needs it at runtime.
+.env
+.env.*
+.venv/
+venv/
+tests/
+evals/
+notebooks/
+data/raw/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.ipynb

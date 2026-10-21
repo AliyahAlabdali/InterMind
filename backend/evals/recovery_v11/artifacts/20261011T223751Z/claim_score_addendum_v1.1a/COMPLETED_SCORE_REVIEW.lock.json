@@ -1,0 +1,40 @@
+{
+  "version": "1.1a",
+  "status": "completed_human_review_frozen_metrics_not_calculated",
+  "locked_at_utc": "2026-10-12T22:34:21.601272Z",
+  "completed_review_path": "backend/evals/recovery_v11/human_review/intermind_final_score_review_45.csv",
+  "completed_review_sha256": "12a54ba638df11a7f86d0934515d28d90adb4d1af5442ac0c6c8770321330209",
+  "release_lock_path": "backend/evals/recovery_v11/artifacts/20261011T223751Z/claim_score_addendum_v1.1a/RELEASE.lock.json",
+  "release_lock_sha256": "03600b880d18b9ff06ca51fec3a1884a28fcf722041621cda0f46229c55989e8",
+  "released_sheet_path": "backend/evals/recovery_v11/artifacts/20261011T223751Z/claim_score_addendum_v1.1a/scores_band_review_v1.1a.csv",
+  "released_sheet_sha256": "2fa9eca019b2e1a0d73ff103022add1346d6db572a109325e8aa09216ee47e0b",
+  "release_manifest_path": "backend/evals/recovery_v11/artifacts/20261011T223751Z/claim_score_addendum_v1.1a/PROVENANCE_MANIFEST.json",
+  "release_manifest_sha256": "3f5d1795f03fd71cc8e00de4f4b17ed2664fdd8cdd2aa6c81cd73e50c1da3bc5",
+  "addendum_path": "backend/evals/recovery_v11/CLAIM_SCORE_VALIDITY_ADDENDUM_v1.1a.md",
+  "addendum_sha256": "715254a31851b52520fc561202cb6f3493caea79b4bf9510d9ca0aa3b195aa14",
+  "validated_assessments": 45,
+  "verdict_counts": {
+    "DEFENSIBLE": 44,
+    "NOT_DEFENSIBLE": 1,
+    "UNCLEAR": 0
+  },
+  "material_omission_counts": {
+    "YES": 6,
+    "NO": 39,
+    "UNCLEAR": 0
+  },
+  "internal_methodological_provenance": {
+    "basis": "operator-reported at completed-review lock",
+    "final_judgments": "one human reviewer adopted final score-band judgments after majority comparison of three AI-generated assessments",
+    "AI_assessments_are_not_independent_human_raters": true,
+    "independent_initial_blind_human_score_review_documented": false,
+    "independent_initial_blind_human_claim_review_documented": false,
+    "original_claim_lock_exists": false,
+    "retrospective_v1_1a_deviation": true,
+    "source_run_status": "incomplete",
+    "human_inter_rater_reliability_claimed": false,
+    "reviewer_timestamps_inferred": false
+  },
+  "score_validity_metrics_calculated": false,
+  "score_comparison_report_generated": false
+}

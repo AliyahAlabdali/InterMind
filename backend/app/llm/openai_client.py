@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import TypeVar
 
+from httpx import Timeout
 from openai import AsyncOpenAI, OpenAIError
 from pydantic import BaseModel, ValidationError
 
 from app.core.exceptions import LLMError, LLMOutputInvalid
+from app.core.request_budget import seconds_remaining
 from app.observability.trace import TraceRecorder
 
 logger = logging.getLogger(__name__)
@@ -26,8 +29,17 @@ class OpenAIStructuredClient:
         api_key: str,
         model: str,
         trace: TraceRecorder | None = None,
+        timeout_seconds: float = 600.0,
+        max_retries: int = 2,
     ) -> None:
-        self._client = AsyncOpenAI(api_key=api_key)
+        if timeout_seconds <= 0 or max_retries < 0:
+            raise ValueError("OpenAI timeout must be positive and retries nonnegative")
+        self._client = AsyncOpenAI(
+            api_key=api_key,
+            timeout=Timeout(timeout_seconds, connect=min(5.0, timeout_seconds)),
+            max_retries=max_retries,
+        )
+        self._timeout_seconds = timeout_seconds
         self._model = model
         self._trace = trace or TraceRecorder()
 
@@ -53,14 +65,24 @@ class OpenAIStructuredClient:
         # new logging mechanism.
         started_at = time.perf_counter()
         try:
-            completion = await self._client.chat.completions.parse(
-                model=self._model,
-                messages=[
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": input_text},
-                ],
-                response_format=schema,
+            remaining = seconds_remaining()
+            # Leave time to save the accepted interview snapshot and send a response. The
+            # outer request deadline spans sequential evaluation and question-generation calls.
+            if remaining is not None and remaining <= 10:
+                raise LLMError("OpenAI request budget exhausted")
+            call_budget = (
+                min(self._timeout_seconds, remaining - 10)
+                if remaining is not None else self._timeout_seconds
             )
+            async with asyncio.timeout(call_budget):
+                completion = await self._client.chat.completions.parse(
+                    model=self._model,
+                    messages=[
+                        {"role": "system", "content": prompt},
+                        {"role": "user", "content": input_text},
+                    ],
+                    response_format=schema,
+                )
         except OpenAIError as exc:
             self._trace.record(
                 operation="generate_structured_failed",
@@ -85,9 +107,18 @@ class OpenAIStructuredClient:
         self._trace.record(
             operation="generate_structured_completed",
             provider="openai",
-            model=self._model,
+            model=getattr(completion, "model", None) or self._model,
             schema=schema.__name__,
             duration_seconds=duration_seconds,
+            prompt_tokens=getattr(getattr(completion, "usage", None), "prompt_tokens", None),
+            completion_tokens=getattr(
+                getattr(completion, "usage", None), "completion_tokens", None
+            ),
+            cached_prompt_tokens=getattr(
+                getattr(getattr(completion, "usage", None), "prompt_tokens_details", None),
+                "cached_tokens",
+                0,
+            ),
         )
 
         if not completion.choices:

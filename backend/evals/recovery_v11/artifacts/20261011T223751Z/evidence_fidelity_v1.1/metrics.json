@@ -1,0 +1,221 @@
+{
+  "version": "1.1",
+  "metric_name": "v1.1 recovered report evidence quotation fidelity",
+  "source_run_status": "incomplete",
+  "counts": {
+    "evidence_strings": 239,
+    "automatically_attributed": 217,
+    "human_supported": 22,
+    "supported": 239,
+    "unsupported": 0,
+    "cannot_tell": 0,
+    "cross_target_human_support": 0
+  },
+  "quotation_fidelity_rate": 1.0,
+  "report_cluster_summary": {
+    "reports": 15,
+    "report_evidence_min": 5,
+    "report_evidence_median": 18,
+    "report_evidence_max": 26,
+    "report_rate_min": 1.0,
+    "report_rate_median": 1.0,
+    "report_rate_max": 1.0
+  },
+  "per_report": [
+    {
+      "report_id": "jd-data-engineer-mixed",
+      "evidence_strings": 17,
+      "automatically_attributed": 14,
+      "human_supported": 3,
+      "unsupported": 0,
+      "cannot_tell": 0,
+      "cross_target_human_support": 0,
+      "supported": 17,
+      "distinct_report_target_answers": 10,
+      "quotation_fidelity_rate": 1.0
+    },
+    {
+      "report_id": "jd-data-engineer-strong",
+      "evidence_strings": 26,
+      "automatically_attributed": 26,
+      "human_supported": 0,
+      "unsupported": 0,
+      "cannot_tell": 0,
+      "cross_target_human_support": 0,
+      "supported": 26,
+      "distinct_report_target_answers": 10,
+      "quotation_fidelity_rate": 1.0
+    },
+    {
+      "report_id": "jd-data-engineer-weak",
+      "evidence_strings": 5,
+      "automatically_attributed": 4,
+      "human_supported": 1,
+      "unsupported": 0,
+      "cannot_tell": 0,
+      "cross_target_human_support": 0,
+      "supported": 5,
+      "distinct_report_target_answers": 4,
+      "quotation_fidelity_rate": 1.0
+    },
+    {
+      "report_id": "jd-frontend-mixed",
+      "evidence_strings": 18,
+      "automatically_attributed": 17,
+      "human_supported": 1,
+      "unsupported": 0,
+      "cannot_tell": 0,
+      "cross_target_human_support": 0,
+      "supported": 18,
+      "distinct_report_target_answers": 10,
+      "quotation_fidelity_rate": 1.0
+    },
+    {
+      "report_id": "jd-frontend-strong",
+      "evidence_strings": 26,
+      "automatically_attributed": 24,
+      "human_supported": 2,
+      "unsupported": 0,
+      "cannot_tell": 0,
+      "cross_target_human_support": 0,
+      "supported": 26,
+      "distinct_report_target_answers": 10,
+      "quotation_fidelity_rate": 1.0
+    },
+    {
+      "report_id": "jd-frontend-weak",
+      "evidence_strings": 5,
+      "automatically_attributed": 5,
+      "human_supported": 0,
+      "unsupported": 0,
+      "cannot_tell": 0,
+      "cross_target_human_support": 0,
+      "supported": 5,
+      "distinct_report_target_answers": 5,
+      "quotation_fidelity_rate": 1.0
+    },
+    {
+      "report_id": "jd-platform-mixed",
+      "evidence_strings": 19,
+      "automatically_attributed": 18,
+      "human_supported": 1,
+      "unsupported": 0,
+      "cannot_tell": 0,
+      "cross_target_human_support": 0,
+      "supported": 19,
+      "distinct_report_target_answers": 9,
+      "quotation_fidelity_rate": 1.0
+    },
+    {
+      "report_id": "jd-platform-strong",
+      "evidence_strings": 20,
+      "automatically_attributed": 15,
+      "human_supported": 5,
+      "unsupported": 0,
+      "cannot_tell": 0,
+      "cross_target_human_support": 0,
+      "supported": 20,
+      "distinct_report_target_answers": 10,
+      "quotation_fidelity_rate": 1.0
+    },
+    {
+      "report_id": "jd-platform-weak",
+      "evidence_strings": 5,
+      "automatically_attributed": 5,
+      "human_supported": 0,
+      "unsupported": 0,
+      "cannot_tell": 0,
+      "cross_target_human_support": 0,
+      "supported": 5,
+      "distinct_report_target_answers": 4,
+      "quotation_fidelity_rate": 1.0
+    },
+    {
+      "report_id": "jd-product-analyst-mixed",
+      "evidence_strings": 14,
+      "automatically_attributed": 13,
+      "human_supported": 1,
+      "unsupported": 0,
+      "cannot_tell": 0,
+      "cross_target_human_support": 0,
+      "supported": 14,
+      "distinct_report_target_answers": 9,
+      "quotation_fidelity_rate": 1.0
+    },
+    {
+      "report_id": "jd-product-analyst-strong",
+      "evidence_strings": 21,
+      "automatically_attributed": 20,
+      "human_supported": 1,
+      "unsupported": 0,
+      "cannot_tell": 0,
+      "cross_target_human_support": 0,
+      "supported": 21,
+      "distinct_report_target_answers": 10,
+      "quotation_fidelity_rate": 1.0
+    },
+    {
+      "report_id": "jd-product-analyst-weak",
+      "evidence_strings": 8,
+      "automatically_attributed": 7,
+      "human_supported": 1,
+      "unsupported": 0,
+      "cannot_tell": 0,
+      "cross_target_human_support": 0,
+      "supported": 8,
+      "distinct_report_target_answers": 7,
+      "quotation_fidelity_rate": 1.0
+    },
+    {
+      "report_id": "jd-senior-backend-mixed",
+      "evidence_strings": 20,
+      "automatically_attributed": 20,
+      "human_supported": 0,
+      "unsupported": 0,
+      "cannot_tell": 0,
+      "cross_target_human_support": 0,
+      "supported": 20,
+      "distinct_report_target_answers": 10,
+      "quotation_fidelity_rate": 1.0
+    },
+    {
+      "report_id": "jd-senior-backend-strong",
+      "evidence_strings": 26,
+      "automatically_attributed": 23,
+      "human_supported": 3,
+      "unsupported": 0,
+      "cannot_tell": 0,
+      "cross_target_human_support": 0,
+      "supported": 26,
+      "distinct_report_target_answers": 10,
+      "quotation_fidelity_rate": 1.0
+    },
+    {
+      "report_id": "jd-senior-backend-weak",
+      "evidence_strings": 9,
+      "automatically_attributed": 6,
+      "human_supported": 3,
+      "unsupported": 0,
+      "cannot_tell": 0,
+      "cross_target_human_support": 0,
+      "supported": 9,
+      "distinct_report_target_answers": 4,
+      "quotation_fidelity_rate": 1.0
+    }
+  ],
+  "limitations": [
+    "Incomplete v1.0 source run; recovered report outputs lack per-turn histories.",
+    "Automatically attributed exact strings were not each independently human reviewed.",
+    "One human reviewer adjudicated unresolved strings; no independent human agreement estimate.",
+    "Evidence strings within a report or answer are dependent; no string-level CI.",
+    "Quotation/source fidelity does not establish claim or score validity."
+  ],
+  "provenance_sha256": {
+    "PROTOCOL_v1.1.md": "e328487dab4d394d5d5c8eeb9f849337bfced09526ede7cda98041104982fcba",
+    "RECOVERY_MANIFEST_v1.1.json": "452762e16737933e4ee913e1141e1dc0dbb33bf570e06a8fd507434d743ebac5",
+    "evidence_source_review_frozen.csv": "793220c7e2ade592c6eee712ef330931cf9fa94a3f844175114c682d04f3fb5e",
+    "evidence_source_review.lock.json": "86561b2cf826796272b19d3d169f70a7131d423950eedce1977c72a4422b49ed",
+    "AGGREGATION_METHOD_v1.1.md": "c6bcd6a98df3e24788126e22fa8a0bb09440e89f038a36451b099596cccb0826",
+    "evidence_aggregate.py": "93734c00f9590f2c62ada3a081a7aee1b40c654dfaba0142994011cf0a000d89"
+  }
+}

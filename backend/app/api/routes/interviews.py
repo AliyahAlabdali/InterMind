@@ -187,7 +187,7 @@ async def _get_or_generate_report(
             if state.status != InterviewStatus.COMPLETED:
                 raise InterviewNotCompleted(interview_id)
             if request is not None:
-                limit_report(request, recruiter_id)
+                await limit_report(request, recruiter_id)
             plan = await plan_repo.get(state.job_id)
             report = await report_service.generate(
                 interview_id=interview_id,
@@ -224,7 +224,7 @@ async def start_interview(
     """
     await job_repo.get_for_recruiter(payload.job_id, recruiter_id)
     # After ownership, so a caller cannot spend another recruiter's budget by guessing job ids.
-    limit_invite(request, recruiter_id)
+    await limit_invite(request, recruiter_id)
     interview_id, state = await service.start(
         payload.job_id, payload.candidate_name, payload.candidate_email
     )
@@ -272,7 +272,7 @@ async def submit_answer(
     # never constrains another's, and a stranger cannot spend a real candidate's allowance.
     # Charged before ``submit_answer``, which is what runs evaluation and question generation.
     # The answer itself is already size-bounded by SubmitAnswerRequest.
-    limit_answer(request, interview_id)
+    await limit_answer(request, interview_id)
 
     state = await service.submit_answer(interview_id, payload.answer, payload.turn_id)
     candidate = await _get_candidate_for_session(session_repo, candidate_repo, interview_id)

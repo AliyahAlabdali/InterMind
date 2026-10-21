@@ -6,7 +6,7 @@ from fastapi import Depends, Request
 from langgraph.graph.state import CompiledStateGraph
 
 from app.agents.interview_graph import build_interview_graph
-from app.api.recruiter_session import RecruiterSessionStore
+from app.api.recruiter_session import SessionStore
 from app.core.config import Settings, get_settings
 from app.core.exceptions import ConfigurationError
 from app.knowledge.onet_kb import OnetKnowledgeBase
@@ -90,12 +90,8 @@ def get_interview_lock_registry(request: Request) -> InterviewLockRegistry:
     return registry
 
 
-def get_recruiter_session_store(request: Request) -> RecruiterSessionStore:
-    """The process-wide recruiter session store (see app.api.recruiter_session).
-
-    One instance per application, created in `create_app`. In-memory, so sessions end with the
-    process - documented in that module.
-    """
+def get_recruiter_session_store(request: Request) -> SessionStore:
+    """Return the configured in-memory or shared PostgreSQL recruiter session store."""
     return request.app.state.recruiter_session_store
 
 
@@ -137,6 +133,8 @@ def get_llm_client(
             api_key=settings.openai_api_key,
             model=settings.openai_model,
             trace=trace,
+            timeout_seconds=settings.openai_timeout_seconds,
+            max_retries=settings.openai_max_retries,
         )
     return FakeLLMClient()
 
