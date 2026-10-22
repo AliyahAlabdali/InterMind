@@ -3,7 +3,12 @@
 The Neon Free `intermind-staging` project exists in Frankfurt with PostgreSQL 17. Its
 `intermind_staging` database has already been migrated and independently checked at
 Alembic head `a7d4b9e2c103`, including the rate-limit sequence. **Do not run migrations again.**
-No staging deployment has been authorized. Keep the Azure
+The least-privilege `intermind_app_runtime` role has also been created and verified. **Do not
+rerun the role setup.**
+The isolated Vercel backend and frontend projects are deployed in the same workspace, with
+Root Directories `backend` and `frontend` and no Git integration. Their Production variables
+are configured; staging database access must pass a live pooled TLS check before acceptance.
+Keep the Azure
 App Service, Azure PostgreSQL database, production GitHub Actions workflow, and public
 Vercel frontend running as-is.
 Use synthetic staging data; do not copy production candidate records into a new provider for an
@@ -13,9 +18,10 @@ acceptance test.
 
 - Backend Vercel project **Root Directory: `backend`**. `backend/pyproject.toml` names
   `app.main:app` as the one FastAPI entrypoint, `backend/.python-version` pins Python 3.12,
-  and `backend/vercel.json` limits the function to 110 seconds. It excludes test/evaluation/raw
-  files and the one-time database setup script from the function. `backend/.vercelignore` also
-  keeps those files and local `.env` files
+  and `backend/vercel.json` explicitly selects the FastAPI preset and Fluid Compute. The
+  `functions.app/main.py` rule was rejected because it does not match Vercel's generated
+  FastAPI function; use the application deadline instead. `backend/.vercelignore` keeps
+  test/evaluation/raw files, setup scripts, and local `.env` files
   out of CLI uploads. Do **not** exclude `data/processed/onet/onet_kb.jsonl`; plan creation reads
   that tracked knowledge base at runtime. Build output, not a Windows wheel directory, decides
   whether the Linux function is under Vercel's 500 MB uncompressed limit.
@@ -27,11 +33,15 @@ acceptance test.
   `.vercelignore`; archiving the committed branch excludes them and the unrelated local
   README edit. Pass `--project intermind-api-staging --scope aliyahs-projects-44a8830a`
   explicitly so a local link cannot select the public project.
-- Frontend staging project **Root Directory: `frontend`**, separate from the public Vercel
-  project. `frontend/vercel.staging.json` is intentionally not the default config. After approval,
-  replace its example-invalid backend hostname with the staging backend hostname and select it
-  with Vercel CLI `--local-config`/`-A` while deploying the **staging project only**. Never use
-  the public project's ID or alias. `frontend/vercel.json` remains the production Azure rewrite.
+- Frontend staging project `intermind-frontend-staging` (ID
+  `prj_C2B1eis22qvbqHVYe8UksQnrKUQF`) has **Root Directory: `frontend`**, separate from the public
+  Vercel project. `frontend/vercel.staging.json` is intentionally not the default config.
+  For a CLI deployment, copy the resolved staging config over `frontend/vercel.json` **inside
+  a disposable clean archive only**. The CLI `--local-config frontend/vercel.staging.json`
+  flag did not override the project-root config in a live deployment; `/api/health` still went
+  to the Azure backend. Verify the active archive config and the staging backend's unique
+  health response before any write test. Never use the public project's ID or alias. The
+  tracked `frontend/vercel.json` remains the production Azure rewrite.
   Keep `VITE_API_BASE_URL` unset so the client calls `/api` on its own origin; the staging rewrite
   forwards `/api/:path*` to the backend's `/:path*`. The SPA fallback stays second.
 - `backend/staging.env.example` is a checklist of **backend-only** variables. It contains
@@ -41,8 +51,8 @@ acceptance test.
 Vercel's Python runtime currently lists 3.12, accepts FastAPI ASGI entrypoints, and has a
 500 MB uncompressed Python function bundle limit. Python functions on Fluid Compute can run
 up to 300 seconds on Hobby, but the cross-project frontend rewrite has a 120-second proxy
-limit. The 105-second application deadline and 110-second function ceiling reserve time to
-respond before that proxy closes. Confirm Fluid Compute and the resolved limits in the actual
+limit. The 105-second application deadline reserves time to respond before that proxy closes;
+the staging function uses the Hobby Fluid Compute project default. Confirm Fluid Compute and the resolved limits in the actual
 staging project; documentation alone cannot verify project settings.
 
 ## Source checkout and private evaluation gate
@@ -68,21 +78,10 @@ rewrites `/api` to production Azure; do not change it.
 
 ## Neon staging database, TLS, and connections
 
-1. The schema is already at head. Do not rerun, downgrade, or reset migrations. The
-   owner and existing `intermind_runtime` roles are too privileged for the application.
-   **After separate database-write approval**, run the one-time
-   `python -B scripts/setup_neon_runtime_role.py --apply` command from `backend/` in a trusted
-   PowerShell terminal. Enter the direct host, the direct owner URL (Neon "Copy snippet" is
-   accepted), and a new password for `intermind_app_runtime` via hidden prompts. Create and
-   keep that password in a password manager before starting. The script checks the exact
-   database, direct host, owner, PostgreSQL 17, migration head, and table/sequence set;
-   it then asks you to type `CREATE intermind_app_runtime` before its first write. It creates
-   the role and grants within one transaction and verifies privileges before commit. If it
-   stops, inspect the role state; do not rerun blindly. `--self-test` uses synthetic inputs
-   only and never opens a network connection. After an interrupted attempt, the separate
-   `--status` mode asks for the direct owner URL through a hidden prompt and checks only
-   role presence inside a read-only transaction; it cannot create or grant anything.
-   The new role has `CONNECT`, `USAGE` on `public`, `SELECT`/`INSERT` on all nine application
+1. The schema is already at head and `intermind_app_runtime` has passed least-privilege
+   verification. Do not rerun, downgrade, or reset migrations or role setup. The owner and
+   existing `intermind_runtime` roles are too privileged for the application. The new role
+   has `CONNECT`, `USAGE` on `public`, `SELECT`/`INSERT` on all nine application
    tables, `UPDATE` only on `interview_plans`, `interview_sessions`, and `interview_reports`,
    `DELETE` only on `recruiter_sessions` and `rate_limit_events`, and `USAGE` only on
    `rate_limit_events_id_seq`. It has no schema/database `CREATE`, privileged membership,
@@ -164,7 +163,8 @@ and sends the cookie on later `/api` requests. Do not set a separate API origin 
       tokens refresh; denied microphone/network failure leaves typed-answer flow functional.
 - [ ] Staging frontend `/api` calls are same-origin and cookie-bearing; no browser-visible DB,
       OpenAI, or Speech resource key. Direct backend CORS permits only intended origins.
-- [ ] Each LLM-heavy operation finishes before the 105/110/120-second boundaries. Inject an
+- [ ] Each LLM-heavy operation finishes before the 105-second application and 120-second rewrite
+      boundaries. Inject an
       LLM timeout and confirm no duplicate answer acceptance or partially durable report.
 - [ ] Inspect Vercel build/function/transfer usage, Neon storage/CU-hours/transfer/restore
       window, Azure Speech F0 usage, and OpenAI paid usage. Verify no provider upgraded to a
@@ -200,16 +200,13 @@ calls the **real** `gpt-4o-mini` model and may incur OpenAI charges.
 
 Keep the public frontend, Azure API, and Azure database untouched throughout this pass.
 
-## Next phase, only with explicit approval
+## Isolated staging deployment procedure
 
-1. With database-write approval, create the least-privilege runtime role using the one-time
-   command above. Keep its password in your password manager. Do not reuse the privileged
-   `intermind_runtime` role or the migration owner in a deployed function.
-2. Configure only `intermind-api-staging` with the variables from
+1. Configure only `intermind-api-staging` with the variables from
    `backend/staging.env.example`, using the new runtime role's **pooled** Neon URL, a
    staging-scoped real OpenAI key, and the server-side Speech F0 key. Keep
    `VITE_API_BASE_URL` unset on the separate staging frontend.
-3. With deployment approval, export the committed staging branch to a new temporary directory
+2. With deployment approval, export the committed staging branch to a new temporary directory
    and run the CLI from that archive root. The following PowerShell commands do not copy
    ignored files or local edits. Do not run them from `backend/`, because the cloud project's
    Root Directory already adds `backend`.
@@ -230,10 +227,21 @@ Keep the public frontend, Azure API, and Azure database untouched throughout thi
    `--prod` here means the production environment of the isolated staging project; it does not
    target the existing public frontend. Validate `/health` and actual DB operations. The
    backend project has no Git integration; a branch push alone does not deploy it.
-   Replace `STAGING_BACKEND_HOST.example.invalid` in `frontend/vercel.staging.json` with the
-   real staging host, then deploy the **separate** frontend project from `frontend/` with
-   `vercel deploy -A vercel.staging.json` while explicitly selecting its staging project.
-4. Run the checklist, collect real provider usage, repair any blocker locally, and present
+   The separate frontend project already exists. In the temporary archive only, replace
+   `STAGING_BACKEND_HOST.example.invalid` in `frontend/vercel.staging.json` with the real
+   staging backend host, then copy that resolved file over the archive's
+   `frontend/vercel.json`. Verify the active config contains no Azure hostname. From the archive
+   root, deploy with:
+
+   ```powershell
+   vercel deploy --prod --project intermind-frontend-staging --scope aliyahs-projects-44a8830a
+   ```
+
+   Do not use the public frontend project or edit its tracked `frontend/vercel.json` rewrite.
+   Before signup or job creation, check that the frontend's `/api/health` reaches the current
+   staging backend deployment, not the Azure origin. A generic `storage: postgresql` response
+   alone does not prove which database receives writes.
+3. Run the checklist, collect real provider usage, repair any blocker locally, and present
    results for a later cutover decision. Do not change the public rewrite or remove Azure
    resources without another explicit approval.
 
