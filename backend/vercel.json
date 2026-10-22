@@ -4,7 +4,7 @@
   "functions": {
     "app/main.py": {
       "maxDuration": 110,
-      "excludeFiles": "{tests/**,evals/**,notebooks/**,data/raw/**,data/processed/onet/*.csv,data/processed/onet/*.json,**/__pycache__/**,**/.pytest_cache/**,**/*.ipynb}"
+      "excludeFiles": "{tests/**,evals/**,notebooks/**,scripts/**,data/raw/**,data/processed/onet/*.csv,data/processed/onet/*.json,**/__pycache__/**,**/.pytest_cache/**,**/*.ipynb}"
     }
   }
 }

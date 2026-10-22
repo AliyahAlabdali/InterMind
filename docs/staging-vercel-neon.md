@@ -1,7 +1,9 @@
 # Isolated Vercel + Neon staging runbook (Phase 2A)
 
-This is preparation only. The Neon Free `intermind-staging` project already exists in
-Frankfurt with PostgreSQL 17. No staging deployment has been authorized. Keep the Azure
+The Neon Free `intermind-staging` project exists in Frankfurt with PostgreSQL 17. Its
+`intermind_staging` database has already been migrated and independently checked at
+Alembic head `a7d4b9e2c103`, including the rate-limit sequence. **Do not run migrations again.**
+No staging deployment has been authorized. Keep the Azure
 App Service, Azure PostgreSQL database, production GitHub Actions workflow, and public
 Vercel frontend running as-is.
 Use synthetic staging data; do not copy production candidate records into a new provider for an
@@ -12,10 +14,19 @@ acceptance test.
 - Backend Vercel project **Root Directory: `backend`**. `backend/pyproject.toml` names
   `app.main:app` as the one FastAPI entrypoint, `backend/.python-version` pins Python 3.12,
   and `backend/vercel.json` limits the function to 110 seconds. It excludes test/evaluation/raw
-  files from the function. `backend/.vercelignore` also keeps those files and local `.env` files
+  files and the one-time database setup script from the function. `backend/.vercelignore` also
+  keeps those files and local `.env` files
   out of CLI uploads. Do **not** exclude `data/processed/onet/onet_kb.jsonl`; plan creation reads
   that tracked knowledge base at runtime. Build output, not a Windows wheel directory, decides
   whether the Linux function is under Vercel's 500 MB uncompressed limit.
+  The isolated cloud project is `intermind-api-staging` in scope
+  `aliyahs-projects-44a8830a` (project ID `prj_yWlDU1gmia3TfyQfmRHeISNZusRW`). It has no
+  Git integration. Run its Vercel CLI commands from a **clean staging-branch archive root**:
+  Vercel applies the configured `backend` Root Directory. The working checkout contains
+  ignored private evaluation artifacts that the CLI may try to scan before applying
+  `.vercelignore`; archiving the committed branch excludes them and the unrelated local
+  README edit. Pass `--project intermind-api-staging --scope aliyahs-projects-44a8830a`
+  explicitly so a local link cannot select the public project.
 - Frontend staging project **Root Directory: `frontend`**, separate from the public Vercel
   project. `frontend/vercel.staging.json` is intentionally not the default config. After approval,
   replace its example-invalid backend hostname with the staging backend hostname and select it
@@ -50,43 +61,52 @@ full `python -m pytest -q`. Neither command calls the paid OpenAI API.
 Before any future staging commit, stage an explicit file list, inspect
 `git diff --cached --name-only` and `git diff --cached --check`, and confirm
 that no ignored private file, `.env` file, credential, or test temp directory
-is staged. A branch push may create a preview of the existing public Vercel
-frontend if its Git integration builds all branches. Check that project's
-dashboard branch/deployment settings before pushing; its default
-`frontend/vercel.json` still rewrites `/api` to production Azure. This local
-preparation does not authorize a branch push or any cloud deployment.
+is staged. The public frontend project's saved Ignored Build Step is "Only build
+production", so staging branch pushes should not build a frontend preview. Confirm
+the project activity after each push. Its default `frontend/vercel.json` still
+rewrites `/api` to production Azure; do not change it.
 
 ## Neon staging database, TLS, and connections
 
-1. **Only after approval**, inspect the existing Frankfurt PostgreSQL 17 Neon Free project
-   `intermind-staging`; verify its branch and database names in the Neon dashboard rather than
-   assuming them. Use an empty staging database. Use a direct
-   migration-owner connection for Alembic and a separate runtime role that can connect, use the
-   `public` schema, read/write application tables, and use their sequences, but cannot run DDL.
-   After migration, grant the runtime role `CONNECT` on that database, `USAGE` on the schema,
-   `SELECT, INSERT, UPDATE, DELETE` on application tables, and `USAGE, SELECT` on sequences;
-   set corresponding default privileges for later migration-created objects. Verify the Free
-   plan and usage settings in that account. If role separation is not available in the selected
-   plan, document the owner-role exposure as a staging security risk before deploying.
-2. From Neon's connection details, obtain **two** hostnames for the same staging database:
-   pooled (the host has `-pooler`) for Vercel runtime `DATABASE_URL`, and direct (no `-pooler`)
-   for the one-time Alembic migration. Keep both URLs out of Git, terminal history, build logs,
-   issue comments, and screenshots. Percent-encode URL-special characters in the password.
+1. The schema is already at head. Do not rerun, downgrade, or reset migrations. The
+   owner and existing `intermind_runtime` roles are too privileged for the application.
+   **After separate database-write approval**, run the one-time
+   `python -B scripts/setup_neon_runtime_role.py --apply` command from `backend/` in a trusted
+   PowerShell terminal. Enter the direct host, the direct owner URL (Neon "Copy snippet" is
+   accepted), and a new password for `intermind_app_runtime` via hidden prompts. Create and
+   keep that password in a password manager before starting. The script checks the exact
+   database, direct host, owner, PostgreSQL 17, migration head, and table/sequence set;
+   it then asks you to type `CREATE intermind_app_runtime` before its first write. It creates
+   the role and grants within one transaction and verifies privileges before commit. If it
+   stops, inspect the role state; do not rerun blindly. `--self-test` uses synthetic inputs
+   only and never opens a network connection.
+   The new role has `CONNECT`, `USAGE` on `public`, `SELECT`/`INSERT` on all nine application
+   tables, `UPDATE` only on `interview_plans`, `interview_sessions`, and `interview_reports`,
+   `DELETE` only on `recruiter_sessions` and `rate_limit_events`, and `USAGE` only on
+   `rate_limit_events_id_seq`. It has no schema/database `CREATE`, privileged membership,
+   ownership, or `alembic_version` access. New migration-created objects require a separate,
+   reviewed grant update; do not give this role broad default privileges.
+2. From Neon's connection details, obtain the **pooled** hostname (contains `-pooler`)
+   for Vercel runtime `DATABASE_URL`. The owner connection uses the **direct** hostname
+   only for the approved role setup; it must never be placed in Vercel. Keep URLs out of Git,
+   terminal history, build logs, issue comments, and screenshots. Percent-encode URL-special
+   characters in the password.
 3. Runtime template:
-   `postgresql+asyncpg://<USER>:<PASSWORD>@<POOLER_HOST>/<DATABASE>?ssl=verify-full`.
+   `postgresql+asyncpg://<USER>:<URL_ENCODED_PASSWORD>@<POOLER_HOST>/<DATABASE>`.
+   Set `DATABASE_SSL_VERIFY_FULL=true` in the staging backend. The application passes an
+   `SSLContext` to asyncpg with system-CA certificate and hostname verification enabled. Remove
+   `sslmode` and `channel_binding` query parameters from copied Neon snippets when constructing
+   this SQLAlchemy URL; do not add `?ssl=verify-full` or disable TLS verification.
    The `DATABASE_POOL_MODE=null` setting avoids keeping client connections alive in serverless
    functions; Neon pools on the server side. SQLAlchemy's asyncpg dialect gets unique prepared
    statement names in this mode. Do not disable TLS or certificate/hostname verification.
    Set `REQUIRE_DATABASE=true` and `SHARED_STATE_BACKEND=postgres` together, or restart and
    scale-to-zero will lose login sessions and reset rate limits.
-4. Migration template, **only against the new empty staging database**:
-   `postgresql+asyncpg://<USER>:<PASSWORD>@<DIRECT_HOST>/<DATABASE>?ssl=verify-full`.
-   `backend/alembic/env.py` reads `DATABASE_URL`; there is no separate migration URL. Before
-   running `alembic upgrade head` from `backend/`, confirm the selected host ends in
-   `.neon.tech`, does **not** contain `-pooler`, and names the staging database. Then check
-   `alembic current` and compare with the repository head. Never point this step at Azure.
+4. The direct owner URL is **not** a runtime setting. The three migrations have already
+   completed; `backend/alembic/env.py` supports verified TLS if a future reviewed migration
+   is required. Do not run `alembic upgrade head` as part of this staging deployment.
 5. Use `DATABASE_ECHO=false`. Check the real staging connection succeeds over verified TLS and
-   that the database, pooled URL, and migrations work from Vercel Linux. A local PostgreSQL
+   that the application queries work through the pooled URL from Vercel Linux. A local PostgreSQL
    test cannot prove Neon PgBouncer compatibility, network latency, or certificate availability.
 
 `backend/app/db/engine.py` still defaults to Azure's existing pool mode; the null pool is
@@ -129,8 +149,8 @@ and sends the cookie on later `/api` requests. Do not set a separate API origin 
       import failure. Repeat after Neon scales to zero. Record p50/p95 for warmed requests.
 - [ ] Vercel to Neon pooled URL: verified TLS, repeated asyncpg/SQLAlchemy queries,
       transactions, simultaneous requests, no prepared-statement collision or stale connection.
-- [ ] Direct URL migration reaches Alembic head on **staging only**. Restart/recycle function;
-      recruiter session, jobs, interview snapshots, and reports persist. No Azure data copied.
+- [x] Direct URL migration reached Alembic head on **staging only**. No Azure data copied.
+- [ ] Restart/recycle function; recruiter session, jobs, interview snapshots, and reports persist.
 - [ ] Concurrent auth attempts hit one atomic global and per-actor budget. Expiry restores
       access after the rolling window. A database outage refuses admission; it never bypasses
       the limiter.
@@ -152,23 +172,66 @@ Record test timestamps, region, request counts, latency, function memory, bundle
 remaining quotas. Keep staging private or unlisted until these checks pass. A successful local
 test suite is necessary but cannot substitute for this Linux/provider acceptance run.
 
+### Short end-to-end smoke pass after approved deployment
+
+Use only synthetic names, email addresses, and a short synthetic job description. This pass
+calls the **real** `gpt-4o-mini` model and may incur OpenAI charges.
+
+1. Open the isolated staging frontend in a fresh browser profile. Confirm its `/api/health`
+   request reaches the staging backend and reports PostgreSQL shared state. In developer tools,
+   verify API requests remain on the staging frontend origin. Stop if any request goes to Azure
+   or the public frontend.
+2. Sign up a synthetic recruiter, confirm the session cookie is `Secure`, `HttpOnly`,
+   `SameSite=Strict`, and reload the workspace. Log out, confirm the session is revoked, then
+   log back in. Check a second browser without the cookie cannot read the recruiter workspace.
+3. Create one synthetic job and its interview plan. Confirm the plan uses O*NET grounding and
+   both remain visible after a reload. Invite one synthetic candidate and open its link in a
+   separate browser profile. Keep its bearer token only in that browser/session.
+4. Answer with typed responses through completion, including any adaptive follow-up. Refresh
+   between two turns to prove the interview snapshot survives a fresh request. Confirm an old
+   turn cannot be submitted twice. Open the recruiter report; confirm evidence and scores
+   appear, then reload it to confirm the stored report is returned without regeneration.
+5. Try browser Speech recognition and playback using the staging F0 token. Deny microphone
+   access once and confirm typed answers remain usable. Review Vercel function logs for errors
+   and Neon, Speech F0, and OpenAI usage after the pass; stop if limits or charges exceed the
+   intended test budget.
+
+Keep the public frontend, Azure API, and Azure database untouched throughout this pass.
+
 ## Next phase, only with explicit approval
 
-1. Confirm current Hobby/Free plan terms and remaining account-wide Vercel usage; select the
-   staging region. Verify the existing isolated Frankfurt Neon `intermind-staging` project
-   and its PostgreSQL 17 branch/database, then finish configuring separate staging Vercel backend
-   and frontend projects. Do not connect an auto-deploy workflow to the public production project.
-2. Set backend secrets from `backend/staging.env.example` directly in the staging backend
-   project, using a staging OpenAI key and Speech F0 key. Set the runtime Neon pooled URL only
-   in that project. Keep `VITE_API_BASE_URL` unset on the staging frontend.
-3. On a trusted local machine, set `DATABASE_URL` temporarily to the **direct** staging Neon URL,
-   verify the hostname/database, and run `alembic upgrade head` and `alembic current` from
-   `backend/`. Clear that local variable afterward. No production migration is part of staging.
-4. Deploy the backend project from `backend/` and validate `/health` plus actual DB operations.
+1. With database-write approval, create the least-privilege runtime role using the one-time
+   command above. Keep its password in your password manager. Do not reuse the privileged
+   `intermind_runtime` role or the migration owner in a deployed function.
+2. Configure only `intermind-api-staging` with the variables from
+   `backend/staging.env.example`, using the new runtime role's **pooled** Neon URL, a
+   staging-scoped real OpenAI key, and the server-side Speech F0 key. Keep
+   `VITE_API_BASE_URL` unset on the separate staging frontend.
+3. With deployment approval, export the committed staging branch to a new temporary directory
+   and run the CLI from that archive root. The following PowerShell commands do not copy
+   ignored files or local edits. Do not run them from `backend/`, because the cloud project's
+   Root Directory already adds `backend`.
+
+   ```powershell
+   $stagePath = Join-Path $env:TEMP ("intermind-staging-" + [guid]::NewGuid().ToString("N"))
+   New-Item -ItemType Directory -Path $stagePath | Out-Null
+   git archive --format=zip --output (Join-Path $stagePath "source.zip") staging/vercel-neon
+   Expand-Archive -LiteralPath (Join-Path $stagePath "source.zip") -DestinationPath (Join-Path $stagePath "source")
+   Set-Location (Join-Path $stagePath "source")
+   vercel deploy --dry --project intermind-api-staging --scope aliyahs-projects-44a8830a
+   vercel deploy --prod --project intermind-api-staging --scope aliyahs-projects-44a8830a
+   ```
+
+   Inspect the dry-run file list and framework before the final command; confirm that it
+   includes the O*NET JSONL and no private evaluation outputs or `.env` files. Deploy the
+   **staging project** only.
+   `--prod` here means the production environment of the isolated staging project; it does not
+   target the existing public frontend. Validate `/health` and actual DB operations. The
+   backend project has no Git integration; a branch push alone does not deploy it.
    Replace `STAGING_BACKEND_HOST.example.invalid` in `frontend/vercel.staging.json` with the
    real staging host, then deploy the **separate** frontend project from `frontend/` with
    `vercel deploy -A vercel.staging.json` while explicitly selecting its staging project.
-5. Run the checklist, collect real provider usage, repair any blocker locally, and present
+4. Run the checklist, collect real provider usage, repair any blocker locally, and present
    results for a later cutover decision. Do not change the public rewrite or remove Azure
    resources without another explicit approval.
 

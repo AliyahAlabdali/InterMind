@@ -12,8 +12,11 @@ and would give every deploy a different idea of what the database looks like.
 from __future__ import annotations
 
 import logging
+import ssl
 from uuid import uuid4
 
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -35,9 +38,28 @@ def normalize_database_url(url: str) -> str:
     return url
 
 
+def verified_tls_connect_args(url: str, *, verify_full: bool) -> dict:
+    """Opt in to system-CA and hostname-verified TLS for asyncpg connections."""
+    if not verify_full:
+        return {}
+    # A copied provider URL may include sslmode/ssl settings that conflict with the explicit
+    # context. Reject them without ever including the URL or its credentials in the error.
+    try:
+        query = make_url(normalize_database_url(url)).query
+    except (ArgumentError, ValueError):
+        raise ValueError("invalid DATABASE_URL for verified TLS") from None
+    if {"ssl", "sslmode", "sslrootcert", "channel_binding"} & {
+        key.lower() for key in query
+    }:
+        raise ValueError(
+            "DATABASE_SSL_VERIFY_FULL requires DATABASE_URL without TLS query parameters"
+        )
+    return {"ssl": ssl.create_default_context(ssl.Purpose.SERVER_AUTH)}
+
+
 def create_engine(
     url: str, *, echo: bool = False, pool_mode: str = "default",
-    pool_size: int = 2, max_overflow: int = 0,
+    pool_size: int = 2, max_overflow: int = 0, ssl_verify_full: bool = False,
 ) -> AsyncEngine:
     """Build the process-wide async engine.
 
@@ -59,6 +81,9 @@ def create_engine(
         options.update(pool_size=pool_size, max_overflow=max_overflow, pool_timeout=5)
     elif pool_mode != "default":
         raise ValueError("unknown database pool mode")
+    tls_args = verified_tls_connect_args(url, verify_full=ssl_verify_full)
+    if tls_args:
+        options.setdefault("connect_args", {}).update(tls_args)
     return create_async_engine(normalize_database_url(url), **options)
 
 

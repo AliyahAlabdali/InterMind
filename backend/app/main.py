@@ -117,6 +117,7 @@ def create_app() -> FastAPI:
             settings.database_url, echo=settings.database_echo,
             pool_mode=settings.database_pool_mode, pool_size=settings.database_pool_size,
             max_overflow=settings.database_max_overflow,
+            ssl_verify_full=settings.database_ssl_verify_full,
         )
         sessions = create_session_factory(engine)
         app.state.db_engine = engine

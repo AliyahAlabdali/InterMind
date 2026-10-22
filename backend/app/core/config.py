@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     # survives a restart, and startup says so loudly. That is the mode the test suite runs in.
     # Any real deployment must set it.
     database_url: str | None = None
+    # Opt-in for Neon: system-CA certificate and hostname verification via an SSLContext.
+    # Leave false to preserve the existing Azure URL and connection behavior.
+    database_ssl_verify_full: bool = False
     # Echo SQL to the log. Development only - statements can contain candidate answers.
     database_echo: bool = False
     # Keep Azure's existing pool by default. For Vercel, use "null" with Neon's pooled
