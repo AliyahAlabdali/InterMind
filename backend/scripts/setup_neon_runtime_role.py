@@ -33,6 +33,14 @@ TABLE_GRANTS = {
 }
 
 
+class InputValidationError(ValueError):
+    """A fixed, non-sensitive label for a failure before any connection attempt."""
+
+
+class ClientConfigurationError(ValueError):
+    """A client-side connection failure before any database write."""
+
+
 def direct_url(raw: str, expected_host: str) -> str:
     """Accept Neon's URL or quoted ``psql`` snippet; retain no TLS query options.
 
@@ -45,7 +53,7 @@ def direct_url(raw: str, expected_host: str) -> str:
     if len(value) >= 2 and value[0] in "\"'" and value[-1] == value[0]:
         value = value[1:-1]
     if any(char.isspace() or ord(char) < 32 for char in value):
-        raise ValueError("connection snippet contains whitespace or control characters")
+        raise InputValidationError("connection snippet formatting")
     try:
         parts = urlsplit(value)
         port = parts.port or 5432
@@ -54,26 +62,31 @@ def direct_url(raw: str, expected_host: str) -> str:
         database = unquote(parts.path.removeprefix("/"))
         query = parse_qs(parts.query, keep_blank_values=True, strict_parsing=True)
     except ValueError:
-        raise ValueError("connection snippet is malformed") from None
+        raise InputValidationError("connection snippet syntax") from None
     if parts.scheme not in {"postgres", "postgresql"}:
-        raise ValueError("connection scheme is invalid")
+        raise InputValidationError("connection scheme")
     host = (parts.hostname or "").lower()
     expected = expected_host.strip().lower()
-    if (
-        not expected.endswith(".neon.tech")
-        or "-pooler" in expected
-        or host != expected
-        or port != 5432
-    ):
-        raise ValueError("direct host or port does not match the Neon dashboard")
-    if username != OWNER or database != DATABASE or not password or parts.fragment:
-        raise ValueError("owner role, database, or password presence is invalid")
+    if not expected.endswith(".neon.tech") or "-pooler" in expected:
+        raise InputValidationError("expected direct host")
+    if host != expected:
+        raise InputValidationError("direct host match")
+    if port != 5432:
+        raise InputValidationError("direct port")
+    if username != OWNER:
+        raise InputValidationError("owner role")
+    if database != DATABASE:
+        raise InputValidationError("database name")
+    if not password:
+        raise InputValidationError("owner password presence")
+    if parts.fragment:
+        raise InputValidationError("connection snippet fragment")
     if set(query) - {"sslmode", "channel_binding"}:
-        raise ValueError("connection snippet has unexpected options")
+        raise InputValidationError("connection snippet options")
     if "sslmode" in query and query["sslmode"] not in (["require"], ["verify-full"]):
-        raise ValueError("connection snippet has invalid TLS option")
+        raise InputValidationError("TLS option")
     if "channel_binding" in query and query["channel_binding"] != ["require"]:
-        raise ValueError("connection snippet has invalid channel binding option")
+        raise InputValidationError("channel binding option")
     # asyncpg 0.31 accepts an SSLContext, not ssl="verify-full". Its explicit
     # context verifies both the certificate and the exact host. Remove snippet
     # options so they cannot override or conflict with that context.
@@ -190,12 +203,17 @@ async def apply() -> None:
     raw = getpass.getpass("Direct owner connection URL or psql snippet (hidden): ")
     password = getpass.getpass("New runtime password from your password manager (hidden): ")
     if len(password) < 32 or any(ord(char) < 32 for char in password):
-        raise ValueError("runtime password must have at least 32 printable characters")
+        raise InputValidationError("runtime password policy (32 printable characters minimum)")
     url = direct_url(raw, host)
     context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
     if not context.check_hostname or context.verify_mode != ssl.CERT_REQUIRED:
         raise RuntimeError("verified TLS is unavailable")
-    conn = await asyncpg.connect(dsn=url, ssl=context, timeout=15, command_timeout=15)
+    try:
+        conn = await asyncpg.connect(dsn=url, ssl=context, timeout=15, command_timeout=15)
+    except ValueError:
+        # asyncpg may raise ValueError while interpreting a valid-looking URL.
+        # The original exception might include connection details, so discard it.
+        raise ClientConfigurationError("asyncpg connection configuration") from None
     try:
         await check_target(conn)
         print("PASS: direct staging target, verified TLS settings, schema, and head checked.")
@@ -224,6 +242,40 @@ async def apply() -> None:
                 await conn.execute(sql)
             await check_role(conn)
         print("PASS: least-privilege runtime role created and verified.")
+    finally:
+        await conn.close()
+
+
+async def status() -> None:
+    """Read-only role-presence check for an interrupted setup attempt."""
+    if not sys.stdin.isatty() or not sys.stderr.isatty():
+        raise RuntimeError("a visible local terminal is required for hidden credential input")
+    host = getpass.getpass("Exact DIRECT host from Neon dashboard (hidden): ")
+    raw = getpass.getpass("Direct owner connection URL or psql snippet (hidden): ")
+    url = direct_url(raw, host)
+    context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+    if not context.check_hostname or context.verify_mode != ssl.CERT_REQUIRED:
+        raise RuntimeError("verified TLS is unavailable")
+    conn = await asyncpg.connect(
+        dsn=url, ssl=context, timeout=15, command_timeout=15,
+        server_settings={"default_transaction_read_only": "on"},
+    )
+    try:
+        async with conn.transaction(readonly=True):
+            row = await conn.fetchrow(
+                "SELECT current_database() AS db, session_user AS role, "
+                "current_setting('transaction_read_only') AS read_only"
+            )
+            if (
+                row["db"] != DATABASE
+                or row["role"] != OWNER
+                or row["read_only"] != "on"
+            ):
+                raise RuntimeError("read-only staging identity check failed")
+            present = await conn.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)", RUNTIME
+            )
+            print("ROLE_STATUS: present" if present else "ROLE_STATUS: absent")
     finally:
         await conn.close()
 
@@ -258,12 +310,21 @@ def main() -> None:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--self-test", action="store_true", help="synthetic tests; no network")
     group.add_argument("--apply", action="store_true", help="manual Neon database write")
+    group.add_argument("--status", action="store_true", help="read-only Neon role-presence check")
     args = parser.parse_args()
     try:
         if args.self_test:
             self_test()
+        elif args.status:
+            asyncio.run(status())
         else:
             asyncio.run(apply())
+    except InputValidationError as exc:
+        print(f"STOP: invalid {exc}. No database connection attempted.")
+        raise SystemExit(1) from None
+    except ClientConfigurationError as exc:
+        print(f"STOP: {exc}. No database write attempted.")
+        raise SystemExit(1) from None
     except (ValueError, RuntimeError, asyncpg.PostgresError, OSError) as exc:
         # Never print SQL or exception text: a driver error could contain a connection string.
         print(f"STOP: {type(exc).__name__}; no automatic retry. Check the target and role state.")

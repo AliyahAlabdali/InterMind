@@ -79,7 +79,9 @@ rewrites `/api` to production Azure; do not change it.
    it then asks you to type `CREATE intermind_app_runtime` before its first write. It creates
    the role and grants within one transaction and verifies privileges before commit. If it
    stops, inspect the role state; do not rerun blindly. `--self-test` uses synthetic inputs
-   only and never opens a network connection.
+   only and never opens a network connection. After an interrupted attempt, the separate
+   `--status` mode asks for the direct owner URL through a hidden prompt and checks only
+   role presence inside a read-only transaction; it cannot create or grant anything.
    The new role has `CONNECT`, `USAGE` on `public`, `SELECT`/`INSERT` on all nine application
    tables, `UPDATE` only on `interview_plans`, `interview_sessions`, and `interview_reports`,
    `DELETE` only on `recruiter_sessions` and `rate_limit_events`, and `USAGE` only on

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ssl
+
 import pytest
 
 from scripts import setup_neon_runtime_role as role_setup
@@ -43,6 +45,30 @@ def test_wrong_or_malformed_target_fails_closed(snippet):
         direct_url(snippet, HOST)
 
 
+@pytest.mark.parametrize(
+    ("snippet", "expected_label"),
+    [
+        (BASE + "/postgres", "database name"),
+        (
+            BASE.replace("intermind_staging_owner", "other_owner") + "/intermind_staging",
+            "owner role",
+        ),
+        (BASE + ":5433/intermind_staging", "direct port"),
+        (
+            BASE.replace("synthetic%40password", "") + "/intermind_staging",
+            "owner password presence",
+        ),
+        (BASE + "/intermind_staging?sslmode=disable", "TLS option"),
+    ],
+)
+def test_input_errors_name_only_the_failed_field(snippet, expected_label):
+    with pytest.raises(role_setup.InputValidationError) as error:
+        direct_url(snippet, HOST)
+    assert str(error.value) == expected_label
+    assert "synthetic" not in str(error.value)
+    assert HOST not in str(error.value)
+
+
 def test_dashboard_direct_host_must_match_exactly():
     with pytest.raises(ValueError):
         direct_url(BASE + "/intermind_staging", "ep-other.eu-central-1.aws.neon.tech")
@@ -81,3 +107,97 @@ async def test_apply_refuses_noninteractive_credential_input(monkeypatch):
     )
     with pytest.raises(RuntimeError, match="visible local terminal"):
         await role_setup.apply()
+
+
+@pytest.mark.asyncio
+async def test_short_runtime_password_fails_before_connect(monkeypatch):
+    monkeypatch.setattr(role_setup.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(role_setup.sys.stderr, "isatty", lambda: True)
+    inputs = iter((HOST, BASE + "/intermind_staging", "synthetic-short"))
+    monkeypatch.setattr(role_setup.getpass, "getpass", lambda _prompt: next(inputs))
+
+    async def must_not_connect(**_kwargs):
+        pytest.fail("validation must finish before any connection attempt")
+
+    monkeypatch.setattr(role_setup.asyncpg, "connect", must_not_connect)
+    with pytest.raises(role_setup.InputValidationError, match="runtime password policy"):
+        await role_setup.apply()
+
+
+def test_cli_reports_only_safe_field_for_short_password(monkeypatch, capsys):
+    monkeypatch.setattr(role_setup.sys, "argv", ["setup_neon_runtime_role.py", "--apply"])
+    monkeypatch.setattr(role_setup.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(role_setup.sys.stderr, "isatty", lambda: True)
+    inputs = iter((HOST, BASE + "/intermind_staging", "synthetic-short-secret"))
+    monkeypatch.setattr(role_setup.getpass, "getpass", lambda _prompt: next(inputs))
+    with pytest.raises(SystemExit) as stopped:
+        role_setup.main()
+    assert stopped.value.code == 1
+    output = capsys.readouterr().out
+    assert "invalid runtime password policy" in output
+    assert "No database connection attempted" in output
+    assert "synthetic-short-secret" not in output
+
+
+@pytest.mark.asyncio
+async def test_asyncpg_value_error_is_labeled_prewrite_without_leaking_url(monkeypatch):
+    monkeypatch.setattr(role_setup.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(role_setup.sys.stderr, "isatty", lambda: True)
+    inputs = iter((HOST, BASE + "/intermind_staging", "synthetic-strong-password-1234567890"))
+    monkeypatch.setattr(role_setup.getpass, "getpass", lambda _prompt: next(inputs))
+
+    async def invalid_client_configuration(**_kwargs):
+        raise ValueError("synthetic-secret-in-client-error")
+
+    monkeypatch.setattr(role_setup.asyncpg, "connect", invalid_client_configuration)
+    with pytest.raises(role_setup.ClientConfigurationError) as error:
+        await role_setup.apply()
+    assert str(error.value) == "asyncpg connection configuration"
+    assert "synthetic-secret" not in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_status_uses_verified_tls_and_read_only_queries(monkeypatch, capsys):
+    monkeypatch.setattr(role_setup.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(role_setup.sys.stderr, "isatty", lambda: True)
+    inputs = iter((HOST, BASE + "/intermind_staging"))
+    monkeypatch.setattr(role_setup.getpass, "getpass", lambda _prompt: next(inputs))
+    calls = []
+
+    class ReadOnlyTransaction:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+    class FakeConnection:
+        def transaction(self, *, readonly):
+            assert readonly is True
+            return ReadOnlyTransaction()
+
+        async def fetchrow(self, sql):
+            assert sql.startswith("SELECT ")
+            calls.append("identity")
+            return {"db": "intermind_staging", "role": "intermind_staging_owner", "read_only": "on"}
+
+        async def fetchval(self, sql, role):
+            assert sql.startswith("SELECT EXISTS ")
+            assert role == "intermind_app_runtime"
+            calls.append("role")
+            return False
+
+        async def close(self):
+            calls.append("close")
+
+    async def fake_connect(**options):
+        assert options["server_settings"] == {"default_transaction_read_only": "on"}
+        assert isinstance(options["ssl"], ssl.SSLContext)
+        assert options["ssl"].check_hostname is True
+        assert options["ssl"].verify_mode == ssl.CERT_REQUIRED
+        return FakeConnection()
+
+    monkeypatch.setattr(role_setup.asyncpg, "connect", fake_connect)
+    await role_setup.status()
+    assert calls == ["identity", "role", "close"]
+    assert capsys.readouterr().out.strip() == "ROLE_STATUS: absent"
