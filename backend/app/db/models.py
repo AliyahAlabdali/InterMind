@@ -22,8 +22,8 @@ Deletion
 ``jobs.recruiter_id`` is ``RESTRICT``, deliberately: a recruiter cannot be deleted while they
 own jobs, so no accidental ORM cascade can erase candidate interview history as a side effect of
 removing an account. Within a job's own subtree the cascades are ``CASCADE``, since a plan, a
-session, a report and an activity row have no meaning without their job. There is no deletion
-feature in the product yet; account-deletion semantics are future product/legal work.
+session, a report and an activity row have no meaning without their job. An authenticated
+recruiter can erase one owned interview; account-deletion semantics remain future work.
 
 JSON columns
 ------------
@@ -178,6 +178,11 @@ class InterviewSessionRow(Base):
     runtime_snapshot: Mapped[dict | None] = mapped_column(JsonDoc, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    #: Advances after durable interview updates and activity events. A later report's
+    #: created_at is considered separately by the retention sweep.
+    last_activity_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow, index=True
     )
 
 

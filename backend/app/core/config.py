@@ -96,6 +96,12 @@ class Settings(BaseSettings):
     # set RECRUITER_SESSION_COOKIE_SECURE=true in any real deployment.
     recruiter_session_cookie_secure: bool = False
 
+    # Local development and existing Azure deployment remain unchanged. A Vercel Cron
+    # deployment can opt in only after the migration and privacy checks are complete.
+    retention_enabled: bool = False
+    interview_retention_days: int = 90
+    cron_secret: str | None = None
+
     # --- Speech-to-text -------------------------------------------------------------------
     # Which STT implementation the candidate UI should use. "azure" is production; "browser"
     # keeps the (much weaker) Web Speech implementation available for offline development;

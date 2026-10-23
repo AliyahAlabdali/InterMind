@@ -12,25 +12,31 @@ export function PrivacyPage() {
     </LegalSection>
 
     <LegalSection title="AI processing and optional voice">
-      <p>When the OpenAI integration is enabled, job descriptions and interview content are sent to OpenAI to generate questions, evaluate answers and write report narratives. AI evaluations can be wrong. Scores are calculated by application rules from the evaluated evidence, and they are not hiring decisions.</p>
-      <p>Voice input is optional and typing always works. When it is used, the browser sends audio straight to Microsoft Azure AI Speech for transcription, and InterMind stores the resulting text rather than the audio.</p>
-      <p>Provider regions, retention and data-processing agreements depend on the deployment and are not established here.</p>
+      <p>InterMind uses the OpenAI API for live job analysis, interview planning, answer evaluation and report writing. Job descriptions, interview content and report inputs are sent to OpenAI for those purposes. AI evaluations can be wrong. Scores are calculated by application rules from the evaluated evidence, and they are not hiring decisions.</p>
+      <p>Voice input is optional and typing always works. When it is used, the browser sends audio straight to Microsoft Azure AI Speech in East US for transcription, and InterMind stores the resulting text rather than the audio.</p>
+      <p>OpenAI may process data under its own regional and retention arrangements. We cannot promise its processing stays in the database region or that deleting an InterMind record immediately deletes provider-held copies.</p>
     </LegalSection>
 
-    <LegalSection title="Storage and access">
-      <p>By default the project runs in memory and loses its data when the server stops. Configured with PostgreSQL, the same data survives a restart. There is no retention schedule, backup policy or deletion timetable.</p>
+    <LegalSection title="Storage, regions and access">
+      <p>The public backend and PostgreSQL database currently run on Microsoft Azure in UAE North. The frontend is hosted by Vercel, which can serve its static assets through a global network. A future move of the backend and database to Frankfurt is being prepared, but has not happened on this public site.</p>
       <p>Recruiters see only their own workspace. A candidate's link opens one interview and never the evaluations or reports behind it, so keep interview links private.</p>
-      <p>Passwords are stored only as hashes and every request is checked on the server. Hosting security, encryption and operational access still depend on the deployment.</p>
+      <p>Passwords are stored as hashes; recruiter sessions use an HttpOnly cookie, and access is checked on the server. Authorized hosting and database operators may have operational access. Cross-border processing can occur through Vercel, OpenAI, Azure Speech and their subprocessors.</p>
+    </LegalSection>
+
+    <LegalSection title="Retention and deletion">
+      <p>The approved targets are to remove interview data, answers, evaluations and reports 90 days after the last accepted interview activity or report creation, and to retain encrypted backups under our control for no more than 30 days. These targets are <strong>not yet operating on the public deployment</strong>: the database migration, scheduled cleanup, backup controls and production verification are still pending. Provider-managed backup history may differ. We do not currently promise automatic deletion on those dates.</p>
+      <p>Recruiter accounts and job descriptions have no automatic deletion timetable. You may request deletion; we will verify the request and explain any data that must be kept or cannot yet be removed from a provider or backup. Restoring a backup could reintroduce previously deleted records unless those requests are reapplied.</p>
     </LegalSection>
 
     <LegalSection title="Other services and browser storage">
       <p>Typefaces load from Google Fonts, so a page load makes an ordinary browser request to Google. There is no analytics, advertising, tracking pixel or session-recording service in the application.</p>
       <p>One cookie keeps a recruiter signed in, and browser session storage holds a candidate's interview token, both described under <LegalLink to="/legal/cookies">Cookies</LegalLink>.</p>
-      <p>Application logs record operational metadata rather than answer text. Host and provider logs are separate and not described here.</p>
+      <p>Application logs are intended to record operational metadata rather than answer text. Hosting and provider logs follow their own retention terms.</p>
     </LegalSection>
 
-    <LegalSection title="Questions about your data">
-      <p>Depending on where you are, you may have rights to access, correct or delete information held about you. This project publishes no request process or response time. If you were invited to an interview, the recruiter who sent the link decides how your answers are used, so ask them first.</p>
+    <LegalSection title="Your choices and requests">
+      <p>Depending on the law that applies to you, you may request access, correction, deletion or a copy of your information, or object to some processing. Contact <a href="mailto:AliyahAlabdali24@gmail.com">AliyahAlabdali24@gmail.com</a>. We will verify identity and the interview or account involved before disclosing or deleting data. No self-service candidate deletion or guaranteed response time is currently available.</p>
+      <p>If a recruiter invited you, you may also contact them about how they use your answers. You can use typed answers without enabling voice input. Please avoid entering unrelated sensitive information.</p>
     </LegalSection>
   </LegalPage>
 }

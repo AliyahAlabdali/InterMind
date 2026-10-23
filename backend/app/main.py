@@ -17,6 +17,7 @@ from app.api.routes import (
     interview_plans,
     interviews,
     jobs,
+    privacy,
     speech,
 )
 from app.core.config import get_settings
@@ -121,6 +122,7 @@ def create_app() -> FastAPI:
         )
         sessions = create_session_factory(engine)
         app.state.db_engine = engine
+        app.state.db_session_factory = sessions
         if settings.shared_state_backend == "postgres":
             app.state.recruiter_session_store = SqlRecruiterSessionStore(
                 sessions, ttl_seconds=settings.recruiter_session_ttl_seconds
@@ -140,6 +142,7 @@ def create_app() -> FastAPI:
             "in this mode; see docs/deployment.md."
         )
         app.state.db_engine = None
+        app.state.db_session_factory = None
         _wire_in_memory(app)
     # Recorded so /health can state which storage is live without anyone needing log access, and
     # without exposing the URL. See app.api.routes.health.
@@ -153,6 +156,7 @@ def create_app() -> FastAPI:
     app.include_router(interviews.router)
     app.include_router(activity.router)
     app.include_router(speech.router)
+    app.include_router(privacy.router)
 
     return app
 

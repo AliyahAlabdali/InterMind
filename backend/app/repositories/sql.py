@@ -18,6 +18,7 @@ Two rules hold throughout:
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -186,8 +187,11 @@ class SqlInterviewSessionRepository(_SessionScoped):
             if row is None:
                 raise InterviewNotFound(interview_id)
             record = _interview_session(row)
+            previous_snapshot = row.runtime_snapshot
             yield record
-            row.runtime_snapshot = record.runtime_snapshot
+            if record.runtime_snapshot != previous_snapshot:
+                row.runtime_snapshot = record.runtime_snapshot
+                row.last_activity_at = datetime.now(UTC)
 
     async def add(self, session_record: InterviewSession) -> InterviewSession:
         async with self._sessions() as session:
@@ -199,6 +203,7 @@ class SqlInterviewSessionRepository(_SessionScoped):
                     access_token=session_record.access_token,
                     runtime_snapshot=session_record.runtime_snapshot,
                     created_at=session_record.created_at,
+                    last_activity_at=session_record.created_at,
                 )
             )
             await session.commit()
@@ -239,7 +244,17 @@ class SqlInterviewSessionRepository(_SessionScoped):
 
 class SqlActivityRepository(_SessionScoped):
     async def add(self, event: ActivityEvent) -> ActivityEvent:
-        async with self._sessions() as session:
+        async with self._sessions() as session, session.begin():
+            # Serialize the activity timestamp and insert with retention's FOR UPDATE.
+            # A late event cannot recreate candidate information after erasure.
+            row = await session.scalar(
+                select(InterviewSessionRow)
+                .where(InterviewSessionRow.id == event.interview_id)
+                .with_for_update(key_share=True)
+            )
+            if row is None or row.job_id != event.job_id:
+                return event
+            row.last_activity_at = max(row.last_activity_at, event.created_at)
             session.add(
                 ActivityEventRow(
                     id=event.id,
@@ -251,7 +266,6 @@ class SqlActivityRepository(_SessionScoped):
                     created_at=event.created_at,
                 )
             )
-            await session.commit()
         return event
 
     async def list_recent_for_recruiter(

@@ -1,8 +1,10 @@
 # Isolated Vercel + Neon staging runbook (Phase 2A)
 
 The Neon Free `intermind-staging` project exists in Frankfurt with PostgreSQL 17. Its
-`intermind_staging` database has already been migrated and independently checked at
-Alembic head `a7d4b9e2c103`, including the rate-limit sequence. **Do not run migrations again.**
+`intermind_staging` database was migrated and independently checked at
+Alembic head `a7d4b9e2c103`, including the rate-limit sequence. Do not rerun the three
+initial revisions. The additive retention revision `d91e5a7c2b40` is a separate,
+owner-only staging migration and requires a fresh target/head check before applying.
 The least-privilege `intermind_app_runtime` role has also been created and verified. **Do not
 rerun the role setup.**
 The isolated Vercel backend and frontend projects are deployed in the same workspace, with
@@ -78,13 +80,17 @@ rewrites `/api` to production Azure; do not change it.
 
 ## Neon staging database, TLS, and connections
 
-1. The schema is already at head and `intermind_app_runtime` has passed least-privilege
-   verification. Do not rerun, downgrade, or reset migrations or role setup. The owner and
+1. The three original migrations are at head `a7d4b9e2c103` and
+   `intermind_app_runtime` has passed least-privilege verification. Do not rerun,
+   downgrade, or reset those migrations or role setup. The owner and
    existing `intermind_runtime` roles are too privileged for the application. The new role
    has `CONNECT`, `USAGE` on `public`, `SELECT`/`INSERT` on all nine application
    tables, `UPDATE` only on `interview_plans`, `interview_sessions`, and `interview_reports`,
-   `DELETE` only on `recruiter_sessions` and `rate_limit_events`, and `USAGE` only on
-   `rate_limit_events_id_seq`. It has no schema/database `CREATE`, privileged membership,
+   `DELETE` on `recruiter_sessions` and `rate_limit_events`, and `USAGE` only on
+   `rate_limit_events_id_seq`. The retention addition also needs `DELETE` on
+   `activity_events`, `interview_reports`, `interview_sessions`, and `candidates`;
+   the guarded migration step grants only those four table permissions. It has no
+   schema/database `CREATE`, privileged membership,
    ownership, or `alembic_version` access. New migration-created objects require a separate,
    reviewed grant update; do not give this role broad default privileges.
 2. From Neon's connection details, obtain the **pooled** hostname (contains `-pooler`)
@@ -103,9 +109,21 @@ rewrites `/api` to production Azure; do not change it.
    statement names in this mode. Do not disable TLS or certificate/hostname verification.
    Set `REQUIRE_DATABASE=true` and `SHARED_STATE_BACKEND=postgres` together, or restart and
    scale-to-zero will lose login sessions and reset rate limits.
-4. The direct owner URL is **not** a runtime setting. The three migrations have already
-   completed; `backend/alembic/env.py` supports verified TLS if a future reviewed migration
-   is required. Do not run `alembic upgrade head` as part of this staging deployment.
+4. The direct owner URL is **not** a runtime setting. The three initial migrations have
+   already completed. Before deploying code that reads `last_activity_at`, use the direct
+   `intermind_staging_owner` connection with `DATABASE_SSL_VERIFY_FULL=true` to confirm
+   the database is `intermind_staging`, the direct host is the staging Neon endpoint, and
+   the starting Alembic head is `a7d4b9e2c103`. Then apply only the reviewed additive
+   revision with `alembic upgrade d91e5a7c2b40` and verify the head and new column.
+   The guarded local command is
+   `python -B backend/scripts/apply_staging_retention_migration.py --apply` from the
+   repository root; it prompts privately for the direct host and owner password,
+   verifies the previously authenticated staging endpoint digest and old head,
+   then requires the typed confirmation `MIGRATE AND GRANT intermind_staging` before
+   calling Alembic and granting the four narrow `DELETE` permissions. A failure
+   after confirmation requires a read-only head check before any retry.
+   Never use the pooled runtime URL for Alembic. Do not include the owner URL in shell
+   history, files, deployment variables, or logs.
 5. Use `DATABASE_ECHO=false`. Check the real staging connection succeeds over verified TLS and
    that the application queries work through the pooled URL from Vercel Linux. A local PostgreSQL
    test cannot prove Neon PgBouncer compatibility, network latency, or certificate availability.
@@ -137,6 +155,8 @@ unset. The backend exchanges the key for a short-lived authorization token; the 
 receives the resource key. The speech-token endpoint still requires candidate access and applies
 its issuance budget. If staging and production share one F0 resource, their free quota is shared;
 check that before testing voice. Typed answers must remain usable when Speech is unavailable.
+The existing `intermind-speech-aliyah` Free resource's Azure portal region is **East US**
+(`eastus`); this is a processing region separate from the Frankfurt backend/database.
 
 Use the staging frontend origin in `ALLOWED_ORIGINS` for direct API diagnostics. Same-origin
 browser requests use the rewrite and do not depend on CORS. Verify the proxy preserves `Set-Cookie`

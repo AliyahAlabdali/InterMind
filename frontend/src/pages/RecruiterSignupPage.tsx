@@ -184,6 +184,16 @@ export function RecruiterSignupPage() {
             >
               {submitting ? "Creating your workspace…" : "Create account"}
             </button>
+            <p className="text-sm leading-relaxed text-fg-muted">
+              Before creating an account, read our{" "}
+              <Link to="/legal/privacy" className="underline underline-offset-2 hover:text-fg">
+                Privacy notice
+              </Link>{" "}
+              and{" "}
+              <Link to="/legal/terms" className="underline underline-offset-2 hover:text-fg">
+                Terms
+              </Link>.
+            </p>
             <span aria-live="polite" className="sr-only">
               {submitting ? "Creating your workspace" : ""}
             </span>
