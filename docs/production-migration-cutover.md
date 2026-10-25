@@ -1,5 +1,60 @@
 # InterMind Azure to Vercel + Neon: controlled cutover checklist
 
+## Current continuation after the completed rollback (2026-10-25)
+
+The first maintenance window ended with Azure serving the public site again.
+The separate Neon `intermind_production` database already contains the verified
+copy and migration head `d91e5a7c2b40`; it is **not an empty restore target**.
+The one-time copy and restore described later in this document are **completed
+history, not instructions for the next window**. Never run the original restore
+or role-creation helper against the populated Neon database. A new maintenance
+window, production ingress change, public rewrite, and eventual Azure retirement
+each require explicit approval.
+
+Completed: Neon has the least-privilege `intermind_app_runtime` role and the
+isolated `intermind-api-production` deployment. Its real OpenAI, Azure Speech,
+authentication, interview, and report smoke tests passed; marked test records
+were guardedly erased. On 2026-10-25, all eight original Azure tables matched
+the private backup manifest and Neon baseline by count and row fingerprint.
+That result is a point-in-time comparison while Azure remains writable. The
+Azure rollback key was then repaired: direct and public health, a verified-TLS
+read-only database query, and a 13-token real `gpt-4o-mini` request passed after
+restarting only `intermind-api`. Keep `RETENTION_ENABLED=false`.
+
+### Next maintenance window: verification gates
+
+1. Reconfirm exact Azure, Neon, and Vercel identities, healthy public Azure
+   routing, the encrypted archive and recovery copy, Neon head
+   `d91e5a7c2b40`, runtime TLS, Speech, and real OpenAI. Record the current
+   known-good Azure frontend deployment. Do not infer current source equality
+   from the earlier comparison.
+2. Obtain separate approval for a reversible direct-Azure-main-site ingress
+   block that leaves SCM/SSH reachable. Rehearse its reversal before use. Publish
+   the rehearsed public maintenance deployment and verify all `/api` methods
+   return 503; drain requests, block direct Azure writes, and confirm no
+   independent/background writer. A maintenance page alone is not a freeze.
+3. While the app container is still running but writes are blocked, repeat the
+   verified-TLS, repeatable-read, read-only Azure counts and row fingerprints
+   against the authenticated private manifest and populated Neon baseline.
+   Compare the original columns of `interview_sessions`, excluding only the
+   reviewed Neon retention clock. Stop if any source row differs. Do not restore
+   over populated Neon; reverse maintenance and ingress blocking if a safe,
+   separately approved reconciliation cannot be completed.
+4. Only after equality passes, stop `intermind-api` and verify the write freeze.
+   Keep `intermind-db`, Azure Speech, and the encrypted archive intact. Recheck
+   Neon head, original counts/fingerprints, backend health, runtime privileges,
+   and `RETENTION_ENABLED=false` before changing the public route.
+5. Promote only the reviewed public frontend rewrite and accurate privacy
+   notice. Verify exact backend and database identity, same-origin Secure and
+   HttpOnly cookies, authentication, ownership, one bounded synthetic job to
+   interview to report flow, Speech, and typed fallback. Record the first
+   permitted Neon write; release maintenance only after every gate passes.
+6. Before the first Neon write, rollback is the known-good Azure frontend,
+   removal of the ingress block, and restart of Azure `intermind-api`, followed
+   by direct/public health and real AI checks. After any Neon write, Azure is
+   stale: return to maintenance and perform a separately approved guarded
+   reverse transfer before routing back. Retire Azure only under later approval.
+
 **Preparation only.** The public Vercel project `intermind`, Azure App Service
 `intermind-api`, Azure PostgreSQL `intermind-db`, and their routing remain unchanged.
 The isolated Neon destination is project `intermind-production`, PostgreSQL 18,
@@ -7,7 +62,7 @@ database `intermind_production` in Frankfurt. It is not the staging project.
 The new public backend target is the separate Vercel project
 `intermind-api-production`. Never deploy the staging database URL there.
 
-## Before the maintenance window
+## Historical first-copy preparation (completed; do not repeat)
 
 1. Complete isolated staging: apply retention revision `d91e5a7c2b40` after verifying
    the staging database and old head; deploy staging backend/frontend; smoke-test the
@@ -17,6 +72,13 @@ The new public backend target is the separate Vercel project
    rehearse its deployment and reversal in **staging**. Confirm the page blocks new
    signup, job, interview, answer, and report requests; a visual banner alone does
    not freeze writes. Inventory any independent Azure writers or scheduled jobs.
+   Use `frontend/vercel.maintenance.json` and `frontend/public/maintenance.html`
+   only in a disposable deployment archive; leave the tracked public
+   `frontend/vercel.json` unchanged. The maintenance rule returns HTTP 503 for
+   every `/api` method and serves a static page for other paths. This blocks the
+   same-origin frontend route, but direct calls to the backend remain possible
+   until Azure App Service is stopped. Verify both paths before declaring the
+   write freeze. Restore the prior frontend deployment if preflight fails.
 3. Install verified PostgreSQL 18 client tools and the official `age` CLI locally.
    Create a dedicated `age` recipient; keep its private identity offline in the
    operator's password manager and a separate recovery location. Test a binary
@@ -40,7 +102,14 @@ The new public backend target is the separate Vercel project
    **only when the public cutover occurs**. Keep a known-good frontend deployment
    with the Azure rewrite available for rollback.
 
-## Approved maintenance window: single consistent copy
+## Historical first-copy window (completed; do not repeat)
+
+**Staging rehearsal on 2026-10-24:** The isolated `intermind-frontend-staging`
+deployment `dpl_DfzuDJUMaico7ykbPPURSeCnssFJ` served the maintenance page;
+authenticated GET, POST, and OPTIONS requests to `/api/health` returned 503.
+The previous staging deployment `dpl_DMKuqPzSgqaBcuebxJuDsGTpTJyU` was
+promoted back, and same-origin `/api/health` again returned JSON with HTTP 200.
+This rehearsal did not stop the staging backend or freeze any database writes.
 
 The operator must separately approve the maintenance window, Azure write freeze,
 encrypted copy, Neon writes, production deployment and public cutover. Do not start

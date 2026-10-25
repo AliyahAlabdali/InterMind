@@ -1,0 +1,20 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "routes": [
+    {
+      "src": "/api(?:/.*)?",
+      "status": 503,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Retry-After": "300"
+      }
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/maintenance.html",
+      "headers": {
+        "Cache-Control": "no-store"
+      }
+    }
+  ]
+}
