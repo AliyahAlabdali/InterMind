@@ -55,6 +55,51 @@ restarting only `intermind-api`. Keep `RETENTION_ENABLED=false`.
    stale: return to maintenance and perform a separately approved guarded
    reverse transfer before routing back. Retire Azure only under later approval.
 
+### Reliable Azure source comparison (rehearse while the site remains live)
+
+The 2026-10-26 window stopped at gate 3 because a roughly 3 KB multiline paste
+through the browser SSH terminal arrived with mixed/truncated lines. The SQL
+syntax error was a transport failure, not a proven data difference. Do not paste
+the comparison program into that terminal or infer success from a partial run.
+
+The reviewed program is `backend/scripts/azure_source_fingerprint.py`. It runs
+in the **main** App Service container, checks the exact site/process and Azure
+database target, uses an `SSLContext` with certificate and hostname validation,
+sets default transactions read-only, opens a repeatable-read read-only snapshot,
+checks PostgreSQL 18, the source Alembic head and exact eight-table inventory,
+then compares an aggregate of every table's count and archive-compatible row
+fingerprint with the authenticated private backup. It prints only PASS/STOP,
+never rows, credentials, or connection strings. Any mismatch stops the cutover.
+
+From the repository root, with the private encrypted backup and age identity
+available, run:
+
+```powershell
+& .\.venv\Scripts\python.exe -B backend\scripts\prepare_azure_source_check.py
+```
+
+This helper authenticates the private archive, verifies that the reviewed script
+is committed and pushed to `staging/vercel-neon`, checks the immutable GitHub raw
+bytes against that exact Git blob, and prints **two short commands**. In the
+authenticated SSH shell for the running `intermind-api` **main container**,
+execute those exact commands in order. The first downloads only the pinned
+script into `/tmp`; the second requires its raw-byte SHA-256 to match before
+executing it with the aggregate expected digest. A failed download, hash check,
+identity check, TLS check, transaction check, or fingerprint check is a STOP.
+Remove only `/tmp/intermind-azure-source-check.py` afterward with the cleanup
+command printed by the helper. No application file or setting is changed.
+
+The short-command transport was rehearsed on the live App Service without a
+database query: a public repository file was fetched from a pinned commit,
+matched its local Git SHA-256, and its temporary copy was removed. Run the real
+source check once while Azure is still live to prove the program and transport;
+that result is only a point-in-time rehearsal. **Repeat it after public
+maintenance and the verified direct-Azure ingress block have drained requests.**
+Check the already populated Neon database independently against the same private
+manifest. Do not stop Azure or release maintenance unless both exact baselines
+pass at that frozen point. No new maintenance window is authorized by this
+procedure alone.
+
 **Preparation only.** The public Vercel project `intermind`, Azure App Service
 `intermind-api`, Azure PostgreSQL `intermind-db`, and their routing remain unchanged.
 The isolated Neon destination is project `intermind-production`, PostgreSQL 18,
