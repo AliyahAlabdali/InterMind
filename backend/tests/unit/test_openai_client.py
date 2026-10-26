@@ -109,6 +109,26 @@ async def test_successful_call_records_a_duration_trace_event():
     assert completed[0].details["duration_seconds"] >= 0.0
 
 
+async def test_successful_call_records_sdk_usage_and_returned_model():
+    trace = TraceRecorder()
+
+    async def parse(**_):
+        completion = _completion(parsed=JobSpec(role_title="Backend Engineer"))
+        completion.model = "gpt-4o-mini-2024-07-18"
+        completion.usage = types.SimpleNamespace(
+            prompt_tokens=123, completion_tokens=45,
+            prompt_tokens_details=types.SimpleNamespace(cached_tokens=20),
+        )
+        return completion
+
+    await _run(_client_with_parse(parse, trace=trace))
+    recorded = [e for e in trace.events if e.operation == "generate_structured_completed"][0]
+    assert recorded.details["model"] == "gpt-4o-mini-2024-07-18"
+    assert recorded.details["prompt_tokens"] == 123
+    assert recorded.details["completion_tokens"] == 45
+    assert recorded.details["cached_prompt_tokens"] == 20
+
+
 async def test_failed_call_still_records_a_duration_trace_event():
     trace = TraceRecorder()
 

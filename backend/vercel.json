@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "fastapi",
+  "fluid": true,
+  "regions": ["fra1"],
+  "crons": [
+    {"path": "/internal/retention/purge", "schedule": "0 3 * * *"}
+  ]
+}

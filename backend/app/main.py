@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.errors import register_exception_handlers
-from app.api.recruiter_session import RecruiterSessionStore
+from app.api.recruiter_session import RecruiterSessionStore, SqlRecruiterSessionStore
 from app.api.routes import (
     activity,
     auth,
@@ -17,12 +17,15 @@ from app.api.routes import (
     interview_plans,
     interviews,
     jobs,
+    privacy,
     speech,
 )
 from app.core.config import get_settings
 from app.core.exceptions import ConfigurationError
 from app.core.logging import configure_logging
 from app.core.rate_limit import RateLimiter
+from app.core.request_budget import RequestDeadlineMiddleware
+from app.core.sql_rate_limit import SqlRateLimiter
 from app.db.engine import create_engine, create_session_factory
 from app.observability.trace import TraceRecorder
 from app.repositories.in_memory import (
@@ -63,6 +66,8 @@ def create_app() -> FastAPI:
             await credentials.aclose()
 
     app = FastAPI(title="InterMind", version="0.1.0", lifespan=lifespan)
+    if settings.request_deadline_seconds is not None:
+        app.add_middleware(RequestDeadlineMiddleware, seconds=settings.request_deadline_seconds)
 
     # Explicit origins from configuration, never a wildcard - see Settings.allowed_origins.
     # In production the app is same-origin with its API (Vercel rewrites /api to this backend),
@@ -76,20 +81,15 @@ def create_app() -> FastAPI:
     )
 
     app.state.trace_recorder = TraceRecorder()
-    # Abuse/cost admission control (see app.core.rate_limit and app.api.abuse). One instance
-    # for the application, because its counters *are* the budget: a per-request limiter would
-    # start empty every time and enforce nothing. Process-local and therefore reset by a
-    # restart - which is acceptable only because this backend is already single-process by
-    # design (see the recruiter session store below, and docs/public-launch-security.md).
+    # Current Azure deployment retains its original process-local stores. The opt-in
+    # PostgreSQL stores below share sessions and admission budgets across serverless instances.
     app.state.rate_limiter = RateLimiter()
     # Constructed eagerly but lazy inside: it imports azure-identity and contacts Azure only on
     # the first managed-identity token request, so deployments using a key or no speech at all
     # pay nothing for it. Created here rather than on first use so every request shares one
     # credential - and therefore one token cache - with no races.
     app.state.speech_credential_provider = EntraTokenProvider()
-    # Recruiter browser sessions. In-memory by design for this milestone: a restart signs every
-    # recruiter out, but their *account* and everything they own is in PostgreSQL and survives.
-    # See docs/recruiter-auth.md.
+    # Default in-memory behavior is unchanged until SHARED_STATE_BACKEND=postgres is set.
     app.state.recruiter_session_store = RecruiterSessionStore(
         ttl_seconds=settings.recruiter_session_ttl_seconds
     )
@@ -110,11 +110,24 @@ def create_app() -> FastAPI:
             "REQUIRE_DATABASE is set but DATABASE_URL is empty. Refusing to start on in-memory "
             "storage; see docs/deployment.md."
         )
+    if settings.shared_state_backend == "postgres" and not settings.database_url:
+        raise ConfigurationError("SHARED_STATE_BACKEND=postgres requires DATABASE_URL")
 
     if settings.database_url:
-        engine = create_engine(settings.database_url, echo=settings.database_echo)
+        engine = create_engine(
+            settings.database_url, echo=settings.database_echo,
+            pool_mode=settings.database_pool_mode, pool_size=settings.database_pool_size,
+            max_overflow=settings.database_max_overflow,
+            ssl_verify_full=settings.database_ssl_verify_full,
+        )
         sessions = create_session_factory(engine)
         app.state.db_engine = engine
+        app.state.db_session_factory = sessions
+        if settings.shared_state_backend == "postgres":
+            app.state.recruiter_session_store = SqlRecruiterSessionStore(
+                sessions, ttl_seconds=settings.recruiter_session_ttl_seconds
+            )
+            app.state.rate_limiter = SqlRateLimiter(sessions)
         app.state.recruiter_repository = SqlRecruiterRepository(sessions)
         app.state.job_repository = SqlJobRepository(sessions)
         app.state.interview_plan_repository = SqlInterviewPlanRepository(sessions)
@@ -129,6 +142,7 @@ def create_app() -> FastAPI:
             "in this mode; see docs/deployment.md."
         )
         app.state.db_engine = None
+        app.state.db_session_factory = None
         _wire_in_memory(app)
     # Recorded so /health can state which storage is live without anyone needing log access, and
     # without exposing the URL. See app.api.routes.health.
@@ -142,6 +156,7 @@ def create_app() -> FastAPI:
     app.include_router(interviews.router)
     app.include_router(activity.router)
     app.include_router(speech.router)
+    app.include_router(privacy.router)
 
     return app
 

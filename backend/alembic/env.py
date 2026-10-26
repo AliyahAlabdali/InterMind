@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 from app.core.config import get_settings
-from app.db.engine import normalize_database_url
+from app.db.engine import normalize_database_url, verified_tls_connect_args
 from app.db.models import Base
 
 
@@ -86,10 +86,14 @@ async def run_async_migrations() -> None:
 
     """
 
+    url = _database_url()
+    tls_args = verified_tls_connect_args(
+        url, verify_full=get_settings().database_ssl_verify_full
+    )
+    engine_options = {"connect_args": tls_args} if tls_args else {}
     connectable = async_engine_from_config(
-        {"sqlalchemy.url": _database_url()},
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
+        {"sqlalchemy.url": url}, prefix="sqlalchemy.", poolclass=pool.NullPool,
+        **engine_options,
     )
 
     async with connectable.connect() as connection:

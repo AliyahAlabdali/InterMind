@@ -13,7 +13,7 @@ Email + password
       |  POST /auth/recruiter/signup   (or /auth/recruiter/login)
 Account in the recruiter repository; password verified against a scrypt hash
       |
-Opaque session id (secrets.token_urlsafe(32)), stored server-side
+Opaque session id (secrets.token_urlsafe(32)); digest stored in public PostgreSQL
       |  Set-Cookie: HttpOnly; SameSite=Strict; Path=/
 Recruiter workspace
 ```
@@ -24,7 +24,7 @@ Recruiter workspace
 | Password hashing and verification | `backend/app/core/security.py` |
 | Signup / login / logout / session status | `backend/app/api/routes/auth.py` |
 | Account storage | `backend/app/repositories/ports.py`, `in_memory.py`, `sql.py` |
-| Session store | `backend/app/api/recruiter_session.py` |
+| Session store | `backend/app/api/recruiter_session.py`; PostgreSQL in the public deployment |
 | Authorization dependencies | `backend/app/api/auth.py` |
 | Route guard and sign-in page | `frontend/src/app/RequireRecruiter.tsx`, `frontend/src/pages/RecruiterLoginPage.tsx` |
 
@@ -61,9 +61,8 @@ unregistered address is not measurably faster to reject.
 ## Sessions
 
 - Opaque, 32 bytes of `secrets` entropy. The value carries no identity and no part of the credential.
-- In memory only. Every recruiter is signed out when the backend restarts, and sessions are not
-  shared between processes, so this does not work behind a multi-worker or multi-instance deployment.
-  Accounts and owned data are unaffected; only the session ends.
+- The public backend stores only the token's SHA-256 digest in PostgreSQL. Sessions survive
+  function restarts and work across instances. Local development can use the in-memory store.
 - Expire after `RECRUITER_SESSION_TTL_SECONDS` (default 8 hours).
 - Logout revokes server-side, not just in the browser, so a copied cookie stops working.
 - `HttpOnly`, so page scripts, and therefore any XSS, cannot read the session.
@@ -117,6 +116,6 @@ Account sign-in, not an identity platform. There is no:
 - account deletion
 - MFA, SSO or OAuth
 - per-recruiter audit trail beyond the activity feed
-- session that survives a restart or is shared across processes
 - per-visitor login throttling. Sign-in has a deployment-wide admission limit, which is not a
-  per-client brute-force defence, and its counters reset on process restart
+  per-client brute-force defence. Public counters persist in PostgreSQL; local in-memory counters
+  reset on process restart

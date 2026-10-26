@@ -51,10 +51,17 @@ azure = [
 [tool.setuptools]
 packages = ["app"]
 
+# Vercel's project root is backend/. Load the existing FastAPI application as one function.
+[tool.vercel]
+entrypoint = "app.main:app"
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "private_history: historical evaluation checks requiring ignored raw results or reviews",
+]
 
 [tool.ruff]
 line-length = 100

@@ -17,7 +17,11 @@ from pydantic import BaseModel, Field
 
 from app.api.abuse import limit_login, limit_signup
 from app.api.deps import get_recruiter_repository, get_recruiter_session_store
-from app.api.recruiter_session import RecruiterSessionStore
+from app.api.recruiter_session import (
+    SessionStore,
+    SqlRecruiterSessionStore,
+    await_store_result,
+)
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AccessDenied, InvalidSignup
 from app.core.security import hash_password, verify_password
@@ -138,7 +142,7 @@ async def recruiter_signup(
     response: Response,
     settings: Settings = Depends(get_settings),
     recruiters: RecruiterRepository = Depends(get_recruiter_repository),
-    store: RecruiterSessionStore = Depends(get_recruiter_session_store),
+    store: SessionStore = Depends(get_recruiter_session_store),
 ) -> RecruiterSessionResponse:
     """Create a recruiter account and sign them straight in.
 
@@ -151,7 +155,7 @@ async def recruiter_signup(
     # Before the scrypt hash and before the write. Charged against the deployment-wide ceiling
     # (see app.api.abuse): there is no account to key on yet, and no trustworthy per-visitor
     # identity either, so this is a cost control rather than per-client protection.
-    limit_signup(request)
+    await limit_signup(request)
 
     email = normalize_email(payload.email)
     if not _looks_like_email(email):
@@ -161,9 +165,13 @@ async def recruiter_signup(
     # Uniqueness is the database's unique index, enforced inside `add` - not a lookup here.
     # A check-then-insert would let two concurrent signups for the same address both pass.
     recruiter = Recruiter(email=email, password_hash=hash_password(payload.password))
-    created = await recruiters.add(recruiter)
-
-    session = store.create(created.id)
+    if isinstance(store, SqlRecruiterSessionStore):
+        # In distributed mode a failed session insert must not leave a newly created
+        # recruiter account without the browser session the sign-up response promises.
+        session = await store.create_with_recruiter(recruiter)
+    else:
+        created = await recruiters.add(recruiter)
+        session = await await_store_result(store.create(created.id))
     _set_session_cookie(response, session.token, settings)
     return RecruiterSessionResponse(
         authenticated=True,
@@ -178,7 +186,7 @@ async def recruiter_login(
     response: Response,
     settings: Settings = Depends(get_settings),
     recruiters: RecruiterRepository = Depends(get_recruiter_repository),
-    store: RecruiterSessionStore = Depends(get_recruiter_session_store),
+    store: SessionStore = Depends(get_recruiter_session_store),
 ) -> RecruiterSessionResponse:
     """Sign in and start a session.
 
@@ -192,7 +200,7 @@ async def recruiter_login(
     # limiter into the account-existence oracle this endpoint's uniform response exists to
     # prevent. Every attempt is counted, successful or not, so a wrong password is not free to
     # retry - but this is not per-client brute-force protection; see app.api.abuse.
-    limit_login(request)
+    await limit_login(request)
 
     recruiter = await recruiters.get_by_email(payload.email)
 
@@ -206,7 +214,7 @@ async def recruiter_login(
         # Never says which half failed, and never echoes the submitted values.
         raise AccessDenied("Incorrect email or password.")
 
-    session = store.create(recruiter.id)
+    session = await await_store_result(store.create(recruiter.id))
     _set_session_cookie(response, session.token, settings)
     return RecruiterSessionResponse(
         authenticated=True,
@@ -218,14 +226,14 @@ async def recruiter_login(
 async def recruiter_logout(
     response: Response,
     session_cookie: str | None = Cookie(default=None, alias=RECRUITER_SESSION_COOKIE),
-    store: RecruiterSessionStore = Depends(get_recruiter_session_store),
+    store: SessionStore = Depends(get_recruiter_session_store),
 ) -> RecruiterSessionResponse:
     """End the session server-side and clear the cookie.
 
     Revoking on the server is the part that matters: clearing the cookie alone would leave a
     still-valid session token usable by anyone who had copied it.
     """
-    store.revoke(session_cookie)
+    await await_store_result(store.revoke(session_cookie))
     response.delete_cookie(RECRUITER_SESSION_COOKIE, path="/")
     return RecruiterSessionResponse(authenticated=False)
 
@@ -233,7 +241,7 @@ async def recruiter_logout(
 @router.get("/auth/recruiter/session", response_model=RecruiterSessionResponse)
 async def recruiter_session_status(
     session_cookie: str | None = Cookie(default=None, alias=RECRUITER_SESSION_COOKIE),
-    store: RecruiterSessionStore = Depends(get_recruiter_session_store),
+    store: SessionStore = Depends(get_recruiter_session_store),
 ) -> RecruiterSessionResponse:
     """Whether this browser currently holds a live session.
 
@@ -241,4 +249,6 @@ async def recruiter_session_status(
     catching the 401. Intentionally unauthenticated - it reveals only a boolean about the
     caller's own cookie.
     """
-    return RecruiterSessionResponse(authenticated=store.is_valid(session_cookie))
+    return RecruiterSessionResponse(
+        authenticated=await await_store_result(store.is_valid(session_cookie))
+    )

@@ -73,7 +73,7 @@ async def create_interview_plan(
     # Charged only on the path that actually generates a plan: the idempotent early return
     # above is a cheap repository read, and budgeting it would make a recruiter refreshing a
     # built interview look like abuse.
-    limit_plan_generation(request, recruiter_id)
+    await limit_plan_generation(request, recruiter_id)
 
     plan = await planner.plan(job_id, stored_job.job_spec)
     response.status_code = status.HTTP_201_CREATED

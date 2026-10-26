@@ -1,0 +1,16 @@
+report_id,evidence_strings,automatically_attributed,human_supported,unsupported,cannot_tell,cross_target_human_support,supported,distinct_report_target_answers,quotation_fidelity_rate
+jd-data-engineer-mixed,17,14,3,0,0,0,17,10,1.0
+jd-data-engineer-strong,26,26,0,0,0,0,26,10,1.0
+jd-data-engineer-weak,5,4,1,0,0,0,5,4,1.0
+jd-frontend-mixed,18,17,1,0,0,0,18,10,1.0
+jd-frontend-strong,26,24,2,0,0,0,26,10,1.0
+jd-frontend-weak,5,5,0,0,0,0,5,5,1.0
+jd-platform-mixed,19,18,1,0,0,0,19,9,1.0
+jd-platform-strong,20,15,5,0,0,0,20,10,1.0
+jd-platform-weak,5,5,0,0,0,0,5,4,1.0
+jd-product-analyst-mixed,14,13,1,0,0,0,14,9,1.0
+jd-product-analyst-strong,21,20,1,0,0,0,21,10,1.0
+jd-product-analyst-weak,8,7,1,0,0,0,8,7,1.0
+jd-senior-backend-mixed,20,20,0,0,0,0,20,10,1.0
+jd-senior-backend-strong,26,23,3,0,0,0,26,10,1.0
+jd-senior-backend-weak,9,6,3,0,0,0,9,4,1.0

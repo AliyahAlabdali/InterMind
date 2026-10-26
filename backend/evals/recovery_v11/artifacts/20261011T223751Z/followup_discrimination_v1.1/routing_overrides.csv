@@ -1,0 +1,7 @@
+case_id,human_label,raw_model_decision,final_route,raw_category,routed_category
+fu-e25fcc317254,FOLLOW_UP_WARRANTED,advance,follow_up,fn,tp
+fu-4562cf286299,FOLLOW_UP_WARRANTED,advance,follow_up,fn,tp
+fu-0046,NO_FOLLOW_UP_WARRANTED,advance,follow_up,tn,fp
+fu-9e9ad3edb308,NO_FOLLOW_UP_WARRANTED,advance,follow_up,tn,fp
+fu-6575aff92b8f,FOLLOW_UP_WARRANTED,advance,follow_up,fn,tp
+fu-87689c358354,NO_FOLLOW_UP_WARRANTED,advance,follow_up,tn,fp

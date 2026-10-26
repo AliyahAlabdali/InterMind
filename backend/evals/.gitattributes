@@ -1,0 +1,2 @@
+# Historical evaluation locks hash raw bytes, including original line endings.
+* -text whitespace=cr-at-eol

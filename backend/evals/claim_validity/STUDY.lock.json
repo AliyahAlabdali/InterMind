@@ -1,0 +1,18 @@
+{
+    "version":  "1.0",
+    "frozen_at_utc":  "2026-10-11T22:35:48.3635758Z",
+    "sha256":  {
+                   "PROTOCOL_v1.md":  "7b3e4420553e864fad6a91f4ca22969e6651ac062701df2b0559cad06bb2ae5e",
+                   "RUBRIC_v1.md":  "5c8d7322a3ada04aae491213cd14eb1657468ae2d2b9db97d85f8a87ddc85a90",
+                   "SAMPLE_v1.json":  "aedb31e2ae34eda4d5fe48e01d9efc390cdfc4d4f62479b2b072166910b68b2e",
+                   "study.py":  "6414db6b820d132e4e899ba5d879b3b9ec22566d4f8adc908d24770866d5c5b7",
+                   "v1_protocol":  "8fccc0834db47334ef7df3cb2a226582ac7438b6f8b758aa499fdec4b0539801",
+                   "v1_protocol_lock":  "f79745803c61a1fb460d3ed44ba09ae30570fd54a73489e2c315fc9e2125df3c",
+                   "v1_labels":  "5aedb3371a20958cd80e0a9f7a71f359b1edf8c9bc027b70d2196e5e66564238",
+                   "v1_labels_frozen":  "5aedb3371a20958cd80e0a9f7a71f359b1edf8c9bc027b70d2196e5e66564238",
+                   "v1_labels_lock":  "78d77e520ac4c5f15891c8c0d1face1744484e20bcaf64618cc390354843a14c",
+                   "personas":  "ea1a534a538c2cc411044c169613ba4d8cdf24007d0bef52bff45f0be883cede",
+                   "pilot_snapshot":  "2e5df8166e4d545dbe8caa9dc24aa9d53421893f2c7073fab2e352073c01e436",
+                   "personas_sample":  "02b2d57ca278779971d15023e6dae8f6b01e0103576d8f0e060847f041f75fe6"
+               }
+}

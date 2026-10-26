@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     llm_provider: Literal["fake", "openai"] = "fake"
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"
+    # Explicit SDK defaults preserve the Azure deployment. Set shorter values for a
+    # serverless deployment whose frontend proxy has a 120-second deadline.
+    openai_timeout_seconds: float = 600.0
+    openai_max_retries: int = 2
+    request_deadline_seconds: float | None = None
     log_level: str = "INFO"
     onet_kb_path: Path = DEFAULT_ONET_KB_PATH
 
@@ -50,8 +55,20 @@ class Settings(BaseSettings):
     # survives a restart, and startup says so loudly. That is the mode the test suite runs in.
     # Any real deployment must set it.
     database_url: str | None = None
+    # Opt-in for Neon: system-CA certificate and hostname verification via an SSLContext.
+    # Leave false to preserve the existing Azure URL and connection behavior.
+    database_ssl_verify_full: bool = False
     # Echo SQL to the log. Development only - statements can contain candidate answers.
     database_echo: bool = False
+    # Keep Azure's existing pool by default. For Vercel, use "null" with Neon's pooled
+    # endpoint: report/Speech paths can perform nested repository calls while holding an
+    # interview row lock, so an undersized per-process pool may self-starve.
+    database_pool_mode: Literal["default", "small", "null"] = "default"
+    database_pool_size: int = 2
+    database_max_overflow: int = 0
+    # Opt-in as a pair: a distributed deployment cannot safely mix durable sessions
+    # with process-local cost budgets (or vice versa).
+    shared_state_backend: Literal["memory", "postgres"] = "memory"
     # Refuse to start without a database. The in-memory fallback is right for a fresh clone and
     # for the test suite, and catastrophic in production: the app would come up looking healthy,
     # serve real candidates, and lose every account, interview and report on the next restart -
@@ -70,13 +87,20 @@ class Settings(BaseSettings):
 
     # How long a recruiter browser session lasts before it has to sign in again (see
     # app.api.recruiter_session). Eight hours is a working day; sessions are in-memory, so a
-    # backend restart ends them all regardless.
+    # backend restart ends them when the in-memory store is selected. PostgreSQL-backed
+    # deployments preserve them until expiry or server-side revocation.
     recruiter_session_ttl_seconds: int = 8 * 60 * 60
     # Whether the session cookie carries the `Secure` flag. Must be true anywhere the app is
     # served over HTTPS - which is everywhere except a local http://localhost machine, where a
     # Secure cookie would simply never be stored. Defaults to false so local development works;
     # set RECRUITER_SESSION_COOKIE_SECURE=true in any real deployment.
     recruiter_session_cookie_secure: bool = False
+
+    # Local development and existing Azure deployment remain unchanged. A Vercel Cron
+    # deployment can opt in only after the migration and privacy checks are complete.
+    retention_enabled: bool = False
+    interview_retention_days: int = 90
+    cron_secret: str | None = None
 
     # --- Speech-to-text -------------------------------------------------------------------
     # Which STT implementation the candidate UI should use. "azure" is production; "browser"
@@ -86,7 +110,7 @@ class Settings(BaseSettings):
 
     # Which credential the backend uses to mint browser tokens (see app.services.speech_token):
     #   managed_identity - Entra ID via the App Service managed identity. No secret exists.
-    #   key              - the Speech resource key. Local development only.
+    #   key              - the Speech resource key (local or isolated staging, server-side only).
     #   auto             - managed identity when AZURE_SPEECH_RESOURCE_ID is set, else the key.
     # `auto` is what makes one codebase serve both environments: production sets the resource id
     # and no key, local development sets a key and no resource id. Pin it to `managed_identity`

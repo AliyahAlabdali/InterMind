@@ -22,8 +22,8 @@ Deletion
 ``jobs.recruiter_id`` is ``RESTRICT``, deliberately: a recruiter cannot be deleted while they
 own jobs, so no accidental ORM cascade can erase candidate interview history as a side effect of
 removing an account. Within a job's own subtree the cascades are ``CASCADE``, since a plan, a
-session, a report and an activity row have no meaning without their job. There is no deletion
-feature in the product yet; account-deletion semantics are future product/legal work.
+session, a report and an activity row have no meaning without their job. An authenticated
+recruiter can erase one owned interview; account-deletion semantics remain future work.
 
 JSON columns
 ------------
@@ -80,6 +80,37 @@ class RecruiterRow(Base):
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+
+class RecruiterSessionRow(Base):
+    """Revocable browser session; the opaque cookie is never stored in plaintext."""
+
+    __tablename__ = "recruiter_sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    recruiter_id: Mapped[str] = mapped_column(
+        IdStr, ForeignKey("recruiters.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+
+
+class RateLimitEventRow(Base):
+    """One admitted request in one rolling-window budget."""
+
+    __tablename__ = "rate_limit_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    bucket: Mapped[str] = mapped_column(String(64), nullable=False)
+    identity: Mapped[str] = mapped_column(String(64), nullable=False)
+    window_seconds: Mapped[int] = mapped_column(nullable=False)
+    admitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("ix_rate_limit_events_lookup", "bucket", "identity", "window_seconds", "admitted_at"),
+        Index("ix_rate_limit_events_expiry", "admitted_at"),
     )
 
 
@@ -147,6 +178,11 @@ class InterviewSessionRow(Base):
     runtime_snapshot: Mapped[dict | None] = mapped_column(JsonDoc, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    #: Advances after durable interview updates and activity events. A later report's
+    #: created_at is considered separately by the retention sweep.
+    last_activity_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow, index=True
     )
 
 

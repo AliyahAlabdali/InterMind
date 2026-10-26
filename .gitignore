@@ -12,14 +12,26 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+.pytest_tmp*/
 .ruff_cache/
 .mypy_cache/
 .venv/
 venv/
 
 # Evaluation runs contain model predictions and candidate-answer text. Keep each local run
-# immutable and out of source control; the blind input template remains versioned.
+# immutable and out of source control; public protocols and locks remain versioned.
 backend/evals/results/
+# Frozen reviews and labels contain historical candidate answers/context. Their public
+# locks remain versioned; restore the byte-locked originals for the private gate.
+backend/evals/labels/*.csv
+backend/evals/reviews/
+backend/evals/recovery_v11/human_review/
+backend/evals/recovery_v11/artifacts/20261011T223751Z/claim_score_addendum_v1.1a/scores_band_review_v1.1a.csv
+backend/evals/recovery_v11/artifacts/20261011T223751Z/claim_score_addendum_v1.1a/results_v1.1a/
+backend/evals/recovery_v11/artifacts/20261011T223751Z/claim_validity_v1.1/claims_initial_blind.csv
+backend/evals/recovery_v11/artifacts/20261011T223751Z/claim_validity_v1.1/inventory.json
+backend/evals/recovery_v11/artifacts/20261011T223751Z/evidence_review_frozen/evidence_source_review_frozen.csv
+backend/evals/recovery_v11/artifacts/20261011T223751Z/evidence_source_review_blind*.csv
 
 # Node
 node_modules/

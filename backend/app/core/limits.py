@@ -10,8 +10,9 @@ when tuning them:
   validation - before any handler runs, and therefore before any LLM call is made or any
   password is hashed.
 
-Deployment limitations of the rate budgets (counters are process-local and reset on restart)
-are documented in ``docs/public-launch-security.md``.
+The default Azure deployment uses process-local counters as documented in
+``docs/public-launch-security.md``. An opt-in PostgreSQL implementation shares these same
+budgets across serverless instances.
 """
 
 from __future__ import annotations

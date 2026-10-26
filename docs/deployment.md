@@ -1,7 +1,58 @@
 # Deploying InterMind
 
-Frontend on Vercel, backend on Azure App Service, database on Azure Database for PostgreSQL.
-Hostnames and connection strings below are placeholders; check the real values in the portals.
+The public frontend and FastAPI backend run on separate Vercel projects. PostgreSQL runs on Neon.
+Azure App Service and Azure PostgreSQL are retained as a rollback environment.
+
+## Current production
+
+| Component | Location | Configuration source |
+|---|---|---|
+| Frontend | Vercel project `intermind`, [`intermind-ai.vercel.app`](https://intermind-ai.vercel.app) | `frontend/vercel.json`; project root `frontend/` |
+| Backend | Vercel project `intermind-api-production`, Frankfurt | `backend/vercel.json`; project root `backend/` |
+| Database | Neon project `intermind-production`, database `intermind_production`, Frankfurt | Alembic schema; pooled runtime connection |
+| Speech | Azure AI Speech F0, East US | Server-side key on the Vercel backend |
+
+The frontend calls `/api` on its own origin. The first rule in `frontend/vercel.json` rewrites
+`/api/:path*` to the separate Vercel FastAPI project; the SPA fallback comes second. This keeps
+recruiter cookies first-party and compatible with `SameSite=Strict`. Leave `VITE_API_BASE_URL`
+unset, and never place a secret in a `VITE_` variable. Check the rewrite destination against the
+actual backend project before every public frontend deployment.
+
+The backend uses Python 3.12, `app/main.py`, and the bundled O\*NET knowledge base. Vercel runs
+the function in `fra1`; `backend/vercel.json` selects the FastAPI framework. The runtime connects
+to Neon's pooled endpoint as `intermind_app_runtime`, with `DATABASE_SSL_VERIFY_FULL=true` and
+`DATABASE_POOL_MODE=null`. Use a separate direct owner connection for approved Alembic migrations;
+do not put it in Vercel. Application startup never creates tables or runs migrations.
+
+Set `REQUIRE_DATABASE=true`, `SHARED_STATE_BACKEND=postgres`,
+`RECRUITER_SESSION_COOKIE_SECURE=true`, `LLM_PROVIDER=openai`, `OPENAI_MODEL=gpt-4o-mini`,
+`SPEECH_PROVIDER=azure`, `AZURE_SPEECH_AUTH=key`, and `DATABASE_ECHO=false` in the backend
+Production environment. Keep `DATABASE_URL`, `OPENAI_API_KEY`, and `AZURE_SPEECH_KEY` there as
+protected secrets. Set the Speech region to the existing East US resource, and use an explicit
+`ALLOWED_ORIGINS` list. Review the OpenAI timeout, retry, and request-deadline settings against
+`backend/staging.env.example` before a new backend deployment. `RETENTION_ENABLED=false` remains
+the approved public setting; automatic purging has not been enabled.
+
+PostgreSQL stores hashed recruiter-session tokens and rate-limit events across function restarts.
+Accepted interview state, jobs, and reports are durable there too. The browser receives only a
+short-lived Speech authorization token, never the resource key. Typed answers remain available.
+
+The public frontend project tracks `main`: a push can build and auto-assign the public domain.
+Its current ignored-build policy skips non-production branches. The existing Azure GitHub Actions
+workflow also runs on every push to `main`, including frontend-only commits. Review both triggers
+before integration. Check `/api/health` through the public domain, then run bounded synthetic
+signup, interview, report, OpenAI, and Speech checks after an approved deployment.
+
+Azure's database becomes stale after the first public write to Neon. Preserve Azure and the
+encrypted backup, but do not route public traffic back to Azure without reconciling the writes
+made since cutover. The historical cutover and rollback record is in
+[`production-migration-cutover.md`](production-migration-cutover.md).
+
+## Azure rollback configuration
+
+The sections below describe the retained Azure environment. Their App Service settings and
+managed-identity Speech path do not describe the current public backend. Hostnames and connection
+strings are placeholders; check actual values before using an old rollback command.
 
 ```
 Browser
@@ -15,11 +66,10 @@ Vercel --- /            -> the built React app (static)
                                           \-> OpenAI, Azure AI Speech
 ```
 
-The `/api` rewrite is load-bearing. It keeps the browser same-origin with the API, which is what
-lets the recruiter session cookie stay `SameSite=Strict` (see *Cookies and CSRF*). Never point the
-browser at the Azure origin directly.
+This was the pre-cutover topology. The current `/api` rewrite targets the Vercel backend. The
+Azure rewrite may be used only as part of a reviewed rollback with data reconciliation.
 
-## 1. Database
+### 1. Database
 
 Create an Azure Database for PostgreSQL Flexible Server and a database on it, e.g. `intermind`.
 
@@ -35,7 +85,7 @@ DATABASE_URL=postgresql://<user>:<password>@<server>.postgres.database.azure.com
 `postgres://` and a missing `+asyncpg` driver are normalised in `backend/app/db/engine.py`, so a
 string copied out of the Azure portal works unchanged.
 
-## 2. Migrations
+### 2. Migrations
 
 The application never creates tables; Alembic owns the schema. Run migrations from `backend/`, where
 `alembic.ini` lives and `prepend_sys_path = .` lets `alembic/env.py` import the `app` package:
@@ -49,7 +99,7 @@ DATABASE_URL="postgresql://…" alembic current   # prints the head revision
 Run this before the new backend starts, on every deploy that includes a migration: from CI, from a
 release step, or by hand from a machine that can reach the database. Never from application startup.
 
-## 3. Backend on App Service
+### 3. Backend on App Service
 
 ### Dependencies
 
@@ -79,9 +129,8 @@ az webapp config set --resource-group <rg> --name intermind-api \
 Port 8000 is what the App Service Python container expects. `gunicorn` is not a dependency and is
 not used; the only thing it would add here is multiple workers.
 
-`--workers 1` is required. Recruiter sessions are in memory, so two workers would each hold their own
-set and recruiters would be signed out at random as requests landed on different ones. Accounts and
-all data are in PostgreSQL and unaffected. Scaling out needs a shared session store first.
+The retained Azure configuration used one worker and process-local recruiter sessions. The current
+Vercel backend uses PostgreSQL-backed sessions and rate limits instead.
 
 ### The O\*NET knowledge base
 
@@ -143,9 +192,10 @@ database connectivity.
 
 ### Azure Speech
 
-Production authenticates to Azure AI Speech with the App Service managed identity, so no Speech
-resource key exists. The backend mints a bearer credential for the browser only while an interview is
-active (`backend/app/services/speech_token.py`). That credential's Azure lifetime is independent of
+The Azure rollback backend authenticates to Azure AI Speech with its App Service managed identity.
+The public Vercel backend uses a server-side Speech key. The backend mints a bearer credential
+for the browser only while an interview is active (`backend/app/services/speech_token.py`).
+That credential's Azure lifetime is independent of
 interview completion, and issuance budgets are not audio-consumption limits.
 
 Setup, once:
@@ -173,12 +223,12 @@ Local development keeps using a key: `AZURE_SPEECH_REGION` plus `AZURE_SPEECH_KE
 selects the key path. Managed identity can also be exercised locally through `az login`, since the
 backend uses `DefaultAzureCredential`; that needs the same role assignment on your own account.
 
-## 4. Frontend on Vercel
+### 4. Former public frontend rewrite
 
 Build settings: root directory `frontend`, build command `npm run build`, output directory `dist`.
 
-`frontend/vercel.json` holds the rewrite that makes the browser same-origin with the API. Keep its
-destination pointing at the current backend:
+The following was the former Azure rewrite. The tracked `frontend/vercel.json` should now point
+to the Vercel backend, and this example must not replace it during a routine build:
 
 ```json
 {
@@ -193,10 +243,10 @@ destination pointing at the current backend:
 | `VITE_SPEECH_PROVIDER` | `azure` |
 | `VITE_API_BASE_URL` | leave unset; it defaults to `/api`, which is the rewrite |
 
-Pointing `VITE_API_BASE_URL` at the Azure origin would make the browser talk to a second site
+Pointing `VITE_API_BASE_URL` at a backend origin would make the browser talk to a second site
 directly and break the cookie.
 
-## Cookies and CSRF
+### Cookies and CSRF
 
 The recruiter session cookie is `HttpOnly; SameSite=Strict; Secure; Path=/` with no `Domain`
 attribute, so the browser scopes it to the host that set it, which through the rewrite is your Vercel
@@ -208,7 +258,7 @@ Drop the rewrite and this stops being true: the cookie becomes cross-site, `Same
 suppresses it, and sign-in breaks. The fix is not `SameSite=None`, which would need a real CSRF
 defence. Keep the rewrite.
 
-## CORS
+### CORS
 
 With the rewrite the browser never makes a cross-origin request, so CORS is not exercised by the app.
 It stays configured for direct API access (tooling, `curl`, a staging frontend):
@@ -220,16 +270,18 @@ ALLOWED_ORIGINS=https://<your-vercel-domain>
 An explicit list, never `*`: a wildcard cannot be combined with credentialed requests, and doing it
 anyway with session cookies would be a real hole.
 
-## HTTPS
+### HTTPS
 
 Both tiers. Vercel terminates TLS for you; on Azure enable *HTTPS Only* so plain HTTP is redirected.
 `RECRUITER_SESSION_COOKIE_SECURE=true` depends on it, because a `Secure` cookie is never stored over
 plain HTTP, so sign-in would appear to succeed and then not work.
 
-## Deploy order
+### Historical deploy order
 
 Migrations first, then the backend, then the frontend, so nothing calls an API that has not been
 updated yet.
+
+This sequence documents the former Azure deployment. Do not use it as the public release process.
 
 1. Confirm `backend/requirements.txt` and `backend/data/processed/onet/onet_kb.jsonl` are committed.
 2. Set every required application setting, including the Azure Speech ones.
@@ -248,7 +300,7 @@ site. There is no seed account and no bootstrap step: the first person to regist
 account. Then create a job, invite a candidate, and confirm the invitation link works in a private
 window.
 
-## Verifying persistence
+### Verifying Azure persistence
 
 Once, on the real deployment: register a recruiter, create a job, restart the backend (App Service,
 Restart), then sign in again. Sign-in should succeed and the job and candidate table should still be
@@ -261,7 +313,7 @@ checkpointer is an execution cache rebuilt from that snapshot. An unsubmitted br
 client-side, and evidence already lost from sessions created before the snapshot migration cannot be
 reconstructed.
 
-## Known limitations
+### Azure rollback limitations
 
 - Single backend process. Sessions are in memory; scaling out needs a shared session store.
 - Unsubmitted answers are not persisted by the backend. Accepted interview evidence is durable.

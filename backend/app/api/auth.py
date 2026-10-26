@@ -47,7 +47,7 @@ from app.api.deps import (
     get_job_repository,
     get_recruiter_session_store,
 )
-from app.api.recruiter_session import RecruiterSessionStore
+from app.api.recruiter_session import SessionStore, await_store_result
 from app.api.routes.auth import RECRUITER_SESSION_COOKIE
 from app.core.exceptions import AccessDenied
 from app.repositories.ports import InterviewSessionRepository, JobRepository
@@ -69,13 +69,9 @@ def _tokens_match(candidate: str, expected: str) -> bool:
     return hmac.compare_digest(candidate, expected)
 
 
-def _has_recruiter_session(store: RecruiterSessionStore, session_cookie: str | None) -> bool:
-    return store.is_valid(session_cookie)
-
-
 async def current_recruiter_id(
     session_cookie: str | None = Cookie(default=None, alias=RECRUITER_SESSION_COOKIE),
-    store: RecruiterSessionStore = Depends(get_recruiter_session_store),
+    store: SessionStore = Depends(get_recruiter_session_store),
 ) -> str:
     """The authenticated recruiter's id, resolved from the session cookie.
 
@@ -86,7 +82,7 @@ async def current_recruiter_id(
     Raises:
         AccessDenied: no live session.
     """
-    session = store.resolve(session_cookie)
+    session = await await_store_result(store.resolve(session_cookie))
     if session is None:
         raise AccessDenied("Recruiter sign-in required.")
     return session.recruiter_id
@@ -94,7 +90,7 @@ async def current_recruiter_id(
 
 async def require_recruiter_access(
     session_cookie: str | None = Cookie(default=None, alias=RECRUITER_SESSION_COOKIE),
-    store: RecruiterSessionStore = Depends(get_recruiter_session_store),
+    store: SessionStore = Depends(get_recruiter_session_store),
 ) -> None:
     """FastAPI dependency: raise :class:`AccessDenied` unless the caller holds a live recruiter
     session.
@@ -106,7 +102,7 @@ async def require_recruiter_access(
     would have meant the production boundary had two doors, one of which never expires and
     cannot be revoked.
     """
-    if not store.is_valid(session_cookie):
+    if not await await_store_result(store.is_valid(session_cookie)):
         raise AccessDenied("Recruiter sign-in required.")
 
 
@@ -114,7 +110,7 @@ async def require_candidate_access(
     interview_id: str,
     authorization: str | None = Header(default=None),
     session_cookie: str | None = Cookie(default=None, alias=RECRUITER_SESSION_COOKIE),
-    store: RecruiterSessionStore = Depends(get_recruiter_session_store),
+    store: SessionStore = Depends(get_recruiter_session_store),
     session_repo: InterviewSessionRepository = Depends(get_interview_session_repository),
 ) -> None:
     """FastAPI dependency: raise :class:`AccessDenied` unless the caller presents either the
@@ -149,7 +145,7 @@ async def require_candidate_access(
         session = await session_repo.get(interview_id)
         if _tokens_match(token, session.access_token):
             return
-    recruiter_session = store.resolve(session_cookie)
+    recruiter_session = await await_store_result(store.resolve(session_cookie))
     if recruiter_session is not None:
         await session_repo.get_for_recruiter(interview_id, recruiter_session.recruiter_id)
         return
@@ -172,7 +168,7 @@ async def require_interview_plan_access(
     job_id: str,
     authorization: str | None = Header(default=None),
     session_cookie: str | None = Cookie(default=None, alias=RECRUITER_SESSION_COOKIE),
-    store: RecruiterSessionStore = Depends(get_recruiter_session_store),
+    store: SessionStore = Depends(get_recruiter_session_store),
     job_repo: JobRepository = Depends(get_job_repository),
     session_repo: InterviewSessionRepository = Depends(get_interview_session_repository),
 ) -> PlanAudience:
@@ -210,7 +206,7 @@ async def require_interview_plan_access(
             if _tokens_match(token, session.access_token):
                 return PlanAudience.CANDIDATE
 
-    recruiter_session = store.resolve(session_cookie)
+    recruiter_session = await await_store_result(store.resolve(session_cookie))
     if recruiter_session is not None:
         await job_repo.get_for_recruiter(job_id, recruiter_session.recruiter_id)
         return PlanAudience.RECRUITER

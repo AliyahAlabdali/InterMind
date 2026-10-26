@@ -48,10 +48,12 @@ from __future__ import annotations
 
 from fastapi import Request
 
+from app.api.recruiter_session import await_store_result
 from app.core.rate_limit import RateLimiter
+from app.core.sql_rate_limit import SqlRateLimiter
 
 
-def get_rate_limiter(request: Request) -> RateLimiter:
+def get_rate_limiter(request: Request) -> RateLimiter | SqlRateLimiter:
     """The application's single limiter instance (created in ``app.main.create_app``)."""
     return request.app.state.rate_limiter
 
@@ -59,13 +61,13 @@ def get_rate_limiter(request: Request) -> RateLimiter:
 # --- Unauthenticated -------------------------------------------------------------------------
 
 
-def limit_signup(request: Request) -> None:
+async def limit_signup(request: Request) -> None:
     """Budget account creation deployment-wide: a scrypt hash plus durable state, on an open
     endpoint. Not a per-visitor limit - see the module docstring."""
-    get_rate_limiter(request).check(("signup_global", "all"))
+    await await_store_result(get_rate_limiter(request).check(("signup_global", "all")))
 
 
-def limit_login(request: Request) -> None:
+async def limit_login(request: Request) -> None:
     """Budget sign-in attempts deployment-wide.
 
     **Never keyed by the submitted email.** A budget that tripped only for registered addresses
@@ -76,44 +78,48 @@ def limit_login(request: Request) -> None:
     Not a per-visitor limit, and therefore not per-client brute-force protection - see the
     module docstring for why none is available in this topology.
     """
-    get_rate_limiter(request).check(("login_global", "all"))
+    await await_store_result(get_rate_limiter(request).check(("login_global", "all")))
 
 
 # --- Recruiter-authenticated ------------------------------------------------------------------
 
 
-def limit_job_analysis(request: Request, recruiter_id: str) -> None:
+async def limit_job_analysis(request: Request, recruiter_id: str) -> None:
     """Budget LLM-backed job-description analysis (``POST /jobs``)."""
-    get_rate_limiter(request).check(("job_recruiter", recruiter_id), ("job_global", "all"))
+    await await_store_result(
+        get_rate_limiter(request).check(("job_recruiter", recruiter_id), ("job_global", "all"))
+    )
 
 
-def limit_plan_generation(request: Request, recruiter_id: str) -> None:
+async def limit_plan_generation(request: Request, recruiter_id: str) -> None:
     """Budget LLM-backed interview-plan generation (``POST /jobs/{id}/interview-plan``)."""
-    get_rate_limiter(request).check(("plan_recruiter", recruiter_id), ("plan_global", "all"))
+    await await_store_result(
+        get_rate_limiter(request).check(("plan_recruiter", recruiter_id), ("plan_global", "all"))
+    )
 
 
-def limit_invite(request: Request, recruiter_id: str) -> None:
+async def limit_invite(request: Request, recruiter_id: str) -> None:
     """Budget interview creation (``POST /interviews``), which mints a candidate token."""
-    get_rate_limiter(request).check(("invite_recruiter", recruiter_id))
+    await await_store_result(get_rate_limiter(request).check(("invite_recruiter", recruiter_id)))
 
 
-def limit_report(request: Request, recruiter_id: str) -> None:
+async def limit_report(request: Request, recruiter_id: str) -> None:
     """Budget report generation. Cached after the first call, so this covers the miss path."""
-    get_rate_limiter(request).check(("report_recruiter", recruiter_id))
+    await await_store_result(get_rate_limiter(request).check(("report_recruiter", recruiter_id)))
 
 
 # --- Candidate / interview-scoped --------------------------------------------------------------
 
 
-def limit_answer(request: Request, interview_id: str) -> None:
+async def limit_answer(request: Request, interview_id: str) -> None:
     """Budget the adaptive loop (``POST /interviews/{id}/answers``): evaluation + generation."""
-    get_rate_limiter(request).check(
+    await await_store_result(get_rate_limiter(request).check(
         ("answer_interview", interview_id), ("answer_global", "all")
-    )
+    ))
 
 
-def limit_speech_token(request: Request, interview_id: str) -> None:
+async def limit_speech_token(request: Request, interview_id: str) -> None:
     """Budget Azure Speech credential issuance, per interview."""
-    get_rate_limiter(request).check(
+    await await_store_result(get_rate_limiter(request).check(
         ("speech_interview", interview_id), ("speech_global", "all")
-    )
+    ))

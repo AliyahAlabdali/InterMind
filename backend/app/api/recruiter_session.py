@@ -26,18 +26,28 @@ What this is not
 Still not an identity platform: no roles, no teams, no password reset or email verification, and
 no per-recruiter audit trail beyond the activity feed.
 
-**Sessions are in-memory and do not survive a backend restart.** Every recruiter is logged out
-when the process restarts, and sessions are not shared between processes, so this does not work
-behind a multi-worker or multi-instance deployment. Accounts and everything they own are in
-PostgreSQL and are unaffected; only the session ends. Scaling out needs a shared session store
-or a stateless signed-token scheme, which is deliberately not decided here.
+The default ``RecruiterSessionStore`` is in-memory and does not survive a restart.
+``SqlRecruiterSessionStore`` is opt-in for deployments with multiple instances; it retains the
+same cookie contract and stores only a SHA-256 digest of each high-entropy session token.
 """
 
 from __future__ import annotations
 
+import hashlib
+import inspect
 import secrets
+from collections.abc import Awaitable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import TypeVar
+
+from sqlalchemy import delete
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from app.core.exceptions import RecruiterEmailTaken
+from app.db.models import RecruiterRow, RecruiterSessionRow
+from app.domain.recruiter import Recruiter, normalize_email
 
 #: Length of the session identifier in bytes before base64url encoding. 32 bytes of
 #: `secrets` entropy is far beyond guessable and matches the candidate access tokens.
@@ -125,3 +135,96 @@ class RecruiterSessionStore:
         """Live sessions, for tests. Not exposed through the API."""
         self._prune()
         return len(self._sessions)
+
+
+class SqlRecruiterSessionStore:
+    """Shared session store. Only a SHA-256 digest of the random cookie reaches PostgreSQL."""
+
+    def __init__(self, sessions: async_sessionmaker, *, ttl_seconds: int) -> None:
+        self._sessions = sessions
+        self.ttl_seconds = ttl_seconds
+
+    @staticmethod
+    def _digest(token: str) -> str:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    def _mint(self, recruiter_id: str) -> RecruiterSession:
+        return RecruiterSession(
+            token=secrets.token_urlsafe(_SESSION_BYTES),
+            recruiter_id=recruiter_id,
+            expires_at=datetime.now(UTC) + timedelta(seconds=self.ttl_seconds),
+        )
+
+    async def create_with_recruiter(self, recruiter: Recruiter) -> RecruiterSession:
+        """Commit sign-up and its first browser session as one durable operation."""
+        issued = self._mint(recruiter.id)
+        try:
+            async with self._sessions.begin() as db:
+                await db.execute(
+                    delete(RecruiterSessionRow).where(
+                        RecruiterSessionRow.expires_at <= datetime.now(UTC)
+                    )
+                )
+                db.add(RecruiterRow(
+                    id=recruiter.id,
+                    email=normalize_email(recruiter.email),
+                    password_hash=recruiter.password_hash,
+                    created_at=recruiter.created_at,
+                ))
+                db.add(RecruiterSessionRow(
+                    token_hash=self._digest(issued.token),
+                    recruiter_id=recruiter.id,
+                    expires_at=issued.expires_at,
+                ))
+        except IntegrityError as exc:
+            raise RecruiterEmailTaken("An account with that email already exists.") from exc
+        return issued
+
+    async def create(self, recruiter_id: str) -> RecruiterSession:
+        session = self._mint(recruiter_id)
+        async with self._sessions.begin() as db:
+            await db.execute(
+                delete(RecruiterSessionRow).where(
+                    RecruiterSessionRow.expires_at <= datetime.now(UTC)
+                )
+            )
+            db.add(RecruiterSessionRow(
+                token_hash=self._digest(session.token),
+                recruiter_id=recruiter_id,
+                expires_at=session.expires_at,
+            ))
+        return session
+
+    async def resolve(self, token: str | None) -> RecruiterSession | None:
+        if not token:
+            return None
+        async with self._sessions() as db:
+            row = await db.get(RecruiterSessionRow, self._digest(token))
+        if row is None or row.expires_at <= datetime.now(UTC):
+            return None
+        return RecruiterSession(
+            token=token, recruiter_id=row.recruiter_id, expires_at=row.expires_at
+        )
+
+    async def is_valid(self, token: str | None) -> bool:
+        return await self.resolve(token) is not None
+
+    async def revoke(self, token: str | None) -> None:
+        if token:
+            async with self._sessions.begin() as db:
+                await db.execute(
+                    delete(RecruiterSessionRow).where(
+                        RecruiterSessionRow.token_hash == self._digest(token)
+                    )
+                )
+
+
+SessionStore = RecruiterSessionStore | SqlRecruiterSessionStore
+_T = TypeVar("_T")
+
+
+async def await_store_result(result: _T | Awaitable[_T]) -> _T:
+    """Keep the existing synchronous in-memory test/deployment path while SQL uses async IO."""
+    if inspect.isawaitable(result):
+        return await result
+    return result

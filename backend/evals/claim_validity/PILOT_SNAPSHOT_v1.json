@@ -1,0 +1,14 @@
+{
+    "pilot_directory":  "results/20261011T214346Z-pilot",
+    "file_sha256":  {
+                        "evidence_adjudication_blind.csv":  "b1003caaebc03202cc2ee56211ffab075e139d26a1226df805346645bc4a6bb5",
+                        "evidence_internal.json":  "9e58dee16022275f08f40c7e07e0a5ad0aed334dea546b53a83f56cbbda8a778",
+                        "followup_predictions.json":  "8f146ee374bb4e02c09bea4d8b6c5ace70ff3ed24d7a0b36255a7381861d9ef5",
+                        "latency_requests.json":  "09633ba6e86f4c0f4a9591fd3d1374f3cd2eb6cf655cbb8a1544032fc5208da7",
+                        "llm_trace.json":  "e5055fda56247f90a50cabb03613d1c28c18294092c99c657cb2a164e5fc0c6a",
+                        "metadata.json":  "bf272a719fe126f84942eede442967b5714f8acc58da4e333367d1876fd3ff6e",
+                        "persona_reports.json":  "b923139bfafc759a339a79d1845e200bb1c1aea9fb9c9d265ee840fcaf820149",
+                        "progress.jsonl":  "3a5a512dcd931d69a7a1b37a63d621eafad34e81856a11a4059acb8cc379b781",
+                        "run_state.json":  "b4f4d82961fd53f6d27a8c1a63f64792d9552de2037a4e065430decc201f82c1"
+                    }
+}

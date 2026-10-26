@@ -1,0 +1,6 @@
+jd_id,strong_score,strong_recommendation,mixed_score,mixed_recommendation,weak_score,weak_recommendation,strong_minus_mixed,mixed_minus_weak,strictly_ordered
+jd-data-engineer,0.8733,strong_hire,0.5933,consider,0.2367,no_hire,0.28,0.3566,True
+jd-frontend,0.8453,hire,0.608,consider,0.148,no_hire,0.2373,0.46,True
+jd-platform,0.89,strong_hire,0.55,consider,0.155,no_hire,0.34,0.395,True
+jd-product-analyst,0.8053,hire,0.5107,consider,0.2,no_hire,0.2946,0.3107,True
+jd-senior-backend,0.8467,hire,0.6453,consider,0.3507,no_hire,0.2014,0.2946,True

@@ -18,21 +18,19 @@ another recruiter's job, matching the convention used everywhere else.
 
 ## Rate limiting
 
-Budgets live in `backend/app/core/limits.py`; the limiter is `backend/app/core/rate_limit.py`.
+Budgets live in `backend/app/core/limits.py`. The public deployment uses the PostgreSQL limiter in
+`backend/app/core/sql_rate_limit.py`; local development can use `backend/app/core/rate_limit.py`.
 
-### In-process counters
+### Shared rolling windows
 
-The limiter keeps its counters in this process, which is acceptable only because the backend is
-already single-process: recruiter sessions are in memory (`app.api.recruiter_session`) and the
-deployment pins `--workers 1` (see [deployment.md](deployment.md)). Accepted interview state is in
-PostgreSQL and protected across processes by row locking.
+The public backend stores admission events in PostgreSQL. A transaction-scoped advisory lock
+serializes admissions across Vercel functions, so the named budgets are checked and recorded
+together. A database failure refuses admission. Accepted interview state is also in PostgreSQL
+and protected across processes by row locking.
 
-- Counters reset on restart, and App Service restarts containers routinely, so after a restart every
-  budget is full again. This is a cost and abuse control, never a quota or a billing cap.
-- Counters are not shared across processes or instances. With *N* instances the effective rate is
-  *N* times the configured rate.
-- Sessions and these counters both need a shared store before a second instance is correct, so they
-  should move together rather than adding Redis for the limiter alone.
+The public counters survive function restarts. They are an abuse and cost control, not a billing
+cap. Each admitted request writes events to Neon, so sustained abuse can increase database usage.
+Local in-memory mode still resets counters on restart and is not suitable for a scaled deployment.
 
 ### Budgets
 
@@ -78,12 +76,10 @@ bypass and an unbounded source of dictionary keys.
 
 ### No per-visitor limit on sign-up and sign-in
 
-Browser traffic does not reach the API directly. `frontend/vercel.json` rewrites `/api/*` to the App
-Service origin, so Vercel proxies every call server-side and App Service then hands the request to the
-application through its own front end. App Service exposes a link-local proxy address to the
-application as `request.client.host`, identical for every caller, so there is no per-visitor identity
-to key a bucket on. A per-address bucket would throttle unrelated visitors against each other while
-describing itself as per-visitor protection.
+`frontend/vercel.json` rewrites `/api/*` to the separate Vercel backend. The application does not
+use forwarded addresses as a trusted visitor identity. It cannot safely key an authentication
+budget by client IP without a verified proxy contract; a guessed address could be forged or could
+group unrelated visitors together.
 
 Stated plainly: sign-up and sign-in have deployment-wide abuse protection, and no reliable
 per-visitor throttling. This is not per-client brute-force protection. A single client is bounded
@@ -130,21 +126,15 @@ that the uniform "Incorrect email or password" response exists to prevent. Regis
 unregistered addresses are refused identically, same status and same body, once the ceiling is
 reached. The 429 body names no bucket and no identity, for the same reason.
 
-### Keeping the key table bounded
+### Keeping the event table bounded
 
-- Expiry. Aged-out events are swept on every call, and a key with no events left is deleted rather
-  than kept as an empty entry.
-- Refuse-before-record. Admission is refused before anything is written, so once a global ceiling is
-  reached no new per-identity key can be created beneath it: a caller cycling identities cannot grow
-  the table. Recruiter accounts and interviews, the identities in use, cannot be minted freely either,
-  being bounded by the sign-up and invite ceilings.
-- `MAX_TRACKED_KEYS` (20 000) is a hard backstop under both, in case a future bucket is added without
-  a global companion. At the ceiling, tracked identities keep working and novel ones are refused.
+- Events older than the longest rolling window are pruned during admission.
+- An exhausted budget refuses the request before recording new events.
+- The SQL limiter refuses admission if the table would exceed 200,000 events. This is a database
+  safety bound, not a provider spending cap.
 
-`RateLimiter.check` is synchronous and holds a `threading.Lock` across its whole read-modify-write
-with nothing awaited inside, which matters because the process does run other threads
-(`asyncio.to_thread` in the Speech credential path): exactly `budget` of any number of racing callers
-are admitted.
+The transaction advisory lock in `SqlRateLimiter.check` protects the read-modify-write across
+separate functions and Neon pooled connections.
 
 ## Input size limits
 
@@ -164,10 +154,9 @@ realistic job descriptions and answers are still accepted.
 
 ## Azure Speech credential issuance
 
-The Speech resource key never leaves the backend. The browser receives a bearer credential: minted
-from the key for ten minutes on the local key path, or, under managed identity (the production path),
-an Entra credential following its own expiry, with no key in existence at all
-(`app.services.speech_token`).
+The Speech resource key stays on the Vercel backend. The browser receives a short-lived bearer
+credential minted from that key (`app.services.speech_token`). The retained Azure rollback backend
+uses managed identity instead.
 
 `GET /interviews/{interview_id}/speech-token` gates in this order:
 
@@ -202,18 +191,19 @@ line from the next is the value that must not be recorded.
 
 ## Deployment facts this model depends on
 
-Each is a portal setting that can drift, so re-check after any infrastructure change:
+Each is a deployment setting that can drift, so re-check after any infrastructure change:
 
-- One instance. App Service plan Basic B1, manual scale-out, instance count 1, no autoscale rules.
-  More than one instance multiplies every rate budget and, worse, breaks sign-in and live interviews.
-- One worker, pinned by the startup command (see [deployment.md](deployment.md)).
-- `REQUIRE_DATABASE=true` and `RECRUITER_SESSION_COOKIE_SECURE=true` are set.
-- The application cannot see visitor IP addresses (see *No per-visitor limit on sign-up and sign-in*).
+- The public backend has `REQUIRE_DATABASE=true`, `SHARED_STATE_BACKEND=postgres`, and
+  `RECRUITER_SESSION_COOKIE_SECURE=true`.
+- Its runtime uses Neon's pooled PostgreSQL connection with verified TLS. Recruiter sessions and
+  rate limits use shared PostgreSQL state, not function memory.
+- `/api` is rewritten on the public Vercel frontend; the browser keeps a first-party cookie.
+- Authentication has no verified per-visitor IP identity (see *No per-visitor limit on sign-up and sign-in*).
 
 ## Not covered yet
 
 - Candidate-token hashing at rest, and token expiry or revocation.
-- A data retention and deletion framework.
+- Automatic retention scheduling and verified backup expiry. The deletion code exists, but
+  `RETENTION_ENABLED=false` on the public deployment.
 - Security headers and a content security policy.
-- Shared state for horizontal scale: recruiter sessions and rate-limit counters together.
 - Per-visitor rate limiting. Today's sign-up and sign-in protection is deployment-wide only.
