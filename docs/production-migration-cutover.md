@@ -1,5 +1,10 @@
 # InterMind Azure to Vercel + Neon: controlled cutover checklist
 
+The public cutover has completed. The public API now routes to Vercel and the database is Neon.
+Azure remains a rollback environment. The checklist below records the completed migration plan;
+do not repeat its restore, role-creation, or routing steps against the populated database.
+After public Neon writes, returning to Azure requires a guarded reconciliation.
+
 ## Current continuation after the completed rollback (2026-10-25)
 
 The first maintenance window ended with Azure serving the public site again.

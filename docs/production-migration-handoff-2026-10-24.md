@@ -1,4 +1,9 @@
-# InterMind production migration handoff — updated 2026-10-25
+# InterMind production migration handoff (updated 2026-10-26)
+
+Historical pre-cutover handoff. The public application now uses the Vercel backend and Neon
+database. Azure remains preserved for rollback, but its data may be stale after public Neon
+writes. Use [`deployment.md`](deployment.md) for the current topology. Do not treat the
+pre-cutover pause point and commands below as current execution instructions.
 
 ## Pause point and source of truth
 

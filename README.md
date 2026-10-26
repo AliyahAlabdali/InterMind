@@ -36,8 +36,9 @@ follow-up behavior adapt at runtime. After each answer, InterMind records struct
 decides whether to explore further or move to another area. Recruiters can trace every assessment
 back to what the candidate said.
 
-The application is deployed with a **Vercel frontend, Azure App Service backend and PostgreSQL
-persistence**.
+The public application runs on **Vercel for the frontend and FastAPI backend, with PostgreSQL on
+Neon**. The former Azure backend and database are retained for a guarded rollback; any
+post-cutover writes need reconciliation first.
 
 <details>
 <summary>Production landing page on mobile</summary>
@@ -110,10 +111,10 @@ Unassessed requirements do not affect the score. Explicit evidence that a candid
 %%{init: {"theme":"base","flowchart":{"rankSpacing":36,"nodeSpacing":36,"wrappingWidth":300},"themeVariables":{"primaryColor":"#ECEFF6","primaryTextColor":"#000505","primaryBorderColor":"#3B3355","lineColor":"#6F7FA3","edgeLabelBackground":"#ECEFF6","tertiaryTextColor":"#000505","tertiaryColor":"#F6F8FB"}}}%%
 flowchart TD
     WEB["Frontend<br/>React / Vercel"]
-    WEB ==>|"API requests"| API["Backend<br/>FastAPI / Azure App Service"]
+    WEB ==>|"Same-origin /api"| API["Backend<br/>FastAPI / Vercel"]
     WEB -.->|"Speech"| AZ["Azure AI Speech<br/>Reads questions aloud,<br/>transcribes answers"]
     API ==> CORE["InterMind Core<br/><br/>Understand the role<br/>Plan the interview<br/>Adapt questions<br/>Evaluate answers<br/>Build the report"]
-    API -->|"Saves and loads records"| DB[("PostgreSQL<br/>Alembic-managed schema")]
+    API -->|"Saves and loads records"| DB[("Neon PostgreSQL<br/>Alembic-managed schema")]
     CORE -.->|"Model calls"| OAI["OpenAI API"]
     CORE -.->|"Role context only"| KB["O*NET 31.0<br/>Adds no requirements"]
 
@@ -128,7 +129,7 @@ flowchart TD
     class KB,OAI,AZ ext;
 ```
 
-Production uses PostgreSQL with an Alembic-managed schema, while local development can use in-memory storage. Vercel serves the frontend and routes `/api` requests to the FastAPI backend on Azure App Service.
+Production uses Neon PostgreSQL with an Alembic-managed schema; local development can use in-memory storage. Vercel serves the frontend and rewrites same-origin `/api` requests to the separate Vercel-hosted FastAPI backend. The browser keeps its recruiter session cookie on the frontend origin. Recruiter sessions and rate-limit events live in PostgreSQL, so function restarts do not reset them.
 
 **Access and Speech.** Recruiter workspaces are isolated by account ownership, while candidates use an interview-specific access token. Azure AI Speech handles question narration and answer transcription through short-lived authorization issued by the backend. Typed input remains available when Speech is unavailable. See [recruiter authentication](docs/recruiter-auth.md) and [public launch security](docs/public-launch-security.md) for implementation details.
 
@@ -141,6 +142,7 @@ Production uses PostgreSQL with an Alembic-managed schema, while local developme
 | AI and orchestration | LangGraph 1.2, OpenAI SDK 3.6, versioned Markdown prompts, structured Pydantic outputs |
 | Knowledge | O\*NET 31.0 covering 1,016 occupations, scikit-learn 1.9 for TF-IDF and cosine similarity |
 | Persistence | PostgreSQL via SQLAlchemy 2.0 async ORM, asyncpg 0.31, Alembic 1.20 |
+| Cloud hosting | Vercel frontend with FastAPI functions in Frankfurt; Neon PostgreSQL in Frankfurt. Azure App Service and PostgreSQL are retained for rollback. |
 | Speech | Azure AI Speech for question narration and transcription; browser Web Speech API as fallback; typed input |
 | Quality | pytest 9.1, Vitest 5.0, Ruff 0.16, oxlint 1.82 |
 
@@ -203,7 +205,6 @@ Tests cover the interview flow, scoring, access control, tenant isolation, UI fl
 
 ## Current limitations
 
-- Recruiter sessions are currently stored in memory, so a backend restart requires recruiters to sign in again.
 - Reports are generated when results are first accessed rather than immediately when an interview ends.
 - Password recovery, email verification and shared team workspaces are not currently included.
 - Speech authorization limits credential issuance, but cannot cap Azure audio consumption after a credential has been issued.

@@ -2,17 +2,16 @@
 
 The Neon Free `intermind-staging` project exists in Frankfurt with PostgreSQL 17. Its
 `intermind_staging` database was migrated and independently checked at
-Alembic head `a7d4b9e2c103`, including the rate-limit sequence. Do not rerun the three
-initial revisions. The additive retention revision `d91e5a7c2b40` is a separate,
-owner-only staging migration and requires a fresh target/head check before applying.
+Alembic head `a7d4b9e2c103`, including the rate-limit sequence. The additive retention revision
+`d91e5a7c2b40` was later applied and verified on staging. Do not rerun those migrations.
 The least-privilege `intermind_app_runtime` role has also been created and verified. **Do not
 rerun the role setup.**
 The isolated Vercel backend and frontend projects are deployed in the same workspace, with
 Root Directories `backend` and `frontend` and no Git integration. Their Production variables
 are configured; staging database access must pass a live pooled TLS check before acceptance.
-Keep the Azure
-App Service, Azure PostgreSQL database, production GitHub Actions workflow, and public
-Vercel frontend running as-is.
+The public frontend now routes to the separate Vercel production backend and Neon production
+database. Keep Azure App Service and Azure PostgreSQL available for rollback. This runbook
+remains specific to the isolated staging projects.
 Use synthetic staging data; do not copy production candidate records into a new provider for an
 acceptance test.
 
@@ -41,9 +40,10 @@ acceptance test.
   For a CLI deployment, copy the resolved staging config over `frontend/vercel.json` **inside
   a disposable clean archive only**. The CLI `--local-config frontend/vercel.staging.json`
   flag did not override the project-root config in a live deployment; `/api/health` still went
-  to the Azure backend. Verify the active archive config and the staging backend's unique
+  to the then-current Azure backend. Verify the active archive config and the staging backend's unique
   health response before any write test. Never use the public project's ID or alias. The
-  tracked `frontend/vercel.json` remains the production Azure rewrite.
+  tracked `frontend/vercel.json` now points to the Vercel production backend; retain that
+  destination in future public builds.
   Keep `VITE_API_BASE_URL` unset so the client calls `/api` on its own origin; the staging rewrite
   forwards `/api/:path*` to the backend's `/:path*`. The SPA fallback stays second.
 - `backend/staging.env.example` is a checklist of **backend-only** variables. It contains
@@ -75,8 +75,8 @@ Before any future staging commit, stage an explicit file list, inspect
 that no ignored private file, `.env` file, credential, or test temp directory
 is staged. The public frontend project's saved Ignored Build Step is "Only build
 production", so staging branch pushes should not build a frontend preview. Confirm
-the project activity after each push. Its default `frontend/vercel.json` still
-rewrites `/api` to production Azure; do not change it.
+the project activity after each push. The public project's production builds use the
+tracked `frontend/vercel.json`, which must retain the Vercel production backend destination.
 
 ## Neon staging database, TLS, and connections
 
@@ -218,7 +218,7 @@ calls the **real** `gpt-4o-mini` model and may incur OpenAI charges.
    and Neon, Speech F0, and OpenAI usage after the pass; stop if limits or charges exceed the
    intended test budget.
 
-Keep the public frontend, Azure API, and Azure database untouched throughout this pass.
+Keep the public frontend and both production databases untouched throughout a staging pass.
 
 ## Isolated staging deployment procedure
 
@@ -257,13 +257,13 @@ Keep the public frontend, Azure API, and Azure database untouched throughout thi
    vercel deploy --prod --project intermind-frontend-staging --scope aliyahs-projects-44a8830a
    ```
 
-   Do not use the public frontend project or edit its tracked `frontend/vercel.json` rewrite.
+   Do not use the public frontend project or replace its tracked `frontend/vercel.json` rewrite
+   with the staging destination.
    Before signup or job creation, check that the frontend's `/api/health` reaches the current
    staging backend deployment, not the Azure origin. A generic `storage: postgresql` response
    alone does not prove which database receives writes.
-3. Run the checklist, collect real provider usage, repair any blocker locally, and present
-   results for a later cutover decision. Do not change the public rewrite or remove Azure
-   resources without another explicit approval.
+3. Run the checklist, collect real provider usage, and repair any blocker locally. Do not
+   change the public rewrite or remove Azure resources without explicit approval.
 
 ### Usage planning (estimates, not measurements)
 
