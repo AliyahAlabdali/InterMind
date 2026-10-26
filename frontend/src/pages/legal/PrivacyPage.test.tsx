@@ -15,7 +15,7 @@ describe("privacy notice", () => {
     const contact = screen.getByRole("link", { name: "AliyahAlabdali24@gmail.com" })
     expect(contact.getAttribute("href")).toBe("mailto:AliyahAlabdali24@gmail.com")
     expect(screen.getByText(/not yet operating on the public deployment/i)).toBeTruthy()
-    expect(screen.getByText(/currently run on Microsoft Azure in UAE North/i)).toBeTruthy()
+    expect(screen.getByText(/PostgreSQL database runs on Neon in Frankfurt/i)).toBeTruthy()
     expect(screen.getByText(/Microsoft Azure AI Speech in East US/i)).toBeTruthy()
   })
 })

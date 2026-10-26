@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://intermind-api-h2azh5g9hvcvbba3.uaenorth-01.azurewebsites.net/:path*"
+      "destination": "https://project-ult57.vercel.app/:path*"
     },
     {
       "source": "/(.*)",

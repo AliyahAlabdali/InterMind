@@ -18,13 +18,13 @@ export function PrivacyPage() {
     </LegalSection>
 
     <LegalSection title="Storage, regions and access">
-      <p>The public backend and PostgreSQL database currently run on Microsoft Azure in UAE North. The frontend is hosted by Vercel, which can serve its static assets through a global network. A future move of the backend and database to Frankfurt is being prepared, but has not happened on this public site.</p>
+      <p>The public backend runs on Vercel in Frankfurt and the PostgreSQL database runs on Neon in Frankfurt. The frontend is hosted by Vercel, which can serve its static assets through a global network.</p>
       <p>Recruiters see only their own workspace. A candidate's link opens one interview and never the evaluations or reports behind it, so keep interview links private.</p>
       <p>Passwords are stored as hashes; recruiter sessions use an HttpOnly cookie, and access is checked on the server. Authorized hosting and database operators may have operational access. Cross-border processing can occur through Vercel, OpenAI, Azure Speech and their subprocessors.</p>
     </LegalSection>
 
     <LegalSection title="Retention and deletion">
-      <p>The approved targets are to remove interview data, answers, evaluations and reports 90 days after the last accepted interview activity or report creation, and to retain encrypted backups under our control for no more than 30 days. These targets are <strong>not yet operating on the public deployment</strong>: the database migration, scheduled cleanup, backup controls and production verification are still pending. Provider-managed backup history may differ. We do not currently promise automatic deletion on those dates.</p>
+      <p>The approved targets are to remove interview data, answers, evaluations and reports 90 days after the last accepted interview activity or report creation, and to retain encrypted backups under our control for no more than 30 days. These targets are <strong>not yet operating on the public deployment</strong>: automatic cleanup remains disabled, and backup retention controls are still being verified. Provider-managed backup history may differ. We do not currently promise automatic deletion on those dates.</p>
       <p>Recruiter accounts and job descriptions have no automatic deletion timetable. You may request deletion; we will verify the request and explain any data that must be kept or cannot yet be removed from a provider or backup. Restoring a backup could reintroduce previously deleted records unless those requests are reapplied.</p>
     </LegalSection>
 
