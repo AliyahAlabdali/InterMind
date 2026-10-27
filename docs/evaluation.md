@@ -1,9 +1,9 @@
 # Evaluation
 
-Measured results for the parts of InterMind that can be measured deterministically, with the
-methodology and the limitations of each number. Everything here is reproducible offline from the
-tracked `onet_kb.jsonl` artifact — no API key, no network, no model calls — so the figures do not
-drift with model or prompt changes.
+This document separates deterministic offline retrieval/grounding measurements from historical
+OpenAI experiments. The commands below use the tracked `onet_kb.jsonl` artifact without an API
+key, network, or model calls. Timing depends on the machine. Historical model results have a
+different scope and require private retained inputs for full offline reproduction.
 
 ```bash
 cd backend
@@ -39,11 +39,44 @@ them deterministic and free to run, and it means they say nothing about:
 - the quality of generated questions, follow-up decisions, or report narratives,
 - end-to-end request latency, which is dominated by the LLM calls either side of retrieval.
 
-Those remain unmeasured in this document. The separate [four-metric evaluation preparation](../backend/evals/README.md)
-now contains scripted personas, blind follow-up labeling, a live runner, and report evidence
-review. It has **not** been run against OpenAI; no follow-up F1, evidence traceability,
-API turn p95, or discrimination result is available yet. The 6.8 ms figure below is only
-the local retrieval function, not the answer endpoint.
+Those are outside the offline retrieval harness. The historical evaluation below measures selected
+follow-up, evidence, discrimination and server-side latency outcomes. The 6.8 ms figure later in
+this document remains a historical local retrieval measurement, not answer-endpoint latency.
+
+## Historical OpenAI evaluation
+
+The original v1.0 final run was interrupted. Retained outputs and subsequent recovery experiments,
+including a separate v1.1 latency run, produced the following results. They are **not measurements
+of today's production deployment**, and no new paid evaluation was run for the October 27 audit
+or remediation. See the [protocol](../backend/evals/PROTOCOL.md),
+[results summary](../backend/evals/results_summary.md), and
+[historical provenance](../backend/evals/recovery_v11/HISTORICAL_PROVENANCE_v1.2.md).
+
+| Metric | Retained result | Scope and acceptance |
+|---|---|---|
+| Evidence traceability | **239/239 supported evidence strings** across 15 reports | 217 automatic matches and 22 human adjudications; evidence-string fidelity, not correctness of every report claim or score. No separate numerical acceptance threshold was established. |
+| Follow-up F1 | **0.8852459**, 90 cases; TP 27, FP 3, FN 4, TN 56 | Frozen human labels: 31 warranted / 59 not warranted. Primary metric includes routing policy, not only raw model decisions. No separate F1 acceptance threshold was established. |
+| Next-question server-side P95 | **3.834 s**, 100 usable requests | Nearest-rank P95 from the retained sequential ASGI experiment with live model calls, in-memory repositories and three excluded warmups. Excludes browser/network rendering, production PostgreSQL, and Vercel cold starts; not a production latency SLO. |
+| Discrimination gate | **Passed** | 15 scripted personas across five JDs; strong/mixed/weak means 0.85212 / 0.58146 / 0.21808, strong–weak Cliff's delta 1.0, overlap 0, correct ordering in 5/5 JDs. Gate: delta ≥0.5, overlap ≤0.2, ordering ≥4/5. |
+| Recommendation stability | **Explicitly deferred** | Repeated-run experiments were not executed. No stability result or acceptance claim. |
+
+The personas supply fixed answers for ten targets each; this is not an observed population of
+applicants or a browser-driven adaptive interview study. One human finalized the reviews with AI
+assistance; there was no independent blinded second reviewer. The retrospective claim/score review
+is distinct from the 239 evidence strings: 221/245 claims were fully supported, 18 partially
+supported and six unsupported; 44/45 score judgments were defensible. Do not relabel evidence
+fidelity as perfect report accuracy. These experiments establish neither hiring accuracy nor
+fairness or predictive validity.
+
+The interrupted v1.0 run lacks complete original per-call provenance. Recovery authenticates
+retained bytes and historical source snapshots; it cannot reconstruct missing API metadata or
+turn historical results into measurements of current code. Frozen datasets, reviews, raw outputs
+and recorded metrics are preserved. Public code and aggregate results are available, but raw
+answer-bearing inputs remain private. With the authorized bundle restored, run
+`python -m evals.private_history --check-only` from `backend/` to check integrity offline.
+Live runners incur OpenAI charges and require approval; do not rerun them for a documentation check.
+
+## Offline retrieval and grounding
 
 ## Dataset
 
@@ -262,27 +295,30 @@ retrieval score margin computed after the field weighting described above — no
 
 ### What actually reached the interview
 
-`onet_grounding_used` only means a context block was assembled. It does not mean O\*NET added
-anything the candidate is assessed on: competencies are JobSpec-only by construction, and
-technologies and tasks each pass a further per-item filter — corpus-wide prevalence, and TF-IDF
-relevance to this specific `JobSpec` — *after* the macro gate.
+`onet_grounding_used` only means a context block was assembled. The current planner selects
+competencies, technologies and tasks from the JobSpec only. O\*NET may annotate an existing item
+as `EvidenceSource.BOTH`; it cannot introduce a new requirement through these selectors.
 
 | Metric | Value |
 | :--- | :--- |
-| Wrong match contributed ≥1 requirement | **10.0% (3/30)** of all cases; 15.0% (3/20) of wrong matches |
-| Wrong match cleared the gate but contributed nothing | 10 cases |
-| O\*NET **tasks** contributed by a wrong occupation | **0** |
+| Legacy wrong-match provenance count (ONET or BOTH) | **3/30** cases; includes corroboration, not proof of new requirements |
+| Legacy wrong-match count without ONET/BOTH annotations | 10 cases |
+| Legacy task annotation count from wrong occupations | **0** |
 
-The three leaks are all single technology names: `frontend-engineer` (1, from Librarians and Media
-Collections Specialists), `devops-engineer` (1, from Blockchain Engineers), `graphic-designer` (2,
-from Advertising and Promotions Managers).
+The legacy annotations were technologies in `frontend-engineer` (one), `devops-engineer` (one),
+and `graphic-designer` (two). Calling these three cases "requirement leakage" was incorrect:
+`BOTH` corroborates a technology already named in the JD.
 
-So the defence-in-depth works even where its outer layer does not: **of 20 misidentified occupations,
-none contributed a task to an interview and three contributed a technology name.** The per-item
-relevance filters caught 10 of the 13 cases the macro gate let through. The remaining exposure is
-narrow and specific — stray technology names on wrong matches — which is a tractable bug rather than
-a structural flaw, and the clearest next fix is to apply the stricter
-`_MIN_CONFIDENT_TECH_CONTEXT_MARGIN` test to those three cases' score distributions.
+The corrected harness uses metric version 2: requirement leakage counts **ONET-only** technologies
+and tasks from a wrong occupation, while a separate count reports corroborated JD items (`BOTH`).
+This is a provenance-based plan check, not a semantic assessment of question wording. Original
+recorded outputs are not rewritten; old JSON fields that combined ONET and BOTH must be interpreted
+under their original definition. No planner or model behavior changed to make the metric improve.
+
+An offline rerun on October 27, 2026 with the corrected harness found **0/30 cases with ONET-only
+requirement leakage**, and three wrong-match cases corroborating four existing JD technologies.
+The gate confusion matrix remained 9 / 13 / 7 / 1. This is a corrected measurement of provenance
+on the same deterministic inputs, not a new model evaluation or improved retrieval performance.
 
 **Limitation.** A correct abstention is *safe*, not *accurate*: this measures that bad context is
 withheld, not that the resulting interview is good. The context block itself still reaches the
@@ -301,16 +337,18 @@ harness does not score.
 | Largest single accuracy lever found | dropping `responsibilities` from the query: +10.0 pp |
 | Grounding gate precision / recall / F1 | 40.9% / 90.0% / 56.3% (MCC +0.267) |
 | Gate signal separability (ROC-AUC) | 0.600 |
-| Requirement leakage from a wrong match | 3 of 30 cases |
-| Tasks leaked from a wrong match | 0 |
-| Automated tests (unrelated to this document) | 903 |
+| Legacy wrong-match annotation count, including JD corroboration | 3 of 30 cases; not new-requirement leakage |
+| Legacy wrong-match task annotation count | 0 |
+| October 27 audit test baseline (unrelated to evaluation quality) | 842 backend + 242 frontend = 1,084 passed |
+| October 27 local remediation verification | 850 backend + 242 frontend = 1,092 passed, plus three backend subtests |
 
-### Ranked next steps, from these numbers
+### Optional retrieval research, outside final production sign-off
 
 1. **Weight the query fields.** Dropping `responsibilities` alone is worth +10 pp recall@1; weighting
    rather than dropping should do better without losing the cases where duties are the only signal.
 2. **Replace the gate's signal.** Retuning the threshold is worth ~4 points of F1 and no more
    (ROC-AUC 0.600). Title-level agreement or a post-reweighting score margin are the candidates.
-3. **Close the three technology leaks** by extending `_MIN_CONFIDENT_TECH_CONTEXT_MARGIN` to them.
+3. **Keep corroboration separate from new requirements** when interpreting grounding results;
+   the historical three-case count does not justify changing planner behavior.
 4. **Then consider embeddings**, which are the only approach likely to separate the credential-sibling
    class (Physical Therapist vs Physical Therapist Assistants).

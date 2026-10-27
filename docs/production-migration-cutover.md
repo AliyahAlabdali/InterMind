@@ -5,7 +5,12 @@ Azure remains a rollback environment. The checklist below records the completed 
 do not repeat its restore, role-creation, or routing steps against the populated database.
 After public Neon writes, returning to Azure requires a guarded reconciliation.
 
-## Current continuation after the completed rollback (2026-10-25)
+## Historical continuation after the rollback (2026-10-25; superseded by final cutover)
+
+The following dated plan preserves the migration sequence and its original approval gates. Its
+references to Azure serving public traffic and a next maintenance window describe that earlier
+stage, not the current deployment. For current routing and verification limits, see
+[deployment](deployment.md). Do not execute these historical steps as routine sign-off checks.
 
 The first maintenance window ended with Azure serving the public site again.
 The separate Neon `intermind_production` database already contains the verified
@@ -26,7 +31,7 @@ Azure rollback key was then repaired: direct and public health, a verified-TLS
 read-only database query, and a 13-token real `gpt-4o-mini` request passed after
 restarting only `intermind-api`. Keep `RETENTION_ENABLED=false`.
 
-### Next maintenance window: verification gates
+### Historical next-window verification gates
 
 1. Reconfirm exact Azure, Neon, and Vercel identities, healthy public Azure
    routing, the encrypted archive and recovery copy, Neon head
@@ -60,7 +65,7 @@ restarting only `intermind-api`. Keep `RETENTION_ENABLED=false`.
    stale: return to maintenance and perform a separately approved guarded
    reverse transfer before routing back. Retire Azure only under later approval.
 
-### Reliable Azure source comparison (rehearse while the site remains live)
+### Historical Azure source-comparison procedure
 
 The 2026-10-26 window stopped at gate 3 because a roughly 3 KB multiline paste
 through the browser SSH terminal arrived with mixed/truncated lines. The SQL
@@ -105,8 +110,8 @@ manifest. Do not stop Azure or release maintenance unless both exact baselines
 pass at that frozen point. No new maintenance window is authorized by this
 procedure alone.
 
-**Preparation only.** The public Vercel project `intermind`, Azure App Service
-`intermind-api`, Azure PostgreSQL `intermind-db`, and their routing remain unchanged.
+**State at preparation time, before final cutover.** The public Vercel project `intermind`,
+Azure App Service `intermind-api`, Azure PostgreSQL `intermind-db`, and their routing were unchanged.
 The isolated Neon destination is project `intermind-production`, PostgreSQL 18,
 database `intermind_production` in Frankfurt. It is not the staging project.
 The new public backend target is the separate Vercel project

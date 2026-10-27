@@ -36,9 +36,9 @@ from app.repositories.ports import RecruiterRepository
 
 logger = logging.getLogger(__name__)
 
-#: Verified against when the email is unknown, so a failed sign-in always costs the same work.
-#: A fixed hash of a value nothing can match.
-_DUMMY_HASH = hash_password("unused-placeholder-for-constant-time-login", n=2**12)
+#: Unknown accounts use the same current scrypt defaults as newly registered accounts.
+#: Matching this placeholder still cannot authenticate an account that does not exist.
+_DUMMY_HASH = hash_password("unused-placeholder-for-constant-time-login")
 
 router = APIRouter(tags=["auth"])
 
@@ -191,9 +191,9 @@ async def recruiter_login(
     """Sign in and start a session.
 
     The failure response is deliberately identical whether the email is unknown or the password
-    is wrong, so it cannot be used to discover which addresses have accounts. A dummy
-    verification runs when the email is unknown, so an unregistered address is not measurably
-    faster to reject than a wrong password.
+    is wrong. Unknown accounts use the same verifier and current hashing parameters as new
+    accounts. This avoids skipping or reducing the password work; it is not a guarantee of
+    identical endpoint timing (including database lookup and legacy stored hash costs).
     """
     # Charged before the lookup, against the deployment-wide ceiling, and never keyed by the
     # submitted email: a per-email budget would trip only for addresses that exist, turning the
@@ -204,8 +204,7 @@ async def recruiter_login(
 
     recruiter = await recruiters.get_by_email(payload.email)
 
-    # Verified unconditionally. Returning early on an unknown email would skip the ~0.5s scrypt
-    # cost and turn response time into an account-existence oracle.
+    # Verified unconditionally, including unknown accounts, without a cheaper dummy hash.
     password_ok = verify_password(
         payload.password, recruiter.password_hash if recruiter else _DUMMY_HASH
     )

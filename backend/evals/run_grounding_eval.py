@@ -56,6 +56,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.core.exceptions import NoOccupationMatch
+from app.domain.interview_plan import EvidenceSource
 from app.knowledge.onet_kb import OnetKnowledgeBase
 from app.services.interview_planner import InterviewPlannerService
 from evals.retrieval_dataset import CASES, RetrievalCase
@@ -72,6 +73,7 @@ class GroundingResult:
     technologies_from_onet: int
     tasks_from_onet: int
     error: str | None = None
+    corroborated_items: int = 0
 
     @property
     def match_correct(self) -> bool:
@@ -87,21 +89,16 @@ class GroundingResult:
 
     @property
     def onet_items(self) -> int:
-        """O*NET-sourced technologies + tasks that became interview requirements."""
+        """Technologies + tasks with ONET-only provenance, excluding JD corroboration."""
         return self.technologies_from_onet + self.tasks_from_onet
 
     @property
     def leaked_requirement(self) -> bool:
-        """A wrong occupation contributed at least one requirement to this interview.
+        """A wrong occupation supplied an ONET-only technology or task.
 
-        The distinction this draws is the one the product claim rests on. ``onet_grounding_used``
-        being True only means a context block was assembled and shown to the question generator;
-        it does not mean O*NET added anything to what the candidate is assessed on. Competencies
-        are JobSpec-only by construction, and technologies and tasks each pass a further
-        per-item filter (corpus prevalence, and TF-IDF relevance to this JobSpec) *after* the
-        macro gate. So a wrong match can clear the gate and still contribute nothing - and only
-        when it contributes an item has a requirement actually been introduced from an
-        occupation the job description never described.
+        BOTH means an existing JD requirement was corroborated, not introduced. The current
+        planner only selects JD requirements, so ONET-only items would indicate a regression.
+        This provenance-based check does not measure influence on generated question wording.
         """
         return not self.match_correct and self.grounded and self.onet_items > 0
 
@@ -124,6 +121,9 @@ async def _plan_case(planner: InterviewPlannerService, case: RetrievalCase) -> G
 
     onet_techs = sum(1 for t in plan.technologies if _from_onet(t))
     onet_tasks = sum(1 for t in plan.tasks if _from_onet(t))
+    corroborated = sum(
+        1 for item in [*plan.technologies, *plan.tasks] if item.source == EvidenceSource.BOTH
+    )
     return GroundingResult(
         case=case,
         top_code=plan.occupation_match.onet_soc_code,
@@ -133,18 +133,13 @@ async def _plan_case(planner: InterviewPlannerService, case: RetrievalCase) -> G
         context_chars=len(plan.onet_context or ""),
         technologies_from_onet=onet_techs,
         tasks_from_onet=onet_tasks,
+        corroborated_items=corroborated,
     )
 
 
 def _from_onet(item) -> bool:
-    """True when a plan item's provenance includes O*NET rather than the JobSpec alone.
-
-    Read off the item's ``source`` enum by name so this does not depend on the exact
-    ``EvidenceSource`` member set (JOBSPEC / ONET / BOTH) staying fixed.
-    """
-    source = getattr(item, "source", None)
-    name = getattr(source, "name", str(source)).upper()
-    return "ONET" in name or "BOTH" in name
+    """True for an O*NET-only requirement; BOTH corroborates an existing JD item."""
+    return item.source == EvidenceSource.ONET
 
 
 def _rate(numerator: int, denominator: int) -> float | None:
@@ -213,11 +208,13 @@ async def _main_async(argv: list[str] | None) -> int:
     leaked = [r for r in results if r.leaked_requirement]
     context_only = [r for r in results if r.outcome == "grounded_wrong" and r.onet_items == 0]
     onet_tasks_from_wrong = sum(r.tasks_from_onet for r in results if not r.match_correct)
+    corroborated_wrong = [r for r in results if not r.match_correct and r.corroborated_items]
     print("-- Did a wrong match actually add a requirement? " + "-" * 28)
     print(f"  requirement leakage  {_fmt_rate(len(leaked), len(results))} of all cases")
     print(f"                       {_fmt_rate(len(leaked), wrong_total)} of wrong matches")
     print(f"  context-block only   {len(context_only)} wrong matches cleared the gate but the")
-    print("                       per-item filters withheld every technology and task")
+    print("                       plan contained no ONET-only technology or task")
+    print(f"  JD corroboration     {len(corroborated_wrong)} wrong matches annotated JD items")
     print(f"  tasks from a wrong   {onet_tasks_from_wrong}")
     print("    occupation")
     if leaked:
@@ -250,13 +247,16 @@ async def _main_async(argv: list[str] | None) -> int:
             if r.outcome == "grounded_wrong":
                 print(
                     f"  {r.case.case_id}: used {r.top_title} ({r.top_score:.3f}); "
-                    f"{r.technologies_from_onet} tech / {r.tasks_from_onet} tasks from O*NET, "
+                    f"{r.technologies_from_onet} tech / {r.tasks_from_onet} ONET-only tasks, "
+                    f"{r.corroborated_items} corroborated JD items, "
                     f"{r.context_chars} chars of context"
                 )
                 print(f"     acceptable was: {', '.join(r.case.acceptable)}")
         print()
 
     payload = {
+        "requirement_metric_version": 2,
+        "requirement_metric_definition": "ONET-only provenance; BOTH is JD corroboration",
         "knowledge_base": {"occupations": len(kb)},
         "cases": len(results),
         "counts": counts,
@@ -272,6 +272,11 @@ async def _main_async(argv: list[str] | None) -> int:
             "tasks_from_wrong_occupation": onet_tasks_from_wrong,
             "case_ids": [r.case.case_id for r in leaked],
         },
+        "jd_corroboration_from_wrong_match": {
+            "cases": len(corroborated_wrong),
+            "items": sum(r.corroborated_items for r in corroborated_wrong),
+            "case_ids": [r.case.case_id for r in corroborated_wrong],
+        },
         "per_case": [
             {
                 "case_id": r.case.case_id,
@@ -284,6 +289,7 @@ async def _main_async(argv: list[str] | None) -> int:
                 "context_chars": r.context_chars,
                 "onet_technologies": r.technologies_from_onet,
                 "onet_tasks": r.tasks_from_onet,
+                "corroborated_jd_items": r.corroborated_items,
                 "error": r.error,
             }
             for r in results

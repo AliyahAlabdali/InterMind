@@ -1,7 +1,11 @@
 # Deploying InterMind
 
-The public frontend and FastAPI backend run on separate Vercel projects. PostgreSQL runs on Neon.
-Azure App Service and Azure PostgreSQL are retained as a rollback environment.
+The public frontend and FastAPI backend run on separate Vercel projects with PostgreSQL persistence.
+The migration records identify Neon as the database destination and Azure as the retained rollback
+environment. The October 27 audit independently verified Vercel hosting, PostgreSQL-backed API
+connectivity, and live OpenAI configuration; current Neon plan/schema and Azure resource/billing
+state require account-level verification. Recorded migration identities below are not proof of
+today's cloud inventory or charges.
 
 ## Current production
 
@@ -37,11 +41,25 @@ PostgreSQL stores hashed recruiter-session tokens and rate-limit events across f
 Accepted interview state, jobs, and reports are durable there too. The browser receives only a
 short-lived Speech authorization token, never the resource key. Typed answers remain available.
 
-The public frontend project tracks `main`: a push can build and auto-assign the public domain.
-Its current ignored-build policy skips non-production branches. The existing Azure GitHub Actions
-workflow also runs on every push to `main`, including frontend-only commits. Review both triggers
-before integration. Check `/api/health` through the public domain, then run bounded synthetic
-signup, interview, report, OpenAI, and Speech checks after an approved deployment.
+The frontend is linked to `main`, but its current ignored-build command is `exit 0`, so Git-triggered
+builds are skipped. The production backend has no Git repository linkage and requires an explicit
+deployment. The existing Azure GitHub Actions
+workflow on remote `main` is manual (`workflow_dispatch`) after commit `bd6f877`; the older
+`101d33d` checkout still contains its previous push trigger. Integrate on the current remote base
+without reverting that workflow change. Check `/api/health` through the public domain, then run
+bounded synthetic signup, interview, report, OpenAI, and Speech checks after an approved deployment.
+
+Health reports the configured storage mode, not database reachability. A read of a nonexistent
+`/api/jobs/{id}` returning the repository's 404 verifies a database query without creating a record.
+Local tests and read-only probes do not substitute for an approved production acceptance flow.
+Do not create test accounts or invoke live model/Speech services without approval.
+
+Live OpenAI remains the intended production provider. Vercel Hobby does not make OpenAI free;
+request rate limits are not monetary spending caps. Confirm provider usage, billing controls,
+Azure App Service Plan charges, PostgreSQL storage/backups, and Speech tier in their accounts.
+`RETENTION_ENABLED=false` means the configured cron does not purge records; retained exports and
+provider backups need a separately verified lifecycle. Do not retire rollback resources without
+explicit approval and a recovery decision.
 
 Azure's database becomes stale after the first public write to Neon. Preserve Azure and the
 encrypted backup, but do not route public traffic back to Azure without reconciling the writes

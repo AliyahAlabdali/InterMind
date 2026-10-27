@@ -8,6 +8,7 @@ Tenant isolation lives in ``test_tenant_isolation.py``; this file is about authe
 
 from __future__ import annotations
 
+import base64
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -15,7 +16,9 @@ from httpx import ASGITransport, AsyncClient
 
 from app.api.deps import get_onet_kb
 from app.api.recruiter_session import RecruiterSession, RecruiterSessionStore
+from app.api.routes import auth
 from app.api.routes.auth import RECRUITER_SESSION_COOKIE
+from app.core.security import hash_password, verify_password
 from app.domain.recruiter import MIN_PASSWORD_LENGTH
 from app.knowledge.onet_kb import OnetKnowledgeBase
 from tests.conftest import (
@@ -172,6 +175,43 @@ async def test_login_is_refused_when_no_account_exists(app):
         response = await client.post("/auth/recruiter/login", json=recruiter_credentials())
 
     assert response.status_code == 401
+
+
+def test_dummy_hash_uses_current_password_hash_parameters():
+    normal = hash_password("regression-test-password").split("$")
+    dummy = auth._DUMMY_HASH.split("$")
+    assert dummy[:4] == normal[:4]  # algorithm and n/r/p, without duplicating defaults
+    assert len(base64.b64decode(dummy[4])) == len(base64.b64decode(normal[4]))
+    assert len(base64.b64decode(dummy[5])) == len(base64.b64decode(normal[5]))
+
+
+async def test_known_and_unknown_accounts_use_the_same_verifier(app, monkeypatch):
+    calls = []
+
+    def recording_verify(password, encoded):
+        calls.append(encoded)
+        return verify_password(password, encoded)
+
+    monkeypatch.setattr(auth, "verify_password", recording_verify)
+    async with _client(app) as client:
+        await client.post("/auth/recruiter/signup", json=recruiter_credentials())
+        await client.post("/auth/recruiter/logout")
+        stored = await app.state.recruiter_repository.get_by_email(TEST_RECRUITER_EMAIL)
+        responses = []
+        for email, password in (
+            (TEST_RECRUITER_EMAIL, "wrong-password"),
+            ("unknown@intermind.test", "wrong-password"),
+            ("unknown@intermind.test", "unused-placeholder-for-constant-time-login"),
+        ):
+            responses.append(await client.post(
+                "/auth/recruiter/login", json={"email": email, "password": password}
+            ))
+        assert (await client.get("/auth/recruiter/session")).json()["authenticated"] is False
+
+    assert calls == [stored.password_hash, auth._DUMMY_HASH, auth._DUMMY_HASH]
+    assert all(response.status_code == 401 for response in responses)
+    assert all(response.json() == responses[0].json() for response in responses)
+    assert all("set-cookie" not in response.headers for response in responses)
 
 
 # --- sessions -----------------------------------------------------------------------------

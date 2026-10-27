@@ -90,7 +90,7 @@ What does constrain an attacker on those two endpoints today:
 | | Control |
 |---|---|
 | Sign-up | `signup_global` 50/hour and 100/day; a 12-character password minimum (length only, per NIST); a 1 024-character password bound and a 320-character email bound enforced during request validation, before any hash; email-shape validation; uniqueness enforced by the database's unique index on the normalised address, so a duplicate is a 409 rather than a second account; no email delivery, so no mail-amplification vector |
-| Sign-in | `login_global` 100/10 min; scrypt verification at n=2^15 (~300 ms), itself a per-attempt cost ceiling; a dummy verification on unknown addresses so timing does not reveal account existence; one identical failure response for wrong password and unknown email; every attempt counted whether it succeeds or fails; a session cookie that is `HttpOnly`, `SameSite=Strict` and revocable server-side |
+| Sign-in | `login_global` 100/10 min; new accounts and the unknown-account dummy use the same scrypt defaults (n=2^15) and verifier; this avoids cheaper dummy verification but does not guarantee identical endpoint timing; one identical failure response for wrong password and unknown email; every attempt counted whether it succeeds or fails; a session cookie that is `HttpOnly`, `SameSite=Strict` and revocable server-side |
 
 Per-visitor limiting needs a verified trusted-proxy design (which hop is trusted, which forwarded
 entry is authoritative, and proof a client cannot forge it) or protection at the infrastructure edge.

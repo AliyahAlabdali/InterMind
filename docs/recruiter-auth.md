@@ -54,9 +54,12 @@ delivery in this product.
 string, so they can be raised later without invalidating existing hashes. `n = 2**15` with `r = 8`
 needs about 32 MB per hash.
 
-Sign-in never reveals whether an address has an account: the failure response is identical for an
-unknown email and a wrong password, and a dummy verification runs when the email is unknown so an
-unregistered address is not measurably faster to reject.
+Sign-in returns the same failure response for an unknown email and a wrong password. Unknown
+accounts use the same verifier and current `hash_password` defaults as new accounts, rather than
+a cheaper dummy hash. Regression tests check parameters and the verification path, not wall-clock
+timing. Database lookup, scheduling, and legacy stored hash costs can still affect response time;
+this is not a claim that timing attacks are eliminated. Signup intentionally reports duplicate
+addresses, so the product does not promise account-existence secrecy.
 
 ## Sessions
 
